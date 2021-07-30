@@ -47,7 +47,7 @@ impl<'de> Deserialize<'de> for CRCType {
                     2 => Ok(CRCType::CRC32([0; 4])),
                     _ => Err(serde::de::Error::invalid_value(
                         Unexpected::Unsigned(v),
-                        &"crc type must be 0 to 2",
+                        &"crc type must be bbetween 0 to 2",
                     )),
                 }
             }

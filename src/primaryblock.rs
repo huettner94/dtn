@@ -1,15 +1,15 @@
 use serde::{de::Error, de::Visitor, ser::SerializeSeq, Deserialize, Serialize};
 
-use crate::{crc::CRCType, *};
+use crate::{bundleflags::BundleFlags, crc::CRCType, endpoint::Endpoint, *};
 
 #[derive(Debug)]
 pub struct PrimaryBlock {
     pub version: u64,
-    pub bundle_processing_flags: u64,
+    pub bundle_processing_flags: BundleFlags,
     pub crc: CRCType,
-    pub destination_endpoint: EndpointID,
-    pub source_node: EndpointID,
-    pub report_to: EndpointID,
+    pub destination_endpoint: Endpoint,
+    pub source_node: Endpoint,
+    pub report_to: Endpoint,
     pub creation_timestamp: CreationTimestamp,
     pub lifetime: u64,
     pub fragment_offset: Option<u64>,

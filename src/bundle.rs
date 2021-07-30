@@ -1,6 +1,6 @@
 use serde::{de::Error, de::Visitor, ser::SerializeSeq, Deserialize, Serialize};
 
-use crate::{block::PrimaryBlock, Validate};
+use crate::{primaryblock::PrimaryBlock, Validate};
 
 #[derive(Debug)]
 pub struct Bundle {
