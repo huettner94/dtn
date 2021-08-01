@@ -1,6 +1,7 @@
+use chrono::Utc;
 use dtn::{
     bundle::Bundle, bundleflags::BundleFlags, crc::CRCType, endpoint::Endpoint,
-    primaryblock::PrimaryBlock, *,
+    primaryblock::PrimaryBlock, time::*, *,
 };
 
 fn main() {
@@ -11,7 +12,7 @@ fn main() {
                 | BundleFlags::BUNDLE_RECEIPTION_STATUS_REQUESTED,
             crc: CRCType::CRC16([1, 2]),
             creation_timestamp: CreationTimestamp {
-                creation_time: 123,
+                creation_time: Utc::now().into(),
                 sequence_number: 1,
             },
             destination_endpoint: Endpoint::new("dtn://destnode").unwrap(),
