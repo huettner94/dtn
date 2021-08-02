@@ -4,7 +4,7 @@ use crate::{blockflags::BlockFlags, crc::CRCType, *};
 
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
-#[derive(Debug, Serialize_repr, Deserialize_repr, PartialEq, Eq)]
+#[derive(Debug, Serialize_repr, Deserialize_repr, PartialEq, Eq, Clone, Copy)]
 #[repr(u64)]
 pub enum BlockType {
     PAYLOAD = 1,
@@ -13,7 +13,7 @@ pub enum BlockType {
 
 #[derive(Debug)]
 pub struct Block {
-    pub block_type: BlockType,
+    pub block_type: Option<BlockType>,
     pub block_number: u64,
     pub block_flags: BlockFlags,
     pub crc: CRCType,
@@ -27,7 +27,10 @@ impl Serialize for Block {
     {
         let len = if self.crc == CRCType::NoCRC { 5 } else { 6 };
         let mut seq = serializer.serialize_seq(Some(len))?;
-        seq.serialize_element(&self.block_type)?;
+        if self.block_type.is_none() {
+            panic!("Cant serialize block of type none");
+        }
+        seq.serialize_element(&self.block_type.unwrap())?;
         seq.serialize_element(&self.block_number)?;
         seq.serialize_element(&self.block_flags)?;
         seq.serialize_element(&self.crc)?;
@@ -64,9 +67,10 @@ impl<'de> Deserialize<'de> for Block {
                 if size < 5 || size > 6 {
                     return Err(Error::invalid_length(size, &"Block has 5 to 6 elements"));
                 }
-                let block_type = seq
-                    .next_element()?
-                    .ok_or(Error::custom("Error for field 'block_type'"))?;
+                let block_type = match seq.next_element() {
+                    Ok(t) => Some(t.ok_or(Error::custom("Error for field 'block_type'"))?),
+                    Err(_) => None,
+                };
                 let block_number = seq
                     .next_element()?
                     .ok_or(Error::custom("Error for field 'block_number'"))?;
@@ -99,6 +103,9 @@ impl<'de> Deserialize<'de> for Block {
 
 impl Validate for Block {
     fn validate(&self) -> bool {
+        if self.block_type.is_none() {
+            return false;
+        }
         return true;
     }
 }
