@@ -1,10 +1,11 @@
 use serde::{de::Error, de::Visitor, ser::SerializeSeq, Deserialize, Serialize};
 
-use crate::{primaryblock::PrimaryBlock, Validate};
+use crate::{block::Block, primaryblock::PrimaryBlock, Validate};
 
 #[derive(Debug)]
 pub struct Bundle {
     pub primary_block: PrimaryBlock,
+    pub blocks: Vec<Block>,
 }
 
 impl Serialize for Bundle {
@@ -14,6 +15,7 @@ impl Serialize for Bundle {
     {
         let mut seq = serializer.serialize_seq(None)?;
         seq.serialize_element(&self.primary_block)?;
+        seq.serialize_element(&self.blocks)?;
         seq.end()
     }
 }
@@ -35,11 +37,25 @@ impl<'de> Deserialize<'de> for Bundle {
             where
                 A: serde::de::SeqAccess<'de>,
             {
+                let mut blocks: Vec<Block> = match seq.size_hint() {
+                    Some(v) => Vec::with_capacity(v),
+                    None => Vec::new(),
+                };
                 let primary_block = seq
                     .next_element()?
                     .ok_or(Error::custom("Error for field 'primary_block'"))?;
+                while let Some(block) = seq.next_element()? {
+                    blocks.push(block);
+                }
 
-                return Ok(Bundle { primary_block });
+                if blocks.len() < 1 {
+                    return Err(Error::invalid_length(0, &"must have at least one block"));
+                }
+
+                return Ok(Bundle {
+                    primary_block,
+                    blocks,
+                });
             }
         }
         deserializer.deserialize_seq(BundleVisitor)
@@ -48,6 +64,14 @@ impl<'de> Deserialize<'de> for Bundle {
 
 impl Validate for Bundle {
     fn validate(&self) -> bool {
-        return self.primary_block.validate();
+        if !self.primary_block.validate() {
+            return false;
+        }
+        for block in &self.blocks {
+            if !block.validate() {
+                return false;
+            }
+        }
+        return true;
     }
 }

@@ -1,10 +1,9 @@
 use bitflags::bitflags;
-use serde::{Deserialize, Serialize};
+use serde::{de::Visitor, Deserialize, Serialize};
 
 use crate::Validate;
 
 bitflags! {
-    #[derive(Serialize, Deserialize)]
     pub struct BundleFlags: u64 {
         const FRAGMENT = 0x000001;
         const ADMINISTRATIVE_RECORD = 0x000002;
@@ -15,6 +14,39 @@ bitflags! {
         const BUNDLE_FORWARDING_STATUS_REQUEST = 0x010000;
         const BUNDLE_DELIVERY_STATUS_REQUESTED = 0x020000;
         const BUNDLE_DELETION_STATUS_REQUESTED = 0x040000;
+    }
+}
+
+impl Serialize for BundleFlags {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_u64(self.bits())
+    }
+}
+
+impl<'de> Deserialize<'de> for BundleFlags {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct BundleFlagsVisitor;
+        impl<'de> Visitor<'de> for BundleFlagsVisitor {
+            type Value = BundleFlags;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("Bundle Flags")
+            }
+
+            fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(BundleFlags::from_bits_truncate(v))
+            }
+        }
+        deserializer.deserialize_u64(BundleFlagsVisitor)
     }
 }
 

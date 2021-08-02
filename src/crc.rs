@@ -1,5 +1,7 @@
+use std::convert::TryInto;
+
 use serde::{
-    de::{Unexpected, Visitor},
+    de::{Error, Unexpected, Visitor},
     Deserialize, Serialize,
 };
 
@@ -53,5 +55,44 @@ impl<'de> Deserialize<'de> for CRCType {
             }
         }
         deserializer.deserialize_u64(CRCVisitor)
+    }
+}
+
+impl CRCType {
+    pub fn deserialize_value<'de, A>(&self, mut seq: A) -> Result<CRCType, A::Error>
+    where
+        A: serde::de::SeqAccess<'de>,
+    {
+        match self {
+            CRCType::NoCRC => {
+                panic!("Attempting to deserialize content when we dont have a CRC")
+            }
+            CRCType::CRC16(_) => {
+                let val: &[u8] = seq
+                    .next_element()?
+                    .ok_or(Error::custom("Error for crc content"))?;
+                let len = val.len();
+                let arr: [u8; 2] = match val.try_into() {
+                    Ok(v) => v,
+                    Err(_) => {
+                        return Err(Error::invalid_length(len, &"Expected 2 bytes for crc16"))
+                    }
+                };
+                Ok(CRCType::CRC16(arr))
+            }
+            CRCType::CRC32(_) => {
+                let val: &[u8] = seq
+                    .next_element()?
+                    .ok_or(Error::custom("Error for crc content"))?;
+                let len = val.len();
+                let arr: [u8; 4] = match val.try_into() {
+                    Ok(v) => v,
+                    Err(_) => {
+                        return Err(Error::invalid_length(len, &"Expected 4 bytes for crc32"))
+                    }
+                };
+                Ok(CRCType::CRC32(arr))
+            }
+        }
     }
 }

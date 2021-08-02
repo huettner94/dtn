@@ -172,12 +172,6 @@ impl<'de> Deserialize<'de> for DTNEndpoint {
                 let endpoint = DTNEndpoint {
                     uri: String::from(v),
                 };
-                if !endpoint.validate() {
-                    return Err(Error::invalid_value(
-                        Unexpected::Str(&endpoint.uri),
-                        &"The endpoint is invalid",
-                    ));
-                }
                 return Ok(endpoint);
             }
         }

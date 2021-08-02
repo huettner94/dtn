@@ -1,3 +1,5 @@
+use std::convert::TryInto;
+
 use serde::{de::Error, de::Visitor, ser::SerializeSeq, Deserialize, Serialize};
 
 use crate::{
@@ -61,8 +63,8 @@ impl<'de> Deserialize<'de> for PrimaryBlock {
     where
         D: serde::Deserializer<'de>,
     {
-        struct BlockVisitor;
-        impl<'de> Visitor<'de> for BlockVisitor {
+        struct PrimaryBlockVisitor;
+        impl<'de> Visitor<'de> for PrimaryBlockVisitor {
             type Value = PrimaryBlock;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -86,7 +88,7 @@ impl<'de> Deserialize<'de> for PrimaryBlock {
                 let bundle_processing_flags = seq
                     .next_element()?
                     .ok_or(Error::custom("Error for field 'bundle_processing_flags'"))?;
-                let crc = seq
+                let mut crc: CRCType = seq
                     .next_element()?
                     .ok_or(Error::custom("Error for field 'crc_type'"))?;
                 let destination_endpoint = seq
@@ -121,23 +123,7 @@ impl<'de> Deserialize<'de> for PrimaryBlock {
                 };
 
                 if size == 9 || size == 11 {
-                    match crc {
-                        CRCType::NoCRC => {
-                            panic!("Attempting to deserialize content when we dont have a CRC")
-                        }
-                        CRCType::CRC16(_) => {
-                            let val: [u8; 2] = seq
-                                .next_element()?
-                                .ok_or(Error::custom("Error for crc content"))?;
-                            CRCType::CRC16(val);
-                        }
-                        CRCType::CRC32(_) => {
-                            let val: [u8; 4] = seq
-                                .next_element()?
-                                .ok_or(Error::custom("Error for crc content"))?;
-                            CRCType::CRC32(val);
-                        }
-                    }
+                    crc = crc.deserialize_value(seq)?;
                 }
 
                 return Ok(PrimaryBlock {
@@ -154,7 +140,7 @@ impl<'de> Deserialize<'de> for PrimaryBlock {
                 });
             }
         }
-        deserializer.deserialize_seq(BlockVisitor)
+        deserializer.deserialize_seq(PrimaryBlockVisitor)
     }
 }
 
@@ -164,6 +150,15 @@ impl Validate for PrimaryBlock {
             return false;
         }
         if self.fragment_offset.is_some() != self.total_data_length.is_some() {
+            return false;
+        }
+        if !self.source_node.validate() {
+            return false;
+        }
+        if !self.destination_endpoint.validate() {
+            return false;
+        }
+        if !self.report_to.validate() {
             return false;
         }
         return true;

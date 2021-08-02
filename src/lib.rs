@@ -1,3 +1,4 @@
+pub mod block;
 pub mod blockflags;
 pub mod bundle;
 pub mod bundleflags;
