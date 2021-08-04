@@ -1,11 +1,11 @@
 use serde::{de::Error, de::Visitor, ser::SerializeSeq, Deserialize, Serialize};
 
-use crate::{block::Block, primaryblock::PrimaryBlock, Validate};
+use crate::{block::CanonicalBlock, primaryblock::PrimaryBlock, Validate};
 
 #[derive(Debug)]
 pub struct Bundle {
     pub primary_block: PrimaryBlock,
-    pub blocks: Vec<Block>,
+    pub blocks: Vec<CanonicalBlock>,
 }
 
 impl Serialize for Bundle {
@@ -15,7 +15,9 @@ impl Serialize for Bundle {
     {
         let mut seq = serializer.serialize_seq(None)?;
         seq.serialize_element(&self.primary_block)?;
-        seq.serialize_element(&self.blocks)?;
+        for block in &self.blocks {
+            seq.serialize_element(&block)?;
+        }
         seq.end()
     }
 }
@@ -37,7 +39,7 @@ impl<'de> Deserialize<'de> for Bundle {
             where
                 A: serde::de::SeqAccess<'de>,
             {
-                let mut blocks: Vec<Block> = match seq.size_hint() {
+                let mut blocks: Vec<CanonicalBlock> = match seq.size_hint() {
                     Some(v) => Vec::with_capacity(v),
                     None => Vec::new(),
                 };

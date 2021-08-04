@@ -25,7 +25,7 @@ impl Serialize for Endpoint {
     where
         S: serde::Serializer,
     {
-        let mut seq = serializer.serialize_seq(None)?;
+        let mut seq = serializer.serialize_seq(Some(2))?;
         match self {
             Endpoint::DTN(e) => {
                 seq.serialize_element(&EndpointType::DTN)?;
@@ -120,7 +120,7 @@ impl DTNEndpoint {
     }
 
     fn is_null_endpoint(&self) -> bool {
-        return self.uri == "dtn:none";
+        return self.uri == "none";
     }
 }
 
@@ -156,7 +156,7 @@ impl<'de> Deserialize<'de> for DTNEndpoint {
             {
                 if v == 0 {
                     return Ok(DTNEndpoint {
-                        uri: String::from("dtn:none"),
+                        uri: String::from("none"),
                     });
                 }
                 return Err(Error::invalid_value(
@@ -181,7 +181,7 @@ impl<'de> Deserialize<'de> for DTNEndpoint {
 
 impl Validate for DTNEndpoint {
     fn validate(&self) -> bool {
-        if !self.uri.starts_with("dtn:") {
+        if self.uri != "none" && !self.uri.starts_with("//") {
             return false;
         }
         return true;
