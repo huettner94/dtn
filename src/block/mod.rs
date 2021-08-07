@@ -4,12 +4,18 @@ use serde::{de::Error, de::Visitor, ser::SerializeSeq, Deserialize, Serialize};
 
 use crate::{blockflags::BlockFlags, crc::CRCType, *};
 
+use self::bundle_age_block::BundleAgeBlock;
+use self::hop_count_block::HopCountBlock;
+use self::previous_node_block::PreviousNodeBlock;
 use self::{payload_block::PayloadBlock, unkown_block::UnkownBlock};
 use num_enum::IntoPrimitive;
 use num_enum::TryFromPrimitive;
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
+mod bundle_age_block;
+mod hop_count_block;
 mod payload_block;
+mod previous_node_block;
 mod unkown_block;
 
 #[derive(
@@ -25,13 +31,19 @@ mod unkown_block;
 )]
 #[repr(u64)]
 enum BlockType {
-    PAYLOAD = 1,
+    Payload = 1,
+    PreviousNode = 6,
+    BundleAge = 7,
+    HopCount = 10,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Block {
-    PAYLOAD(PayloadBlock),
-    UNKOWN(UnkownBlock),
+    Payload(PayloadBlock),
+    PreviousNode(PreviousNodeBlock),
+    BundleAge(BundleAgeBlock),
+    HopCount(HopCountBlock),
+    Unkown(UnkownBlock),
 }
 
 #[derive(Debug)]
@@ -50,11 +62,23 @@ impl Serialize for CanonicalBlock {
         let len = if self.crc == CRCType::NoCRC { 5 } else { 6 };
         let mut seq = serializer.serialize_seq(Some(len))?;
         match &self.block {
-            Block::PAYLOAD(_) => {
-                let blocktype: u64 = BlockType::PAYLOAD.into();
+            Block::Payload(_) => {
+                let blocktype: u64 = BlockType::Payload.into();
                 seq.serialize_element(&blocktype)?;
             }
-            Block::UNKOWN(b) => {
+            Block::PreviousNode(_) => {
+                let blocktype: u64 = BlockType::PreviousNode.into();
+                seq.serialize_element(&blocktype)?;
+            }
+            Block::BundleAge(_) => {
+                let blocktype: u64 = BlockType::BundleAge.into();
+                seq.serialize_element(&blocktype)?;
+            }
+            Block::HopCount(_) => {
+                let blocktype: u64 = BlockType::HopCount.into();
+                seq.serialize_element(&blocktype)?;
+            }
+            Block::Unkown(b) => {
                 seq.serialize_element(&b.block_type)?;
             }
         }
@@ -62,10 +86,19 @@ impl Serialize for CanonicalBlock {
         seq.serialize_element(&self.block_flags)?;
         seq.serialize_element(&self.crc)?;
         match &self.block {
-            Block::PAYLOAD(b) => {
+            Block::Payload(b) => {
                 seq.serialize_element(&b)?;
             }
-            Block::UNKOWN(b) => {
+            Block::PreviousNode(b) => {
+                seq.serialize_element(&b)?;
+            }
+            Block::BundleAge(b) => {
+                seq.serialize_element(&b)?;
+            }
+            Block::HopCount(b) => {
+                seq.serialize_element(&b)?;
+            }
+            Block::Unkown(b) => {
                 seq.serialize_element(&b)?;
             }
         }
@@ -97,7 +130,9 @@ impl<'de> Deserialize<'de> for CanonicalBlock {
             where
                 A: serde::de::SeqAccess<'de>,
             {
-                let size = seq.size_hint().unwrap();
+                let size = seq.size_hint().ok_or_else(|| {
+                    Error::custom("Canonical Block must know the length of its contents")
+                })?;
                 if size < 5 || size > 6 {
                     return Err(Error::invalid_length(size, &"Block has 5 to 6 elements"));
                 }
@@ -122,8 +157,15 @@ impl<'de> Deserialize<'de> for CanonicalBlock {
                     .ok_or(Error::custom("Error for field 'data'"))?;
                 let data: Vec<u8> = Vec::from(data_bytes);
                 let block = match &block_type {
-                    Ok(BlockType::PAYLOAD) => Block::PAYLOAD(PayloadBlock { data }),
-                    Err(_) => Block::UNKOWN(UnkownBlock {
+                    Ok(BlockType::Payload) => Block::Payload(PayloadBlock { data }),
+                    Ok(BlockType::PreviousNode) => Block::PreviousNode(PreviousNodeBlock { data }),
+                    Ok(BlockType::BundleAge) => Block::BundleAge(
+                        BundleAgeBlock::try_from(data).or_else(|r| Err(Error::custom(r)))?,
+                    ),
+                    Ok(BlockType::HopCount) => Block::HopCount(
+                        HopCountBlock::try_from(data).or_else(|r| Err(Error::custom(r)))?,
+                    ),
+                    Err(_) => Block::Unkown(UnkownBlock {
                         block_type: block_type_num,
                         data,
                     }),
