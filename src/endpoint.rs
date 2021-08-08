@@ -91,10 +91,10 @@ impl Validate for Endpoint {
 
 impl Endpoint {
     pub fn new(uri: &str) -> Option<Self> {
-        let (schema, _) = uri.split_once(":")?;
+        let (schema, content) = uri.split_once(":")?;
         match schema {
-            "dtn" => Some(Endpoint::DTN(DTNEndpoint::from_str(uri)?)),
-            "ipn" => Some(Endpoint::IPN(IPNEndpoint::from_str(uri)?)),
+            "dtn" => Some(Endpoint::DTN(DTNEndpoint::from_str(content)?)),
+            "ipn" => Some(Endpoint::IPN(IPNEndpoint::from_str(content)?)),
             _ => None,
         }
     }

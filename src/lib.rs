@@ -10,3 +10,9 @@ pub mod time;
 pub trait Validate {
     fn validate(&self) -> bool;
 }
+
+#[derive(Debug)]
+pub enum SerializationError {
+    SerializationError(serde_cbor::Error),
+    ConversionError,
+}

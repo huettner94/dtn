@@ -1,8 +1,14 @@
+use std::{
+    convert::{TryFrom, TryInto},
+    fmt::Write,
+};
+
+use binascii::hex2bin;
 use serde::{de::Error, de::Visitor, ser::SerializeSeq, Deserialize, Serialize};
 
-use crate::{block::CanonicalBlock, primaryblock::PrimaryBlock, Validate};
+use crate::{block::CanonicalBlock, primaryblock::PrimaryBlock, SerializationError, Validate};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Bundle {
     pub primary_block: PrimaryBlock,
     pub blocks: Vec<CanonicalBlock>,
@@ -75,5 +81,46 @@ impl Validate for Bundle {
             }
         }
         return true;
+    }
+}
+
+impl TryFrom<Vec<u8>> for Bundle {
+    type Error = SerializationError;
+
+    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+        serde_cbor::from_slice(&value).or_else(|e| Err(SerializationError::SerializationError(e)))
+    }
+}
+
+impl TryFrom<Bundle> for Vec<u8> {
+    type Error = SerializationError;
+
+    fn try_from(value: Bundle) -> Result<Self, Self::Error> {
+        (&value).try_into()
+    }
+}
+
+impl TryFrom<&Bundle> for Vec<u8> {
+    type Error = SerializationError;
+
+    fn try_from(value: &Bundle) -> Result<Self, Self::Error> {
+        serde_cbor::to_vec(value).or_else(|e| Err(SerializationError::SerializationError(e)))
+    }
+}
+
+impl Bundle {
+    pub fn as_hex(&self) -> Result<String, SerializationError> {
+        let vec: Vec<u8> = self.try_into()?;
+        let mut s = String::with_capacity(2 * vec.len());
+        for b in vec {
+            write!(&mut s, "{:02X?}", &b).or_else(|_| Err(SerializationError::ConversionError))?;
+        }
+        return Ok(s);
+    }
+
+    pub fn from_hex(hex: &str) -> Result<Bundle, SerializationError> {
+        let mut val = vec![0; hex.len() / 2];
+        hex2bin(hex.as_bytes(), &mut val).unwrap();
+        val.try_into()
     }
 }

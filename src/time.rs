@@ -7,7 +7,7 @@ use serde::{
     Deserialize, Serialize,
 };
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct CreationTimestamp {
     pub creation_time: DtnTime,
     pub sequence_number: u64,

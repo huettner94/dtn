@@ -12,11 +12,11 @@ use num_enum::IntoPrimitive;
 use num_enum::TryFromPrimitive;
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
-mod bundle_age_block;
-mod hop_count_block;
-mod payload_block;
-mod previous_node_block;
-mod unkown_block;
+pub mod bundle_age_block;
+pub mod hop_count_block;
+pub mod payload_block;
+pub mod previous_node_block;
+pub mod unkown_block;
 
 #[derive(
     Debug,
@@ -46,7 +46,7 @@ pub enum Block {
     Unkown(UnkownBlock),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct CanonicalBlock {
     pub block: Block,
     pub block_number: u64,
