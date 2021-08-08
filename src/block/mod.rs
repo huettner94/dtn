@@ -61,27 +61,14 @@ impl Serialize for CanonicalBlock {
     {
         let len = if self.crc == CRCType::NoCRC { 5 } else { 6 };
         let mut seq = serializer.serialize_seq(Some(len))?;
-        match &self.block {
-            Block::Payload(_) => {
-                let blocktype: u64 = BlockType::Payload.into();
-                seq.serialize_element(&blocktype)?;
-            }
-            Block::PreviousNode(_) => {
-                let blocktype: u64 = BlockType::PreviousNode.into();
-                seq.serialize_element(&blocktype)?;
-            }
-            Block::BundleAge(_) => {
-                let blocktype: u64 = BlockType::BundleAge.into();
-                seq.serialize_element(&blocktype)?;
-            }
-            Block::HopCount(_) => {
-                let blocktype: u64 = BlockType::HopCount.into();
-                seq.serialize_element(&blocktype)?;
-            }
-            Block::Unkown(b) => {
-                seq.serialize_element(&b.block_type)?;
-            }
-        }
+        let blocktype: u64 = match &self.block {
+            Block::Payload(_) => BlockType::Payload.into(),
+            Block::PreviousNode(_) => BlockType::PreviousNode.into(),
+            Block::BundleAge(_) => BlockType::BundleAge.into(),
+            Block::HopCount(_) => BlockType::HopCount.into(),
+            Block::Unkown(b) => b.block_type,
+        };
+        seq.serialize_element(&blocktype)?;
         seq.serialize_element(&self.block_number)?;
         seq.serialize_element(&self.block_flags)?;
         seq.serialize_element(&self.crc)?;
