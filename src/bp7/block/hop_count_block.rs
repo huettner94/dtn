@@ -7,7 +7,7 @@ use serde::{
 };
 use serde_cbor::Serializer;
 
-use crate::Validate;
+use crate::bp7::Validate;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct HopCountBlock {

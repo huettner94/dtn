@@ -5,7 +5,7 @@ use serde::{
 };
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
-use crate::Validate;
+use crate::bp7::Validate;
 
 #[derive(Debug, Serialize_repr, Deserialize_repr, PartialEq, Eq)]
 #[repr(u64)]

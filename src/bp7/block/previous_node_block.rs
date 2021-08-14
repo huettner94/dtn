@@ -2,7 +2,7 @@ use std::convert::TryFrom;
 
 use serde::Serialize;
 
-use crate::{endpoint::Endpoint, Validate};
+use crate::bp7::{endpoint::Endpoint, Validate};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PreviousNodeBlock {

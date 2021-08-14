@@ -6,7 +6,7 @@ use std::{
 use binascii::hex2bin;
 use serde::{de::Error, de::Visitor, ser::SerializeSeq, Deserialize, Serialize};
 
-use crate::{block::CanonicalBlock, primaryblock::PrimaryBlock, SerializationError, Validate};
+use crate::bp7::{block::CanonicalBlock, primaryblock::PrimaryBlock, SerializationError, Validate};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Bundle {

@@ -1,4 +1,4 @@
-use dtn::{
+use dtn::bp7::{
     block::{hop_count_block::HopCountBlock, payload_block::PayloadBlock, Block, CanonicalBlock},
     blockflags::BlockFlags,
     bundle::Bundle,

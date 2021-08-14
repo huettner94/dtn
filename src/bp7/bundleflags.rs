@@ -1,7 +1,7 @@
 use bitflags::bitflags;
 use serde::{de::Visitor, Deserialize, Serialize};
 
-use crate::Validate;
+use crate::bp7::Validate;
 
 bitflags! {
     pub struct BundleFlags: u64 {
