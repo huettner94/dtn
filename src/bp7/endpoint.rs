@@ -14,7 +14,7 @@ enum EndpointType {
     IPN = 2,
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub enum Endpoint {
     DTN(DTNEndpoint),
     IPN(IPNEndpoint),
@@ -107,7 +107,7 @@ impl Endpoint {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct DTNEndpoint {
     pub uri: String,
 }
@@ -188,7 +188,7 @@ impl Validate for DTNEndpoint {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Clone, Copy)]
 pub struct IPNEndpoint {
     pub node: u64,
     pub serivce: u64,

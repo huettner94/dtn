@@ -133,3 +133,9 @@ impl From<&DateTime<Utc>> for DtnTime {
         };
     }
 }
+
+impl DtnTime {
+    pub fn now() -> Self {
+        Utc::now().into()
+    }
+}

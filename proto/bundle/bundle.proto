@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package dtn;
+
+// EchoRequest is the request for echo.
+message SubmitBundleRequest { string message = 1; }
+
+// EchoResponse is the response for echo.
+message SubmitBundleRespone {
+  bool success = 2;
+  string message = 1;
+}
+
+// Echo is the echo service.
+service BundleService {
+  // UnaryEcho is unary echo.
+  rpc SubmitBundle(SubmitBundleRequest) returns (SubmitBundleRespone);
+}
