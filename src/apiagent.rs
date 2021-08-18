@@ -9,17 +9,20 @@ mod bundleservice {
     tonic::include_proto!("dtn");
 }
 
-// defining a struct for our service
-#[derive(Default)]
-pub struct MySay {}
+pub struct MyBundleService {
+    bpa_sender: mpsc::Sender<()>,
+}
 
-// implementing rpc for service defined in .proto
 #[tonic::async_trait]
-impl BundleService for MySay {
+impl BundleService for MyBundleService {
     async fn submit_bundle(
         &self,
         request: tonic::Request<bundleservice::SubmitBundleRequest>,
     ) -> Result<tonic::Response<bundleservice::SubmitBundleRespone>, tonic::Status> {
+        self.bpa_sender
+            .send(())
+            .await
+            .map_err(|e| tonic::Status::unknown(e.to_string()))?;
         Ok(Response::new(bundleservice::SubmitBundleRespone {
             success: true,
             message: request.into_inner().message,
@@ -30,14 +33,14 @@ impl BundleService for MySay {
 pub async fn main(
     mut shutdown: broadcast::Receiver<()>,
     _sender: mpsc::Sender<()>,
+    bpa_sender: mpsc::Sender<()>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // defining address for our service
     let addr = "[::1]:50051".parse().unwrap();
-    // creating a service
-    let echo = MySay::default();
+    let echo = MyBundleService {
+        bpa_sender: bpa_sender.clone(),
+    };
 
     info!("Server listening on {}", addr);
-    // adding our service to our server.
     Server::builder()
         .add_service(BundleServiceServer::new(echo))
         .serve_with_shutdown(addr, shutdown.recv().map(|_| ()))

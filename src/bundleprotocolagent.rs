@@ -10,6 +10,9 @@ use dtn::bp7::{
     time::{CreationTimestamp, DtnTime},
 };
 use log::info;
+use tokio::sync::{broadcast, mpsc};
+
+use crate::shutdown::Shutdown;
 
 #[derive(Debug, PartialEq, Eq)]
 enum BundleConstraint {
@@ -23,9 +26,10 @@ struct BundleProcessing {
     bundle_constraint: Option<BundleConstraint>,
 }
 
-struct Daemon {
+pub struct Daemon {
     todo: Vec<BundleProcessing>,
     endpoint: Endpoint,
+    channel_receiver: Option<mpsc::Receiver<()>>,
 }
 
 impl Daemon {
@@ -33,7 +37,54 @@ impl Daemon {
         Daemon {
             todo: Vec::new(),
             endpoint: Endpoint::new(&"dtn://itsme").unwrap(),
+            channel_receiver: None,
         }
+    }
+
+    pub fn init_channel(&mut self) -> mpsc::Sender<()> {
+        let (channel_sender, channel_receiver) = mpsc::channel::<()>(1);
+        self.channel_receiver = Some(channel_receiver);
+        return channel_sender;
+    }
+
+    pub async fn run(
+        mut self,
+        shutdown_signal: broadcast::Receiver<()>,
+        _sender: mpsc::Sender<()>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if self.channel_receiver.is_none() {
+            panic!("Must call init_cannel before calling run (also run may only be called once)");
+        }
+        info!("BPA starting...");
+
+        let mut shutdown = Shutdown::new(shutdown_signal);
+        let mut receiver = self.channel_receiver.take().unwrap();
+
+        while !shutdown.is_shutdown() {
+            tokio::select! {
+                res = receiver.recv() => {
+                    if let Some(()) = res {
+                        info!("I have received a message... Do something now");
+                    } else {
+                        info!("BPA can no longer receive messages. Exiting");
+                        return Ok(())
+                    }
+                }
+                _ = shutdown.recv() => {
+                    info!("BPA received shutdown");
+                    receiver.close();
+                    info!("BPA will not allow more requests to be sent");
+                }
+            }
+        }
+
+        while let Some(()) = receiver.recv().await {
+            info!("I have received a message after shutdown... Do something now and stopping afterwards");
+        }
+
+        info!("BPA has shutdown. See you");
+        // _sender is explicitly dropped here
+        Ok(())
     }
 
     fn transmit_bundle(&mut self, destination: Endpoint, data: Vec<u8>, lifetime: u64) {

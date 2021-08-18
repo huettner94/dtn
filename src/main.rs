@@ -4,6 +4,7 @@ use tokio::sync::{broadcast, mpsc};
 
 mod apiagent;
 mod bundleprotocolagent;
+mod shutdown;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -17,11 +18,35 @@ async fn runserver(ctrl_c: impl Future) -> Result<(), Box<dyn std::error::Error>
     let (notify_shutdown, _) = broadcast::channel::<()>(1);
     let (shutdown_complete_tx, mut shutdown_complete_rx) = mpsc::channel::<()>(1);
 
-    let shutdown_notifier = notify_shutdown.subscribe();
-    let shutdown_complete_tx_task = shutdown_complete_tx.clone();
+    let mut bundle_protocol_agent = bundleprotocolagent::Daemon::new();
+    let bpa_sender = bundle_protocol_agent.init_channel();
 
+    let bpa_task_shutdown_notifier = notify_shutdown.subscribe();
+    let bpa_task_shutdown_complete_tx_task = shutdown_complete_tx.clone();
+    let bpa_task = tokio::spawn(async move {
+        match bundle_protocol_agent
+            .run(
+                bpa_task_shutdown_notifier,
+                bpa_task_shutdown_complete_tx_task,
+            )
+            .await
+        {
+            Ok(_) => Ok(()),
+            Err(e) => Err(e.to_string()),
+        }
+    });
+
+    let api_agent_task_shutdown_notifier = notify_shutdown.subscribe();
+    let api_agent_task_shutdown_complete_tx_task = shutdown_complete_tx.clone();
+    let api_agent_task_bpa_sender = bpa_sender.clone();
     let api_agent_task = tokio::spawn(async move {
-        match apiagent::main(shutdown_notifier, shutdown_complete_tx_task).await {
+        match apiagent::main(
+            api_agent_task_shutdown_notifier,
+            api_agent_task_shutdown_complete_tx_task,
+            api_agent_task_bpa_sender,
+        )
+        .await
+        {
             Ok(_) => Ok(()),
             Err(e) => Err(e.to_string()),
         }
@@ -30,7 +55,12 @@ async fn runserver(ctrl_c: impl Future) -> Result<(), Box<dyn std::error::Error>
     tokio::select! {
         res = api_agent_task => {
             if let Ok(Err(e)) = res {
-                info!("something happened with the apiagent {:?}", e);
+                info!("something bad happened with the apiagent {:?}. Aborting...", e);
+            }
+        }
+        res = bpa_task => {
+            if let Ok(Err(e)) = res {
+                info!("something bad happened with the bpa agent {:?}. Aborting...", e);
             }
         }
         _ = ctrl_c => {
@@ -44,6 +74,7 @@ async fn runserver(ctrl_c: impl Future) -> Result<(), Box<dyn std::error::Error>
     drop(notify_shutdown);
     // Drop final `Sender` so the `Receiver` below can complete
     drop(shutdown_complete_tx);
+    drop(bpa_sender);
 
     // Wait for all active connections to finish processing. As the `Sender`
     // handle held by the listener has been dropped above, the only remaining
