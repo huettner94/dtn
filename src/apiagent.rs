@@ -5,12 +5,15 @@ use log::info;
 use tokio::sync::{broadcast, mpsc};
 use tonic::{transport::Server, Response};
 
+use crate::bundleprotocolagent::BPAMessage;
+use dtn::bp7::endpoint::Endpoint;
+
 mod bundleservice {
     tonic::include_proto!("dtn");
 }
 
 pub struct MyBundleService {
-    bpa_sender: mpsc::Sender<()>,
+    bpa_sender: mpsc::Sender<BPAMessage>,
 }
 
 #[tonic::async_trait]
@@ -19,13 +22,22 @@ impl BundleService for MyBundleService {
         &self,
         request: tonic::Request<bundleservice::SubmitBundleRequest>,
     ) -> Result<tonic::Response<bundleservice::SubmitBundleRespone>, tonic::Status> {
+        let req = request.into_inner();
+
+        let msg = BPAMessage::SendBundle(
+            Endpoint::new(&req.destination)
+                .ok_or_else(|| tonic::Status::invalid_argument("destination invalid"))?,
+            req.payload,
+            req.lifetime,
+        );
+
         self.bpa_sender
-            .send(())
+            .send(msg)
             .await
             .map_err(|e| tonic::Status::unknown(e.to_string()))?;
         Ok(Response::new(bundleservice::SubmitBundleRespone {
             success: true,
-            message: request.into_inner().message,
+            message: String::new(),
         }))
     }
 }
@@ -33,7 +45,7 @@ impl BundleService for MyBundleService {
 pub async fn main(
     mut shutdown: broadcast::Receiver<()>,
     _sender: mpsc::Sender<()>,
-    bpa_sender: mpsc::Sender<()>,
+    bpa_sender: mpsc::Sender<BPAMessage>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let addr = "[::1]:50051".parse().unwrap();
     let echo = MyBundleService {

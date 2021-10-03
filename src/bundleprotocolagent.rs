@@ -26,10 +26,16 @@ struct BundleProcessing {
     bundle_constraint: Option<BundleConstraint>,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum BPAMessage {
+    // Destination, Payload, Lifetime
+    SendBundle(Endpoint, Vec<u8>, u64),
+}
+
 pub struct Daemon {
     todo: Vec<BundleProcessing>,
     endpoint: Endpoint,
-    channel_receiver: Option<mpsc::Receiver<()>>,
+    channel_receiver: Option<mpsc::Receiver<BPAMessage>>,
 }
 
 impl Daemon {
@@ -41,8 +47,8 @@ impl Daemon {
         }
     }
 
-    pub fn init_channel(&mut self) -> mpsc::Sender<()> {
-        let (channel_sender, channel_receiver) = mpsc::channel::<()>(1);
+    pub fn init_channel(&mut self) -> mpsc::Sender<BPAMessage> {
+        let (channel_sender, channel_receiver) = mpsc::channel::<BPAMessage>(1);
         self.channel_receiver = Some(channel_receiver);
         return channel_sender;
     }
@@ -63,8 +69,9 @@ impl Daemon {
         while !shutdown.is_shutdown() {
             tokio::select! {
                 res = receiver.recv() => {
-                    if let Some(()) = res {
+                    if let Some(msg) = res {
                         info!("I have received a message... Do something now");
+                        self.handle_message(msg);
                     } else {
                         info!("BPA can no longer receive messages. Exiting");
                         return Ok(())
@@ -78,13 +85,22 @@ impl Daemon {
             }
         }
 
-        while let Some(()) = receiver.recv().await {
+        while let Some(msg) = receiver.recv().await {
             info!("I have received a message after shutdown... Do something now and stopping afterwards");
+            self.handle_message(msg);
         }
 
         info!("BPA has shutdown. See you");
         // _sender is explicitly dropped here
         Ok(())
+    }
+
+    fn handle_message(&mut self, msg: BPAMessage) {
+        match msg {
+            BPAMessage::SendBundle(destination, data, lifetime) => {
+                self.transmit_bundle(destination, data, lifetime);
+            }
+        }
     }
 
     fn transmit_bundle(&mut self, destination: Endpoint, data: Vec<u8>, lifetime: u64) {
@@ -99,7 +115,7 @@ impl Daemon {
                     report_to: self.endpoint.clone(),
                     creation_timestamp: CreationTimestamp {
                         creation_time: DtnTime::now(),
-                        sequence_number: 0, // Needs to increase for all of the same timestamp
+                        sequence_number: 0, // TODO: Needs to increase for all of the same timestamp
                     },
                     lifetime,
                     fragment_offset: None,
@@ -144,7 +160,7 @@ impl Daemon {
     fn local_delivery(&mut self, bundle: BundleProcessing) {
         info!("Now locally delivering bundle {:?}", &bundle);
         if bundle.bundle.primary_block.fragment_offset.is_some() {
-            info!("Bundle if a fragment. No idea what to do");
+            info!("Bundle is a fragment. No idea what to do");
             return;
         }
         //TODO: do real local delivery
