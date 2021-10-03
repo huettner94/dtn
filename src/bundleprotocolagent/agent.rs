@@ -15,6 +15,8 @@ use tokio::sync::{broadcast, mpsc};
 
 use crate::shutdown::Shutdown;
 
+use super::messages::{BPARequest, ListenBundlesResponse};
+
 #[derive(Debug, PartialEq, Eq)]
 enum BundleConstraint {
     DispatchPending,
@@ -27,30 +29,11 @@ struct BundleProcessing {
     bundle_constraint: Option<BundleConstraint>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub struct BundleListenResponse {
-    pub endpoint: Endpoint,
-    pub data: Vec<u8>,
-}
-
-#[derive(Debug)]
-pub enum BPAMessage {
-    SendBundle {
-        destination: Endpoint,
-        payload: Vec<u8>,
-        lifetime: u64,
-    },
-    ListenBundles {
-        destination: Endpoint,
-        responder: mpsc::Sender<BundleListenResponse>,
-    },
-}
-
 pub struct Daemon {
     todo: Vec<BundleProcessing>,
     endpoint: Endpoint,
-    channel_receiver: Option<mpsc::Receiver<BPAMessage>>,
-    clients: HashMap<Endpoint, mpsc::Sender<BundleListenResponse>>,
+    channel_receiver: Option<mpsc::Receiver<BPARequest>>,
+    clients: HashMap<Endpoint, mpsc::Sender<ListenBundlesResponse>>,
 }
 
 impl Daemon {
@@ -63,8 +46,8 @@ impl Daemon {
         }
     }
 
-    pub fn init_channel(&mut self) -> mpsc::Sender<BPAMessage> {
-        let (channel_sender, channel_receiver) = mpsc::channel::<BPAMessage>(1);
+    pub fn init_channel(&mut self) -> mpsc::Sender<BPARequest> {
+        let (channel_sender, channel_receiver) = mpsc::channel::<BPARequest>(1);
         self.channel_receiver = Some(channel_receiver);
         return channel_sender;
     }
@@ -115,21 +98,41 @@ impl Daemon {
         Ok(())
     }
 
-    async fn handle_message(&mut self, msg: BPAMessage) {
+    async fn handle_message(&mut self, msg: BPARequest) {
         match msg {
-            BPAMessage::SendBundle {
+            BPARequest::SendBundle {
                 destination,
                 payload,
                 lifetime,
             } => {
                 self.transmit_bundle(destination, payload, lifetime).await;
             }
-            BPAMessage::ListenBundles {
+            BPARequest::ListenBundles {
                 destination,
                 responder,
+                status,
             } => {
                 info!("Registering new client for endpoint {}", destination);
-                //TODO: handle wrong endpoints
+
+                if !self.endpoint.matches_node(&destination) {
+                    warn!("User attempted to register with endpoint not bound here.");
+                    if let Err(e) = status.send(Err(
+                        "Endpoint invalid for this BundleProtocolAgent".to_string(),
+                    )) {
+                        panic!(
+                            "some error happened when responding to the apiagent {:?}",
+                            e
+                        );
+                    };
+                    return;
+                }
+                if let Err(e) = status.send(Ok(())) {
+                    panic!(
+                        "some error happened when responding to the apiagent {:?}",
+                        e
+                    );
+                };
+
                 self.clients.insert(destination.clone(), responder);
                 let mut i = 0;
                 while i < self.todo.len() {
@@ -221,7 +224,7 @@ impl Daemon {
             .get(&bundle.bundle.primary_block.destination_endpoint)
         {
             let result = sender
-                .send(BundleListenResponse {
+                .send(ListenBundlesResponse {
                     data: bundle.bundle.payload_block().data,
                     endpoint: bundle.bundle.primary_block.source_node.clone(),
                 })

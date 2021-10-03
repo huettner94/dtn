@@ -18,7 +18,7 @@ async fn runserver(ctrl_c: impl Future) -> Result<(), Box<dyn std::error::Error>
     let (notify_shutdown, _) = broadcast::channel::<()>(1);
     let (shutdown_complete_tx, mut shutdown_complete_rx) = mpsc::channel::<()>(1);
 
-    let mut bundle_protocol_agent = bundleprotocolagent::Daemon::new();
+    let mut bundle_protocol_agent = bundleprotocolagent::agent::Daemon::new();
     let bpa_sender = bundle_protocol_agent.init_channel();
 
     let bpa_task_shutdown_notifier = notify_shutdown.subscribe();
