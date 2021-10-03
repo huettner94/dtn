@@ -117,7 +117,16 @@ impl Daemon {
             }
             BPAMessage::ListenBundles(endpoint, channel) => {
                 info!("Registering new client for endpoint {}", endpoint);
-                self.clients.insert(endpoint, channel);
+                self.clients.insert(endpoint.clone(), channel);
+                let mut i = 0;
+                while i < self.todo.len() {
+                    if self.todo[i].bundle.primary_block.destination_endpoint == endpoint {
+                        let bundle = self.todo.remove(i);
+                        self.dispatch_bundle(bundle).await;
+                    } else {
+                        i += 1;
+                    }
+                }
             }
         }
     }
@@ -160,7 +169,13 @@ impl Daemon {
             .destination_endpoint
             .matches_node(&self.endpoint)
         {
-            self.local_delivery(bundle).await;
+            match self.local_delivery(&bundle).await {
+                Ok(_) => {}
+                Err(_) => {
+                    info!("Some issue appeared during local delivery. Adding to todo list.");
+                    self.todo.push(bundle);
+                }
+            };
         } else {
             info!("Bundle is not for me. adding to todo list {:?}", &bundle);
             self.todo.push(bundle);
@@ -181,11 +196,11 @@ impl Daemon {
         self.dispatch_bundle(bundle).await;
     }
 
-    async fn local_delivery(&mut self, bundle: BundleProcessing) {
+    async fn local_delivery(&mut self, bundle: &BundleProcessing) -> Result<(), ()> {
         debug!("locally delivering bundle {:?}", &bundle);
         if bundle.bundle.primary_block.fragment_offset.is_some() {
             warn!("Bundle is a fragment. No idea what to do");
-            return;
+            return Err(());
         }
         //TODO: send status report if reqeusted
         if let Some(sender) = self
@@ -195,23 +210,24 @@ impl Daemon {
             let result = sender
                 .send(BundleListenResponse {
                     data: bundle.bundle.payload_block().data,
-                    endpoint: bundle.bundle.primary_block.source_node,
+                    endpoint: bundle.bundle.primary_block.source_node.clone(),
                 })
                 .await;
             match result {
                 Ok(_) => {
                     debug!("Bundle dispatched to local agent");
+                    Ok(())
                 }
                 Err(_) => {
-                    //TODO
                     self.clients
                         .remove(&bundle.bundle.primary_block.destination_endpoint);
-                    warn!("Local agent not available. Bundle dropped.");
+                    warn!("Local agent not available. Bundle queued.");
+                    Err(())
                 }
             }
         } else {
-            //TODO
-            warn!("No local agent registered for endpoint. Bundle dropped.");
+            warn!("No local agent registered for endpoint. Bundle queued.");
+            Err(())
         }
     }
 }
