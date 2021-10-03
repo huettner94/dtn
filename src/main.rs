@@ -3,7 +3,7 @@ use log::info;
 use tokio::sync::{broadcast, mpsc};
 
 mod apiagent;
-pub mod bundleprotocolagent;
+mod bundleprotocolagent;
 mod shutdown;
 
 #[tokio::main]

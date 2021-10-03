@@ -14,16 +14,11 @@ mod bundleservice {
     tonic::include_proto!("dtn");
 }
 
-pub struct MyBundleService {
-    bpa_sender: mpsc::Sender<BPAMessage>,
-}
-
-// TODO: make nice
-pub struct ResponseTransformer {
+pub struct ListenBundleResponseTransformer {
     rec: mpsc::Receiver<BundleListenResponse>,
 }
 
-impl Stream for ResponseTransformer {
+impl Stream for ListenBundleResponseTransformer {
     type Item = Result<bundleservice::ListenBundleResponse, Status>;
 
     fn poll_next(
@@ -44,7 +39,9 @@ impl Stream for ResponseTransformer {
     }
 }
 
-// END TODO
+pub struct MyBundleService {
+    bpa_sender: mpsc::Sender<BPAMessage>,
+}
 
 #[tonic::async_trait]
 impl BundleService for MyBundleService {
@@ -71,7 +68,7 @@ impl BundleService for MyBundleService {
         }))
     }
 
-    type ListenBundlesStream = ResponseTransformer;
+    type ListenBundlesStream = ListenBundleResponseTransformer;
     async fn listen_bundles(
         &self,
         request: tonic::Request<bundleservice::ListenBundleRequest>,
@@ -91,7 +88,7 @@ impl BundleService for MyBundleService {
             .await
             .map_err(|e| tonic::Status::unknown(e.to_string()))?;
 
-        return Ok(Response::new(ResponseTransformer {
+        return Ok(Response::new(ListenBundleResponseTransformer {
             rec: channel_receiver,
         }));
     }
