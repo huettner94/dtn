@@ -9,7 +9,7 @@ use dtn::bp7::{
     primaryblock::PrimaryBlock,
     time::{CreationTimestamp, DtnTime},
 };
-use log::info;
+use log::{info, warn};
 use tokio::sync::{broadcast, mpsc};
 
 use crate::shutdown::Shutdown;
@@ -131,11 +131,16 @@ impl Daemon {
             bundle_constraint: Some(BundleConstraint::DispatchPending),
         };
         info!("Adding new bundle to todo list {:?}", &bundle);
-        self.todo.push(bundle);
+        self.dispatch_bundle(bundle);
     }
 
     fn dispatch_bundle(&mut self, bundle: BundleProcessing) {
-        if bundle.bundle.primary_block.destination_endpoint == self.endpoint {
+        if bundle
+            .bundle
+            .primary_block
+            .destination_endpoint
+            .matches_node(&self.endpoint)
+        {
             self.local_delivery(bundle);
         } else {
             info!("Bundle is not for me. adding to todo list {:?}", &bundle);
@@ -165,5 +170,6 @@ impl Daemon {
         }
         //TODO: do real local delivery
         //TODO: send status report if reqeusted
+        warn!("But i have no idea how :)");
     }
 }

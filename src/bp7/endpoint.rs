@@ -105,6 +105,13 @@ impl Endpoint {
             Endpoint::IPN(_) => false,
         }
     }
+
+    pub fn matches_node(&self, other: &Endpoint) -> bool {
+        match self {
+            Endpoint::DTN(s) => matches!(other, Endpoint::DTN(o) if s.matches_node(o)),
+            Endpoint::IPN(s) => matches!(other, Endpoint::IPN(o) if s.matches_node(o)),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
@@ -114,6 +121,9 @@ pub struct DTNEndpoint {
 
 impl DTNEndpoint {
     fn from_str(uri: &str) -> Option<Self> {
+        if !uri.starts_with("//") {
+            return None;
+        }
         return Some(DTNEndpoint {
             uri: String::from(uri),
         });
@@ -121,6 +131,17 @@ impl DTNEndpoint {
 
     fn is_null_endpoint(&self) -> bool {
         return self.uri == "none";
+    }
+
+    pub fn node_name(&self) -> &str {
+        self.uri[2..]
+            .split('/')
+            .next()
+            .expect("There is always a first element")
+    }
+
+    pub fn matches_node(&self, other: &DTNEndpoint) -> bool {
+        return self.node_name() == other.node_name();
     }
 }
 
@@ -213,5 +234,9 @@ impl IPNEndpoint {
             node: node_id,
             serivce: service_id,
         });
+    }
+
+    pub fn matches_node(&self, other: &IPNEndpoint) -> bool {
+        return self.node == other.node;
     }
 }
