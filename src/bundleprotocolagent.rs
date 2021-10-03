@@ -9,7 +9,7 @@ use dtn::bp7::{
     primaryblock::PrimaryBlock,
     time::{CreationTimestamp, DtnTime},
 };
-use log::{info, warn};
+use log::{debug, info, warn};
 use std::collections::HashMap;
 use tokio::sync::{broadcast, mpsc};
 
@@ -81,7 +81,6 @@ impl Daemon {
             tokio::select! {
                 res = receiver.recv() => {
                     if let Some(msg) = res {
-                        info!("I have received a message... Do something now");
                         self.handle_message(msg).await;
                     } else {
                         info!("BPA can no longer receive messages. Exiting");
@@ -97,7 +96,6 @@ impl Daemon {
         }
 
         while let Some(msg) = receiver.recv().await {
-            info!("I have received a message after shutdown... Do something now and stopping afterwards");
             self.handle_message(msg).await;
         }
 
@@ -118,6 +116,7 @@ impl Daemon {
                 self.transmit_bundle(destination, data, lifetime).await;
             }
             BPAMessage::ListenBundles(endpoint, channel) => {
+                info!("Registering new client for endpoint {}", endpoint);
                 self.clients.insert(endpoint, channel);
             }
         }
@@ -150,7 +149,7 @@ impl Daemon {
             },
             bundle_constraint: Some(BundleConstraint::DispatchPending),
         };
-        info!("Adding new bundle to todo list {:?}", &bundle);
+        debug!("Dispatching new bundle {:?}", &bundle);
         self.dispatch_bundle(bundle).await;
     }
 
@@ -174,18 +173,18 @@ impl Daemon {
         //TODO
     }
 
-    fn receive_bundle(&mut self, mut bundle: BundleProcessing) {
+    async fn receive_bundle(&mut self, mut bundle: BundleProcessing) {
         bundle.bundle_constraint = Some(BundleConstraint::DispatchPending);
         //TODO: send status report if reqeusted
         //TODO: Check crc or drop otherwise
         //TODO: CHeck extensions or do other stuff
-        self.dispatch_bundle(bundle);
+        self.dispatch_bundle(bundle).await;
     }
 
     async fn local_delivery(&mut self, bundle: BundleProcessing) {
-        info!("Now locally delivering bundle {:?}", &bundle);
+        debug!("locally delivering bundle {:?}", &bundle);
         if bundle.bundle.primary_block.fragment_offset.is_some() {
-            info!("Bundle is a fragment. No idea what to do");
+            warn!("Bundle is a fragment. No idea what to do");
             return;
         }
         //TODO: send status report if reqeusted
@@ -201,13 +200,17 @@ impl Daemon {
                 .await;
             match result {
                 Ok(_) => {
-                    info!("Bundle dispatched to local agent");
+                    debug!("Bundle dispatched to local agent");
                 }
                 Err(_) => {
+                    //TODO
+                    self.clients
+                        .remove(&bundle.bundle.primary_block.destination_endpoint);
                     warn!("Local agent not available. Bundle dropped.");
                 }
             }
         } else {
+            //TODO
             warn!("No local agent registered for endpoint. Bundle dropped.");
         }
     }

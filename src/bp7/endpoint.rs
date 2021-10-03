@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use serde::{
     de::{Error, Unexpected, Visitor},
     ser::SerializeSeq,
@@ -85,6 +87,15 @@ impl Validate for Endpoint {
         match self {
             Endpoint::DTN(e) => e.validate(),
             Endpoint::IPN(e) => e.validate(),
+        }
+    }
+}
+
+impl Display for Endpoint {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Endpoint::DTN(e) => e.fmt(f),
+            Endpoint::IPN(e) => e.fmt(f),
         }
     }
 }
@@ -209,10 +220,16 @@ impl Validate for DTNEndpoint {
     }
 }
 
+impl Display for DTNEndpoint {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("dtn:{}", self.uri))
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Clone, Copy, Hash)]
 pub struct IPNEndpoint {
     pub node: u64,
-    pub serivce: u64,
+    pub service: u64,
 }
 
 impl Validate for IPNEndpoint {
@@ -232,11 +249,17 @@ impl IPNEndpoint {
         let service_id = service.parse().ok()?;
         return Some(IPNEndpoint {
             node: node_id,
-            serivce: service_id,
+            service: service_id,
         });
     }
 
     pub fn matches_node(&self, other: &IPNEndpoint) -> bool {
         return self.node == other.node;
+    }
+}
+
+impl Display for IPNEndpoint {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("ipn:{}.{}", self.node, self.service))
     }
 }
