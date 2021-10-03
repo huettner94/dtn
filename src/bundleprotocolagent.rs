@@ -10,6 +10,7 @@ use dtn::bp7::{
     time::{CreationTimestamp, DtnTime},
 };
 use log::{info, warn};
+use std::collections::HashMap;
 use tokio::sync::{broadcast, mpsc};
 
 use crate::shutdown::Shutdown;
@@ -27,15 +28,24 @@ struct BundleProcessing {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub struct BundleListenResponse {
+    pub endpoint: Endpoint,
+    pub data: Vec<u8>,
+}
+
+#[derive(Debug)]
 pub enum BPAMessage {
     // Destination, Payload, Lifetime
     SendBundle(Endpoint, Vec<u8>, u64),
+    // destination, Responder
+    ListenBundles(Endpoint, mpsc::Sender<BundleListenResponse>),
 }
 
 pub struct Daemon {
     todo: Vec<BundleProcessing>,
     endpoint: Endpoint,
     channel_receiver: Option<mpsc::Receiver<BPAMessage>>,
+    clients: HashMap<Endpoint, mpsc::Sender<BundleListenResponse>>,
 }
 
 impl Daemon {
@@ -44,6 +54,7 @@ impl Daemon {
             todo: Vec::new(),
             endpoint: Endpoint::new(&"dtn://itsme").unwrap(),
             channel_receiver: None,
+            clients: HashMap::new(),
         }
     }
 
@@ -71,7 +82,7 @@ impl Daemon {
                 res = receiver.recv() => {
                     if let Some(msg) = res {
                         info!("I have received a message... Do something now");
-                        self.handle_message(msg);
+                        self.handle_message(msg).await;
                     } else {
                         info!("BPA can no longer receive messages. Exiting");
                         return Ok(())
@@ -87,7 +98,13 @@ impl Daemon {
 
         while let Some(msg) = receiver.recv().await {
             info!("I have received a message after shutdown... Do something now and stopping afterwards");
-            self.handle_message(msg);
+            self.handle_message(msg).await;
+        }
+
+        info!("Closing all client agent channels");
+        for (client_endpoint, client_sender) in self.clients.drain() {
+            drop(client_sender);
+            info!("Closed agent channel for {:?}", client_endpoint);
         }
 
         info!("BPA has shutdown. See you");
@@ -95,15 +112,18 @@ impl Daemon {
         Ok(())
     }
 
-    fn handle_message(&mut self, msg: BPAMessage) {
+    async fn handle_message(&mut self, msg: BPAMessage) {
         match msg {
             BPAMessage::SendBundle(destination, data, lifetime) => {
-                self.transmit_bundle(destination, data, lifetime);
+                self.transmit_bundle(destination, data, lifetime).await;
+            }
+            BPAMessage::ListenBundles(endpoint, channel) => {
+                self.clients.insert(endpoint, channel);
             }
         }
     }
 
-    fn transmit_bundle(&mut self, destination: Endpoint, data: Vec<u8>, lifetime: u64) {
+    async fn transmit_bundle(&mut self, destination: Endpoint, data: Vec<u8>, lifetime: u64) {
         let bundle = BundleProcessing {
             bundle: Bundle {
                 primary_block: PrimaryBlock {
@@ -131,17 +151,17 @@ impl Daemon {
             bundle_constraint: Some(BundleConstraint::DispatchPending),
         };
         info!("Adding new bundle to todo list {:?}", &bundle);
-        self.dispatch_bundle(bundle);
+        self.dispatch_bundle(bundle).await;
     }
 
-    fn dispatch_bundle(&mut self, bundle: BundleProcessing) {
+    async fn dispatch_bundle(&mut self, bundle: BundleProcessing) {
         if bundle
             .bundle
             .primary_block
             .destination_endpoint
             .matches_node(&self.endpoint)
         {
-            self.local_delivery(bundle);
+            self.local_delivery(bundle).await;
         } else {
             info!("Bundle is not for me. adding to todo list {:?}", &bundle);
             self.todo.push(bundle);
@@ -162,14 +182,33 @@ impl Daemon {
         self.dispatch_bundle(bundle);
     }
 
-    fn local_delivery(&mut self, bundle: BundleProcessing) {
+    async fn local_delivery(&mut self, bundle: BundleProcessing) {
         info!("Now locally delivering bundle {:?}", &bundle);
         if bundle.bundle.primary_block.fragment_offset.is_some() {
             info!("Bundle is a fragment. No idea what to do");
             return;
         }
-        //TODO: do real local delivery
         //TODO: send status report if reqeusted
-        warn!("But i have no idea how :)");
+        if let Some(sender) = self
+            .clients
+            .get(&bundle.bundle.primary_block.destination_endpoint)
+        {
+            let result = sender
+                .send(BundleListenResponse {
+                    data: bundle.bundle.payload_block().data,
+                    endpoint: bundle.bundle.primary_block.source_node,
+                })
+                .await;
+            match result {
+                Ok(_) => {
+                    info!("Bundle dispatched to local agent");
+                }
+                Err(_) => {
+                    warn!("Local agent not available. Bundle dropped.");
+                }
+            }
+        } else {
+            warn!("No local agent registered for endpoint. Bundle dropped.");
+        }
     }
 }

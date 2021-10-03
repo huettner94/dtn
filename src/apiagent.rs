@@ -1,11 +1,13 @@
-use futures_util::future::FutureExt;
+use std::task::Poll;
+
+use futures_util::{future::FutureExt, Stream};
 
 use bundleservice::bundle_service_server::{BundleService, BundleServiceServer};
 use log::info;
 use tokio::sync::{broadcast, mpsc};
-use tonic::{transport::Server, Response};
+use tonic::{transport::Server, Response, Status};
 
-use crate::bundleprotocolagent::BPAMessage;
+use crate::bundleprotocolagent::{BPAMessage, BundleListenResponse};
 use dtn::bp7::endpoint::Endpoint;
 
 mod bundleservice {
@@ -15,6 +17,34 @@ mod bundleservice {
 pub struct MyBundleService {
     bpa_sender: mpsc::Sender<BPAMessage>,
 }
+
+// TODO: make nice
+pub struct ResponseTransformer {
+    rec: mpsc::Receiver<BundleListenResponse>,
+}
+
+impl Stream for ResponseTransformer {
+    type Item = Result<bundleservice::ListenBundleResponse, Status>;
+
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        match self.rec.poll_recv(cx) {
+            Poll::Ready(Some(blr)) => {
+                let lbr = bundleservice::ListenBundleResponse {
+                    source: format!("{:?}", blr.endpoint),
+                    payload: blr.data,
+                };
+                Poll::Ready(Some(Ok(lbr)))
+            }
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+// END TODO
 
 #[tonic::async_trait]
 impl BundleService for MyBundleService {
@@ -39,6 +69,31 @@ impl BundleService for MyBundleService {
             success: true,
             message: String::new(),
         }))
+    }
+
+    type ListenBundlesStream = ResponseTransformer;
+    async fn listen_bundles(
+        &self,
+        request: tonic::Request<bundleservice::ListenBundleRequest>,
+    ) -> Result<tonic::Response<Self::ListenBundlesStream>, tonic::Status> {
+        let req = request.into_inner();
+
+        let (channel_sender, channel_receiver) = mpsc::channel(1);
+
+        let msg = BPAMessage::ListenBundles(
+            Endpoint::new(&req.endpoint)
+                .ok_or_else(|| tonic::Status::invalid_argument("listen endpoint invalid"))?,
+            channel_sender,
+        );
+
+        self.bpa_sender
+            .send(msg)
+            .await
+            .map_err(|e| tonic::Status::unknown(e.to_string()))?;
+
+        return Ok(Response::new(ResponseTransformer {
+            rec: channel_receiver,
+        }));
     }
 }
 

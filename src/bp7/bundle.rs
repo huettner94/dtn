@@ -8,6 +8,8 @@ use serde::{de::Error, de::Visitor, ser::SerializeSeq, Deserialize, Serialize};
 
 use crate::bp7::{block::CanonicalBlock, primaryblock::PrimaryBlock, SerializationError, Validate};
 
+use super::block::payload_block::PayloadBlock;
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct Bundle {
     pub primary_block: PrimaryBlock,
@@ -122,5 +124,15 @@ impl Bundle {
         let mut val = vec![0; hex.len() / 2];
         hex2bin(hex.as_bytes(), &mut val).unwrap();
         val.try_into()
+    }
+
+    pub fn payload_block(&self) -> PayloadBlock {
+        for block in &self.blocks {
+            match &block.block {
+                super::block::Block::Payload(p) => return p.clone(),
+                _ => {}
+            }
+        }
+        panic!("All Bundles MUST contain a payload block");
     }
 }

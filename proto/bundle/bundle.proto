@@ -2,21 +2,25 @@ syntax = "proto3";
 
 package dtn;
 
-// EchoRequest is the request for echo.
 message SubmitBundleRequest {
   string destination = 1;
   bytes payload = 2;
   uint64 lifetime = 3;
 }
 
-// EchoResponse is the response for echo.
 message SubmitBundleRespone {
   bool success = 1;
   string message = 2;
 }
 
-// Echo is the echo service.
+message ListenBundleRequest { string endpoint = 1; }
+
+message ListenBundleResponse {
+  string source = 1;
+  bytes payload = 2;
+}
+
 service BundleService {
-  // UnaryEcho is unary echo.
   rpc SubmitBundle(SubmitBundleRequest) returns (SubmitBundleRespone);
+  rpc ListenBundles(ListenBundleRequest) returns (stream ListenBundleResponse);
 }
