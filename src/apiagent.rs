@@ -51,12 +51,12 @@ impl BundleService for MyBundleService {
     ) -> Result<tonic::Response<bundleservice::SubmitBundleRespone>, tonic::Status> {
         let req = request.into_inner();
 
-        let msg = BPAMessage::SendBundle(
-            Endpoint::new(&req.destination)
+        let msg = BPAMessage::SendBundle {
+            destination: Endpoint::new(&req.destination)
                 .ok_or_else(|| tonic::Status::invalid_argument("destination invalid"))?,
-            req.payload,
-            req.lifetime,
-        );
+            payload: req.payload,
+            lifetime: req.lifetime,
+        };
 
         self.bpa_sender
             .send(msg)
@@ -77,11 +77,11 @@ impl BundleService for MyBundleService {
 
         let (channel_sender, channel_receiver) = mpsc::channel(1);
 
-        let msg = BPAMessage::ListenBundles(
-            Endpoint::new(&req.endpoint)
+        let msg = BPAMessage::ListenBundles {
+            destination: Endpoint::new(&req.endpoint)
                 .ok_or_else(|| tonic::Status::invalid_argument("listen endpoint invalid"))?,
-            channel_sender,
-        );
+            responder: channel_sender,
+        };
 
         self.bpa_sender
             .send(msg)

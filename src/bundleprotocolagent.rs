@@ -35,10 +35,15 @@ pub struct BundleListenResponse {
 
 #[derive(Debug)]
 pub enum BPAMessage {
-    // Destination, Payload, Lifetime
-    SendBundle(Endpoint, Vec<u8>, u64),
-    // destination, Responder
-    ListenBundles(Endpoint, mpsc::Sender<BundleListenResponse>),
+    SendBundle {
+        destination: Endpoint,
+        payload: Vec<u8>,
+        lifetime: u64,
+    },
+    ListenBundles {
+        destination: Endpoint,
+        responder: mpsc::Sender<BundleListenResponse>,
+    },
 }
 
 pub struct Daemon {
@@ -112,15 +117,23 @@ impl Daemon {
 
     async fn handle_message(&mut self, msg: BPAMessage) {
         match msg {
-            BPAMessage::SendBundle(destination, data, lifetime) => {
-                self.transmit_bundle(destination, data, lifetime).await;
+            BPAMessage::SendBundle {
+                destination,
+                payload,
+                lifetime,
+            } => {
+                self.transmit_bundle(destination, payload, lifetime).await;
             }
-            BPAMessage::ListenBundles(endpoint, channel) => {
-                info!("Registering new client for endpoint {}", endpoint);
-                self.clients.insert(endpoint.clone(), channel);
+            BPAMessage::ListenBundles {
+                destination,
+                responder,
+            } => {
+                info!("Registering new client for endpoint {}", destination);
+                //TODO: handle wrong endpoints
+                self.clients.insert(destination.clone(), responder);
                 let mut i = 0;
                 while i < self.todo.len() {
-                    if self.todo[i].bundle.primary_block.destination_endpoint == endpoint {
+                    if self.todo[i].bundle.primary_block.destination_endpoint == destination {
                         let bundle = self.todo.remove(i);
                         self.dispatch_bundle(bundle).await;
                     } else {
