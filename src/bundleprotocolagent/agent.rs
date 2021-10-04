@@ -237,12 +237,12 @@ impl Daemon {
                 Err(_) => {
                     self.clients
                         .remove(&bundle.bundle.primary_block.destination_endpoint);
-                    warn!("Local agent not available. Bundle queued.");
+                    info!("Local agent not available. Bundle queued.");
                     Err(())
                 }
             }
         } else {
-            warn!("No local agent registered for endpoint. Bundle queued.");
+            info!("No local agent registered for endpoint. Bundle queued.");
             Err(())
         }
     }
