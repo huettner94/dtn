@@ -1,14 +1,13 @@
 use serde::Serialize;
 
-use crate::bp7::Validate;
+use crate::Validate;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct UnkownBlock {
-    pub block_type: u64,
+pub struct PayloadBlock {
     pub data: Vec<u8>,
 }
 
-impl Serialize for UnkownBlock {
+impl Serialize for PayloadBlock {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -17,7 +16,7 @@ impl Serialize for UnkownBlock {
     }
 }
 
-impl Validate for UnkownBlock {
+impl Validate for PayloadBlock {
     fn validate(&self) -> bool {
         return true;
     }

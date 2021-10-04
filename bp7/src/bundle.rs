@@ -6,7 +6,7 @@ use std::{
 use binascii::hex2bin;
 use serde::{de::Error, de::Visitor, ser::SerializeSeq, Deserialize, Serialize};
 
-use crate::bp7::{block::CanonicalBlock, primaryblock::PrimaryBlock, SerializationError, Validate};
+use crate::{block::CanonicalBlock, primaryblock::PrimaryBlock, SerializationError, Validate};
 
 use super::block::payload_block::PayloadBlock;
 

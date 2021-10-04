@@ -1,25 +1,6 @@
-[package]
-name = "dtn"
-version = "0.1.0"
-edition = "2018"
+[workspace]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-serde = { version = "1.0", features = ["derive"] }
-serde_cbor = "0.11.1"
-serde_repr = "0.1"
-bitflags = "1.2.1"
-chrono = "0.4"
-binascii = "0.1.4"
-num_enum = "0.5.3"
-log = "0.4"
-tonic = "0.5.2"
-prost = "0.8"
-tokio = { version = "1.10.0", features = ["full"] }
-tokio-stream = "0.1.7"
-futures-util = "0.3.16"
-env_logger = "0.8.4"
-
-[build-dependencies]
-tonic-build = "0.5.2"
+members = [
+    "bp7",
+    "dtrd",
+]

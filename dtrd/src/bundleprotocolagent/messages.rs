@@ -1,4 +1,4 @@
-use dtn::bp7::endpoint::Endpoint;
+use bp7::endpoint::Endpoint;
 use tokio::sync::{mpsc, oneshot};
 
 #[derive(Debug, PartialEq, Eq)]

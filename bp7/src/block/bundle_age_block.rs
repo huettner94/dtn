@@ -3,7 +3,7 @@ use std::convert::TryFrom;
 use serde::{de::Visitor, Deserialize, Serialize};
 use serde_cbor::Serializer;
 
-use crate::bp7::Validate;
+use crate::Validate;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BundleAgeBlock {

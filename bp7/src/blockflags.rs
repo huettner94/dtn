@@ -1,7 +1,7 @@
 use bitflags::bitflags;
 use serde::{de::Visitor, Deserialize, Serialize};
 
-use crate::bp7::Validate;
+use crate::Validate;
 
 bitflags! {
     pub struct BlockFlags: u64 {

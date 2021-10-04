@@ -1,4 +1,4 @@
-use dtn::bp7::{
+use bp7::{
     block::payload_block::PayloadBlock,
     block::{Block, CanonicalBlock},
     blockflags::BlockFlags,

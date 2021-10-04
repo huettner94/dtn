@@ -8,7 +8,7 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use tonic::{transport::Server, Response, Status};
 
 use crate::bundleprotocolagent::messages::{BPARequest, ListenBundlesResponse};
-use dtn::bp7::endpoint::Endpoint;
+use bp7::endpoint::Endpoint;
 
 mod bundleservice {
     tonic::include_proto!("dtn");

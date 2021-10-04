@@ -2,7 +2,7 @@ use std::convert::TryFrom;
 
 use serde::{de::Error, de::Visitor, ser::SerializeSeq, Deserialize, Serialize};
 
-use crate::bp7::{blockflags::BlockFlags, crc::CRCType, *};
+use crate::{blockflags::BlockFlags, crc::CRCType, *};
 
 use self::bundle_age_block::BundleAgeBlock;
 use self::hop_count_block::HopCountBlock;

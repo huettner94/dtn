@@ -1,6 +1,6 @@
 use serde::{de::Error, de::Visitor, ser::SerializeSeq, Deserialize, Serialize};
 
-use crate::bp7::{
+use crate::{
     bundleflags::BundleFlags, crc::CRCType, endpoint::Endpoint, time::CreationTimestamp, *,
 };
 
