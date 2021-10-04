@@ -17,18 +17,6 @@ use crate::{bundlestorageagent::messages::BSARequest, shutdown::Shutdown};
 
 use super::messages::{BPARequest, ListenBundlesResponse};
 
-#[derive(Debug, PartialEq, Eq)]
-enum BundleConstraint {
-    DispatchPending,
-    ForwardPending,
-}
-
-#[derive(Debug)]
-struct BundleProcessing {
-    bundle: Bundle,
-    bundle_constraint: Option<BundleConstraint>,
-}
-
 pub struct Daemon {
     endpoint: Endpoint,
     channel_receiver: Option<mpsc::Receiver<BPARequest>>,
@@ -156,11 +144,7 @@ impl Daemon {
                 match response_receiver.await {
                     Ok(Ok(bundles)) => {
                         for bundle in bundles {
-                            self.dispatch_bundle(BundleProcessing {
-                                bundle,
-                                bundle_constraint: None,
-                            })
-                            .await;
+                            self.dispatch_bundle(bundle).await;
                         }
                     }
                     Ok(Err(e)) => {
@@ -175,39 +159,35 @@ impl Daemon {
     }
 
     async fn transmit_bundle(&mut self, destination: Endpoint, data: Vec<u8>, lifetime: u64) {
-        let bundle = BundleProcessing {
-            bundle: Bundle {
-                primary_block: PrimaryBlock {
-                    version: 7,
-                    bundle_processing_flags: BundleFlags::empty(),
-                    crc: CRCType::NoCRC,
-                    destination_endpoint: destination,
-                    source_node: self.endpoint.clone(),
-                    report_to: self.endpoint.clone(),
-                    creation_timestamp: CreationTimestamp {
-                        creation_time: DtnTime::now(),
-                        sequence_number: 0, // TODO: Needs to increase for all of the same timestamp
-                    },
-                    lifetime,
-                    fragment_offset: None,
-                    total_data_length: None,
+        let bundle = Bundle {
+            primary_block: PrimaryBlock {
+                version: 7,
+                bundle_processing_flags: BundleFlags::empty(),
+                crc: CRCType::NoCRC,
+                destination_endpoint: destination,
+                source_node: self.endpoint.clone(),
+                report_to: self.endpoint.clone(),
+                creation_timestamp: CreationTimestamp {
+                    creation_time: DtnTime::now(),
+                    sequence_number: 0, // TODO: Needs to increase for all of the same timestamp
                 },
-                blocks: vec![CanonicalBlock {
-                    block: Block::Payload(PayloadBlock { data }),
-                    block_flags: BlockFlags::empty(),
-                    block_number: 1,
-                    crc: CRCType::NoCRC,
-                }],
+                lifetime,
+                fragment_offset: None,
+                total_data_length: None,
             },
-            bundle_constraint: Some(BundleConstraint::DispatchPending),
+            blocks: vec![CanonicalBlock {
+                block: Block::Payload(PayloadBlock { data }),
+                block_flags: BlockFlags::empty(),
+                block_number: 1,
+                crc: CRCType::NoCRC,
+            }],
         };
         debug!("Dispatching new bundle {:?}", &bundle);
         self.dispatch_bundle(bundle).await;
     }
 
-    async fn dispatch_bundle(&mut self, bundle: BundleProcessing) {
+    async fn dispatch_bundle(&mut self, bundle: Bundle) {
         if bundle
-            .bundle
             .primary_block
             .destination_endpoint
             .matches_node(&self.endpoint)
@@ -225,14 +205,9 @@ impl Daemon {
         }
     }
 
-    async fn store_bundle(&self, bundle: BundleProcessing) {
+    async fn store_bundle(&self, bundle: Bundle) {
         let sender = self.bsa_sender.as_ref().unwrap();
-        if let Err(e) = sender
-            .send(BSARequest::StoreBundle {
-                bundle: bundle.bundle,
-            })
-            .await
-        {
+        if let Err(e) = sender.send(BSARequest::StoreBundle { bundle }).await {
             warn!(
                 "Error during sending the bundle to the BSA for storage {:?}",
                 e
@@ -240,35 +215,30 @@ impl Daemon {
         };
     }
 
-    fn forward_bundle(&self, mut bundle: BundleProcessing) {
-        bundle.bundle_constraint = Some(BundleConstraint::ForwardPending);
+    fn forward_bundle(&self, bundle: Bundle) {
         info!("No idea what to do now :)");
         //TODO
     }
 
-    async fn receive_bundle(&mut self, mut bundle: BundleProcessing) {
-        bundle.bundle_constraint = Some(BundleConstraint::DispatchPending);
+    async fn receive_bundle(&mut self, bundle: Bundle) {
         //TODO: send status report if reqeusted
         //TODO: Check crc or drop otherwise
         //TODO: CHeck extensions or do other stuff
         self.dispatch_bundle(bundle).await;
     }
 
-    async fn local_delivery(&mut self, bundle: &BundleProcessing) -> Result<(), ()> {
+    async fn local_delivery(&mut self, bundle: &Bundle) -> Result<(), ()> {
         debug!("locally delivering bundle {:?}", &bundle);
-        if bundle.bundle.primary_block.fragment_offset.is_some() {
+        if bundle.primary_block.fragment_offset.is_some() {
             warn!("Bundle is a fragment. No idea what to do");
             return Err(());
         }
         //TODO: send status report if reqeusted
-        if let Some(sender) = self
-            .clients
-            .get(&bundle.bundle.primary_block.destination_endpoint)
-        {
+        if let Some(sender) = self.clients.get(&bundle.primary_block.destination_endpoint) {
             let result = sender
                 .send(ListenBundlesResponse {
-                    data: bundle.bundle.payload_block().data,
-                    endpoint: bundle.bundle.primary_block.source_node.clone(),
+                    data: bundle.payload_block().data,
+                    endpoint: bundle.primary_block.source_node.clone(),
                 })
                 .await;
             match result {
@@ -278,7 +248,7 @@ impl Daemon {
                 }
                 Err(_) => {
                     self.clients
-                        .remove(&bundle.bundle.primary_block.destination_endpoint);
+                        .remove(&bundle.primary_block.destination_endpoint);
                     info!("Local agent not available. Bundle queued.");
                     Err(())
                 }
