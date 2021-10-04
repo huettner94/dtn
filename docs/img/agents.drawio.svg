@@ -1,0 +1,211 @@
+<svg host="65bd71144e" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" width="720px" height="381px" viewBox="-0.5 -0.5 720 381" content="&lt;mxfile&gt;&lt;diagram id=&quot;KTSRZSm48zwrhvxG1I5X&quot; name=&quot;Page-1&quot;&gt;5VlZc9s4DP41fuyODjt2HhMnzXamO+NpOrPtIyPREhuZ0EKUj/31y1OHLddHErnNviQkRIAkgA8HPQini/UDkjz9C2KaDQIvXg/Cu0EQ+OF4KP8pysZQxhPfEBJksV1UEx7Zv9QSPUstWUyL1kIBkAmWt4kRcE4j0aIRRFi1l80ha++ak4TuEB4jku1S/2axSA11Eoxr+p+UJanb2b+6Nl8WxC22NylSEsOqQQrvB+EUAYQZLdZTminlOb0Yvo97vlYHQ8rFMQyBYViSrLR3GwRXmWS9fZKDRA0evsymcsk0Y0pm4N0k+r9ZJSVXCytOdJQPavnsk7pnTiM2Z5GyFBJezAGlLhjwbibGY7ZkcUnUWVeAzxTVtfTfyB3EWlcL0boUG2cghJLHVN3RkxJXKRP0MSeR+rqSLilpqVhkcubrc2sVUBR0vVeNfmUc6dUUFlTgRi6xDFfWnM6f7XRVO0dl8bThGI6NWH9MKsG1yeTAWq3bguFhC95KZUjNBN6jAFSufbIRZxQLVohCDo0wNSIRQqEGSAtBUH3t4p0SriDLlmpfKJXlnioZAioDG5ERYMx44j4VUiHK1CgtiIx07/AVSfRctOWmRGiwK+4naiTqfWJ1ist7zNAfHnKZcPRGLnPV4TJb6qCxDHh2CihSSICT7L6m3rYVVq/5DJBbNf2gQmxs9CaltGdLidpnblQ0loQoI0Uhw4Mlf2RZW9fqPD/XtPKVEiO7amSzAsGEikao27UH0kwGomVb+ku0649PUy8H3qc+Y1KkeptXVa7x5j60O+lFmXTNxLfG+LsVpcZ36+Zk4yZc3uRbc/Ld8atJzaRnjqtljb4REfZks9HhFHVudSFc6LfFgA7vpkLYk45k5bEiGJu89U9JTVbTyYbkOUIu04xQWYMkRwnZymXV3pfOL6NWevEnHSXJW+WXyS8dAM+Dz3gXPqOe4HP9/1BnX9GoKz3vK5hnCAIiyM4JTKwOCgvQxe9WqBASd6qhka2sYPy0bqio2iEbxLo5n7nqdfVWykg8zoHpMAvzippBpAVz2aZfPmy5TvlncWv4RnHL998h0tybSRNq476KNe+IzA9cekxCeHRGX9qZ/kH6NVqHPpy/GY9gYfrDGp9PVKwoVX3r7exGKYEfKbhRUjSfJwzgt/g9NjfoZ6jOfWnk+W3kBdcdHembIa/rFeO3R16wizzf6zbC60MvOAy9r9PZ9PPpoLOOXexz66V6p/Gs8PfwujccD/9ol9NhBziqQu3VwdHVP/324BheEhwnvoD1rNHTHx9eYoMX6NuyzmxRWcGl/Rpe1WtOhLG55dqyWnWM4ww5PBzlvkApTH4/u7goEU1QMnXAvBSlfliWDiH2VQIVt6mr2+WAvGIK8d4aIikzgtlmULcRmrtZS9B17uodG3cvHiS3Y6TXVbqPXiVGymn9G5nxm/qXxvD+Pw==&lt;/diagram&gt;&lt;/mxfile&gt;">
+    <defs/>
+    <g>
+        <rect x="15" y="0" width="220" height="60" fill="#ffffff" stroke="#000000" pointer-events="all"/>
+        <g transform="translate(-0.5 -0.5)">
+            <switch>
+                <foreignObject style="overflow: visible; text-align: left;" pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility">
+                    <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 218px; height: 1px; padding-top: 30px; margin-left: 16px;">
+                        <div style="box-sizing: border-box; font-size: 0; text-align: center; ">
+                            <div style="display: inline-block; font-size: 12px; font-family: Helvetica; color: #000000; line-height: 1.2; pointer-events: all; white-space: normal; word-wrap: normal; ">
+                                <b>
+                                    GRPC Client Agent
+                                </b>
+                                <br/>
+                                - API specific transformation
+                                <br/>
+                                - individual worker per client connection
+                            </div>
+                        </div>
+                    </div>
+                </foreignObject>
+                <text x="125" y="34" fill="#000000" font-family="Helvetica" font-size="12px" text-anchor="middle">
+                    GRPC Client Agent...
+                </text>
+            </switch>
+        </g>
+        <rect x="369" y="0" width="350" height="60" fill="#ffffff" stroke="#000000" pointer-events="all"/>
+        <g transform="translate(-0.5 -0.5)">
+            <switch>
+                <foreignObject style="overflow: visible; text-align: left;" pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility">
+                    <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 348px; height: 1px; padding-top: 30px; margin-left: 370px;">
+                        <div style="box-sizing: border-box; font-size: 0; text-align: center; ">
+                            <div style="display: inline-block; font-size: 12px; font-family: Helvetica; color: #000000; line-height: 1.2; pointer-events: all; white-space: normal; word-wrap: normal; ">
+                                <b>
+                                    Bundle Storage Agent
+                                </b>
+                                <br/>
+                                - Persists Bundles across restarts
+                                <br/>
+                                - Can give out bundles to workers according to some criteria
+                                <br/>
+                                - Tracks bundles that are being worked on
+                            </div>
+                        </div>
+                    </div>
+                </foreignObject>
+                <text x="544" y="34" fill="#000000" font-family="Helvetica" font-size="12px" text-anchor="middle">
+                    Bundle Storage Agent...
+                </text>
+            </switch>
+        </g>
+        <path d="M 125 103.63 L 125 66.37" fill="none" stroke="#000000" stroke-miterlimit="10" pointer-events="stroke"/>
+        <path d="M 125 108.88 L 121.5 101.88 L 125 103.63 L 128.5 101.88 Z" fill="#000000" stroke="#000000" stroke-miterlimit="10" pointer-events="all"/>
+        <path d="M 125 61.12 L 128.5 68.12 L 125 66.37 L 121.5 68.12 Z" fill="#000000" stroke="#000000" stroke-miterlimit="10" pointer-events="all"/>
+        <path d="M 125 176.37 L 125 223.63" fill="none" stroke="#000000" stroke-miterlimit="10" stroke-dasharray="3 3" pointer-events="stroke"/>
+        <path d="M 125 171.12 L 128.5 178.12 L 125 176.37 L 121.5 178.12 Z" fill="#000000" stroke="#000000" stroke-miterlimit="10" pointer-events="all"/>
+        <path d="M 125 228.88 L 121.5 221.88 L 125 223.63 L 128.5 221.88 Z" fill="#000000" stroke="#000000" stroke-miterlimit="10" pointer-events="all"/>
+        <path d="M 255.87 107.53 L 363.13 62.47" fill="none" stroke="#000000" stroke-miterlimit="10" stroke-dasharray="3 3" pointer-events="stroke"/>
+        <path d="M 251.03 109.57 L 256.13 103.63 L 255.87 107.53 L 258.84 110.08 Z" fill="#000000" stroke="#000000" stroke-miterlimit="10" pointer-events="all"/>
+        <path d="M 367.97 60.43 L 362.87 66.37 L 363.13 62.47 L 360.16 59.92 Z" fill="#000000" stroke="#000000" stroke-miterlimit="10" pointer-events="all"/>
+        <rect x="0" y="110" width="250" height="60" fill="#ffffff" stroke="#000000" pointer-events="all"/>
+        <g transform="translate(-0.5 -0.5)">
+            <switch>
+                <foreignObject style="overflow: visible; text-align: left;" pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility">
+                    <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 248px; height: 1px; padding-top: 140px; margin-left: 1px;">
+                        <div style="box-sizing: border-box; font-size: 0; text-align: center; ">
+                            <div style="display: inline-block; font-size: 12px; font-family: Helvetica; color: #000000; line-height: 1.2; pointer-events: all; white-space: normal; word-wrap: normal; ">
+                                <b>
+                                    Client Agent
+                                </b>
+                                <br/>
+                                - tracks connected clients
+                                <br/>
+                                - forwards requests to appropriate agents
+                                <br/>
+                                - forwards bundles to clients
+                            </div>
+                        </div>
+                    </div>
+                </foreignObject>
+                <text x="125" y="144" fill="#000000" font-family="Helvetica" font-size="12px" text-anchor="middle">
+                    Client Agent...
+                </text>
+            </switch>
+        </g>
+        <path d="M 417.63 140 L 256.37 140" fill="none" stroke="#000000" stroke-miterlimit="10" pointer-events="stroke"/>
+        <path d="M 422.88 140 L 415.88 143.5 L 417.63 140 L 415.88 136.5 Z" fill="#000000" stroke="#000000" stroke-miterlimit="10" pointer-events="all"/>
+        <path d="M 251.12 140 L 258.12 136.5 L 256.37 140 L 258.12 143.5 Z" fill="#000000" stroke="#000000" stroke-miterlimit="10" pointer-events="all"/>
+        <path d="M 544 103.63 L 544 66.37" fill="none" stroke="#000000" stroke-miterlimit="10" pointer-events="stroke"/>
+        <path d="M 544 108.88 L 540.5 101.88 L 544 103.63 L 547.5 101.88 Z" fill="#000000" stroke="#000000" stroke-miterlimit="10" pointer-events="all"/>
+        <path d="M 544 61.12 L 547.5 68.12 L 544 66.37 L 540.5 68.12 Z" fill="#000000" stroke="#000000" stroke-miterlimit="10" pointer-events="all"/>
+        <rect x="424" y="110" width="240" height="60" fill="#ffffff" stroke="#000000" pointer-events="all"/>
+        <g transform="translate(-0.5 -0.5)">
+            <switch>
+                <foreignObject style="overflow: visible; text-align: left;" pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility">
+                    <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 238px; height: 1px; padding-top: 140px; margin-left: 425px;">
+                        <div style="box-sizing: border-box; font-size: 0; text-align: center; ">
+                            <div style="display: inline-block; font-size: 12px; font-family: Helvetica; color: #000000; line-height: 1.2; pointer-events: all; white-space: normal; word-wrap: normal; ">
+                                <b>
+                                    Bundle Protocol Agent
+                                </b>
+                                <br/>
+                                - tries to move bundles to their destination
+                                <br/>
+                                - individual workers per request
+                                <br/>
+                                - knows the endpoint of the local node
+                            </div>
+                        </div>
+                    </div>
+                </foreignObject>
+                <text x="544" y="144" fill="#000000" font-family="Helvetica" font-size="12px" text-anchor="middle">
+                    Bundle Protocol Agent...
+                </text>
+            </switch>
+        </g>
+        <path d="M 544 213.63 L 544 176.37" fill="none" stroke="#000000" stroke-miterlimit="10" pointer-events="stroke"/>
+        <path d="M 544 218.88 L 540.5 211.88 L 544 213.63 L 547.5 211.88 Z" fill="#000000" stroke="#000000" stroke-miterlimit="10" pointer-events="all"/>
+        <path d="M 544 171.12 L 547.5 178.12 L 544 176.37 L 540.5 178.12 Z" fill="#000000" stroke="#000000" stroke-miterlimit="10" pointer-events="all"/>
+        <rect x="374" y="220" width="340" height="60" fill="#ffffff" stroke="#000000" pointer-events="all"/>
+        <g transform="translate(-0.5 -0.5)">
+            <switch>
+                <foreignObject style="overflow: visible; text-align: left;" pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility">
+                    <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 338px; height: 1px; padding-top: 250px; margin-left: 375px;">
+                        <div style="box-sizing: border-box; font-size: 0; text-align: center; ">
+                            <div style="display: inline-block; font-size: 12px; font-family: Helvetica; color: #000000; line-height: 1.2; pointer-events: all; white-space: normal; word-wrap: normal; ">
+                                <b>
+                                    Convergance Agent
+                                </b>
+                                <br/>
+                                - tracks connected other nodes
+                                <br/>
+                                - forwards incoming bundles between BPA and other nodes
+                                <br/>
+                                - requests connection to other nodes if desired
+                            </div>
+                        </div>
+                    </div>
+                </foreignObject>
+                <text x="544" y="254" fill="#000000" font-family="Helvetica" font-size="12px" text-anchor="middle">
+                    Convergance Agent...
+                </text>
+            </switch>
+        </g>
+        <path d="M 544 313.63 L 544 286.37" fill="none" stroke="#000000" stroke-miterlimit="10" pointer-events="stroke"/>
+        <path d="M 544 318.88 L 540.5 311.88 L 544 313.63 L 547.5 311.88 Z" fill="#000000" stroke="#000000" stroke-miterlimit="10" pointer-events="all"/>
+        <path d="M 544 281.12 L 547.5 288.12 L 544 286.37 L 540.5 288.12 Z" fill="#000000" stroke="#000000" stroke-miterlimit="10" pointer-events="all"/>
+        <rect x="429.5" y="320" width="229" height="60" fill="#ffffff" stroke="#000000" pointer-events="all"/>
+        <g transform="translate(-0.5 -0.5)">
+            <switch>
+                <foreignObject style="overflow: visible; text-align: left;" pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility">
+                    <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 227px; height: 1px; padding-top: 350px; margin-left: 431px;">
+                        <div style="box-sizing: border-box; font-size: 0; text-align: center; ">
+                            <div style="display: inline-block; font-size: 12px; font-family: Helvetica; color: #000000; line-height: 1.2; pointer-events: all; white-space: normal; word-wrap: normal; ">
+                                <b>
+                                    TCPCL Agent
+                                </b>
+                                <br/>
+                                - connects to other nodes via TCPCL
+                                <br/>
+                                - individual worker per client connection
+                            </div>
+                        </div>
+                    </div>
+                </foreignObject>
+                <text x="544" y="354" fill="#000000" font-family="Helvetica" font-size="12px" text-anchor="middle">
+                    TCPCL Agent...
+                </text>
+            </switch>
+        </g>
+        <path d="M 253.87 256.92 L 367.63 254.21" fill="none" stroke="#000000" stroke-miterlimit="10" pointer-events="stroke"/>
+        <path d="M 248.62 257.05 L 255.53 253.38 L 253.87 256.92 L 255.7 260.38 Z" fill="#000000" stroke="#000000" stroke-miterlimit="10" pointer-events="all"/>
+        <path d="M 372.88 254.08 L 365.97 257.75 L 367.63 254.21 L 365.8 250.75 Z" fill="#000000" stroke="#000000" stroke-miterlimit="10" pointer-events="all"/>
+        <path d="M 253.53 227.96 L 418.97 172.04" fill="none" stroke="#000000" stroke-miterlimit="10" pointer-events="stroke"/>
+        <path d="M 248.56 229.64 L 254.07 224.08 L 253.53 227.96 L 256.31 230.72 Z" fill="#000000" stroke="#000000" stroke-miterlimit="10" pointer-events="all"/>
+        <path d="M 423.94 170.36 L 418.43 175.92 L 418.97 172.04 L 416.19 169.28 Z" fill="#000000" stroke="#000000" stroke-miterlimit="10" pointer-events="all"/>
+        <rect x="2.5" y="230" width="245" height="60" fill="#ffffff" stroke="#000000" pointer-events="all"/>
+        <g transform="translate(-0.5 -0.5)">
+            <switch>
+                <foreignObject style="overflow: visible; text-align: left;" pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility">
+                    <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 243px; height: 1px; padding-top: 260px; margin-left: 4px;">
+                        <div style="box-sizing: border-box; font-size: 0; text-align: center; ">
+                            <div style="display: inline-block; font-size: 12px; font-family: Helvetica; color: #000000; line-height: 1.2; pointer-events: all; white-space: normal; word-wrap: normal; ">
+                                <b>
+                                    Routing Agent
+                                </b>
+                                <br/>
+                                - tracks current and future routes
+                                <br/>
+                                - tracks node connection methods
+                                <br/>
+                                - regularly tries connetion to expected nodes
+                            </div>
+                        </div>
+                    </div>
+                </foreignObject>
+                <text x="125" y="264" fill="#000000" font-family="Helvetica" font-size="12px" text-anchor="middle">
+                    Routing Agent...
+                </text>
+            </switch>
+        </g>
+    </g>
+    <switch>
+        <g requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility"/>
+        <a transform="translate(0,-5)" xlink:href="https://www.diagrams.net/doc/faq/svg-export-text-problems" target="_blank">
+            <text text-anchor="middle" font-size="10px" x="50%" y="100%">
+                Viewer does not support full SVG 1.1
+            </text>
+        </a>
+    </switch>
+</svg>
