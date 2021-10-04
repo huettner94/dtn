@@ -28,7 +28,7 @@ impl Stream for ListenBundleResponseTransformer {
         match self.rec.poll_recv(cx) {
             Poll::Ready(Some(blr)) => {
                 let lbr = bundleservice::ListenBundleResponse {
-                    source: format!("{:?}", blr.endpoint),
+                    source: blr.endpoint.to_string(),
                     payload: blr.data,
                 };
                 Poll::Ready(Some(Ok(lbr)))
