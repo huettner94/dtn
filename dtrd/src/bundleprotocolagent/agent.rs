@@ -11,9 +11,9 @@ use bp7::{
 };
 use log::{debug, info, warn};
 use std::collections::HashMap;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc, oneshot};
 
-use crate::shutdown::Shutdown;
+use crate::{bundlestorageagent::messages::BSARequest, shutdown::Shutdown};
 
 use super::messages::{BPARequest, ListenBundlesResponse};
 
@@ -30,23 +30,27 @@ struct BundleProcessing {
 }
 
 pub struct Daemon {
-    todo: Vec<BundleProcessing>,
     endpoint: Endpoint,
     channel_receiver: Option<mpsc::Receiver<BPARequest>>,
+    bsa_sender: Option<mpsc::Sender<BSARequest>>,
     clients: HashMap<Endpoint, mpsc::Sender<ListenBundlesResponse>>,
 }
 
 impl Daemon {
     pub fn new() -> Self {
         Daemon {
-            todo: Vec::new(),
             endpoint: Endpoint::new(&"dtn://itsme").unwrap(),
             channel_receiver: None,
+            bsa_sender: None,
             clients: HashMap::new(),
         }
     }
 
-    pub fn init_channel(&mut self) -> mpsc::Sender<BPARequest> {
+    pub fn init_channels(
+        &mut self,
+        bsa_sender: mpsc::Sender<BSARequest>,
+    ) -> mpsc::Sender<BPARequest> {
+        self.bsa_sender = Some(bsa_sender);
         let (channel_sender, channel_receiver) = mpsc::channel::<BPARequest>(1);
         self.channel_receiver = Some(channel_receiver);
         return channel_sender;
@@ -57,7 +61,7 @@ impl Daemon {
         shutdown_signal: broadcast::Receiver<()>,
         _sender: mpsc::Sender<()>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        if self.channel_receiver.is_none() {
+        if self.channel_receiver.is_none() || self.bsa_sender.is_none() {
             panic!("Must call init_cannel before calling run (also run may only be called once)");
         }
         info!("BPA starting...");
@@ -134,13 +138,36 @@ impl Daemon {
                 };
 
                 self.clients.insert(destination.clone(), responder);
-                let mut i = 0;
-                while i < self.todo.len() {
-                    if self.todo[i].bundle.primary_block.destination_endpoint == destination {
-                        let bundle = self.todo.remove(i);
-                        self.dispatch_bundle(bundle).await;
-                    } else {
-                        i += 1;
+
+                let (response_sender, response_receiver) = oneshot::channel();
+                if let Err(e) = self
+                    .bsa_sender
+                    .as_ref()
+                    .unwrap()
+                    .send(BSARequest::GetBundleForDestination {
+                        destination,
+                        bundles: response_sender,
+                    })
+                    .await
+                {
+                    warn!("Error sending request to bsa {:?}", e);
+                };
+
+                match response_receiver.await {
+                    Ok(Ok(bundles)) => {
+                        for bundle in bundles {
+                            self.dispatch_bundle(BundleProcessing {
+                                bundle,
+                                bundle_constraint: None,
+                            })
+                            .await;
+                        }
+                    }
+                    Ok(Err(e)) => {
+                        warn!("Error receiving response from bsa {:?}", e);
+                    }
+                    Err(e) => {
+                        warn!("Error receiving response from bsa {:?}", e);
                     }
                 }
             }
@@ -189,13 +216,28 @@ impl Daemon {
                 Ok(_) => {}
                 Err(_) => {
                     info!("Some issue appeared during local delivery. Adding to todo list.");
-                    self.todo.push(bundle);
+                    self.store_bundle(bundle).await;
                 }
             };
         } else {
             info!("Bundle is not for me. adding to todo list {:?}", &bundle);
-            self.todo.push(bundle);
+            self.store_bundle(bundle).await;
         }
+    }
+
+    async fn store_bundle(&self, bundle: BundleProcessing) {
+        let sender = self.bsa_sender.as_ref().unwrap();
+        if let Err(e) = sender
+            .send(BSARequest::StoreBundle {
+                bundle: bundle.bundle,
+            })
+            .await
+        {
+            warn!(
+                "Error during sending the bundle to the BSA for storage {:?}",
+                e
+            );
+        };
     }
 
     fn forward_bundle(&self, mut bundle: BundleProcessing) {

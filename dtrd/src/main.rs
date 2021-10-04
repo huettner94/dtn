@@ -4,6 +4,7 @@ use tokio::sync::{broadcast, mpsc};
 
 mod apiagent;
 mod bundleprotocolagent;
+mod bundlestorageagent;
 mod shutdown;
 
 #[tokio::main]
@@ -18,8 +19,11 @@ async fn runserver(ctrl_c: impl Future) -> Result<(), Box<dyn std::error::Error>
     let (notify_shutdown, _) = broadcast::channel::<()>(1);
     let (shutdown_complete_tx, mut shutdown_complete_rx) = mpsc::channel::<()>(1);
 
+    let mut bundle_storage_agent = bundlestorageagent::agent::Daemon::new();
+    let bsa_sender = bundle_storage_agent.init_channels();
+
     let mut bundle_protocol_agent = bundleprotocolagent::agent::Daemon::new();
-    let bpa_sender = bundle_protocol_agent.init_channel();
+    let bpa_sender = bundle_protocol_agent.init_channels(bsa_sender.clone());
 
     let bpa_task_shutdown_notifier = notify_shutdown.subscribe();
     let bpa_task_shutdown_complete_tx_task = shutdown_complete_tx.clone();
@@ -28,6 +32,21 @@ async fn runserver(ctrl_c: impl Future) -> Result<(), Box<dyn std::error::Error>
             .run(
                 bpa_task_shutdown_notifier,
                 bpa_task_shutdown_complete_tx_task,
+            )
+            .await
+        {
+            Ok(_) => Ok(()),
+            Err(e) => Err(e.to_string()),
+        }
+    });
+
+    let bsa_task_shutdown_notifier = notify_shutdown.subscribe();
+    let bsa_task_shutdown_complete_tx_task = shutdown_complete_tx.clone();
+    let bsa_task = tokio::spawn(async move {
+        match bundle_storage_agent
+            .run(
+                bsa_task_shutdown_notifier,
+                bsa_task_shutdown_complete_tx_task,
             )
             .await
         {
@@ -61,6 +80,11 @@ async fn runserver(ctrl_c: impl Future) -> Result<(), Box<dyn std::error::Error>
         res = bpa_task => {
             if let Ok(Err(e)) = res {
                 info!("something bad happened with the bpa agent {:?}. Aborting...", e);
+            }
+        }
+        res = bsa_task => {
+            if let Ok(Err(e)) = res {
+                info!("something bad happened with the bsa agent {:?}. Aborting...", e);
             }
         }
         _ = ctrl_c => {
