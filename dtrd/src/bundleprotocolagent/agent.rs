@@ -10,7 +10,7 @@ use bp7::{
     primaryblock::PrimaryBlock,
     time::{CreationTimestamp, DtnTime},
 };
-use log::{debug, info, warn};
+use log::{debug, error, info};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{
@@ -66,7 +66,9 @@ impl crate::common::agent::Daemon for Daemon {
                 self.transmit_bundle(destination, payload, lifetime).await;
             }
             BPARequest::IsEndpointLocal { endpoint, sender } => {
-                sender.send(self.endpoint.matches_node(&endpoint));
+                if let Err(e) = sender.send(self.endpoint.matches_node(&endpoint)) {
+                    error!("Error sending response to requestor {:?}", e);
+                }
             }
             BPARequest::NewClientConnected { destination } => {
                 let (response_sender, response_receiver) = oneshot::channel();
@@ -80,7 +82,7 @@ impl crate::common::agent::Daemon for Daemon {
                     })
                     .await
                 {
-                    warn!("Error sending request to bsa {:?}", e);
+                    error!("Error sending request to bsa {:?}", e);
                 };
 
                 match response_receiver.await {
@@ -90,10 +92,10 @@ impl crate::common::agent::Daemon for Daemon {
                         }
                     }
                     Ok(Err(e)) => {
-                        warn!("Error receiving response from bsa {:?}", e);
+                        error!("Error receiving response from bsa {:?}", e);
                     }
                     Err(e) => {
-                        warn!("Error receiving response from bsa {:?}", e);
+                        error!("Error receiving response from bsa {:?}", e);
                     }
                 }
             }
@@ -169,7 +171,7 @@ impl Daemon {
     async fn store_bundle(&self, bundle: Bundle) {
         let sender = self.bsa_sender.as_ref().unwrap();
         if let Err(e) = sender.send(BSARequest::StoreBundle { bundle }).await {
-            warn!(
+            error!(
                 "Error during sending the bundle to the BSA for storage {:?}",
                 e
             );
@@ -237,14 +239,14 @@ impl Daemon {
             })
             .await
         {
-            warn!("Error sending request to Client Agent: {:?}", e);
+            error!("Error sending request to Client Agent: {:?}", e);
             return None;
         }
 
         match responder_receiver.await {
             Ok(s) => s,
             Err(e) => {
-                warn!("Error receiving response from Client Agent: {:?}", e);
+                error!("Error receiving response from Client Agent: {:?}", e);
                 None
             }
         }

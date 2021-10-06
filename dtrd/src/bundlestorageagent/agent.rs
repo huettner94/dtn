@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use bp7::bundle::Bundle;
-use log::{debug, warn};
+use log::{debug, error, warn};
 use tokio::sync::mpsc;
 
 use super::messages::BSARequest;
@@ -63,7 +63,7 @@ impl crate::common::agent::Daemon for Daemon {
                     destination
                 );
                 if let Err(e) = bundles.send(Ok(ret)) {
-                    warn!("Error sending bundles to sender {:?}", e);
+                    error!("Error sending bundles to sender {:?}", e);
                 }
             }
         }

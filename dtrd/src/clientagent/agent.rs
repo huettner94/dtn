@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use async_trait::async_trait;
 use bp7::endpoint::Endpoint;
-use log::{info, warn};
+use log::{error, info, warn};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::bundleprotocolagent::messages::BPARequest;
@@ -59,7 +59,7 @@ impl crate::common::agent::Daemon for Daemon {
                     })
                     .await
                 {
-                    warn!("Error sending bundle send request to BPA: {:?}", e);
+                    error!("Error sending bundle send request to BPA: {:?}", e);
                 }
             }
             ClientAgentRequest::ClientListenBundles {
@@ -77,8 +77,10 @@ impl crate::common::agent::Daemon for Daemon {
                     })
                     .await
                 {
-                    warn!("Error sending is_endpoint_local to BPA: {:?}", e);
-                    status.send(Err("internal error".to_string()));
+                    error!("Error sending is_endpoint_local to BPA: {:?}", e);
+                    if let Err(e) = status.send(Err("internal error".to_string())) {
+                        error!("Error sending response to requestor {:?}", e);
+                    }
                     return;
                 }
 
@@ -86,14 +88,18 @@ impl crate::common::agent::Daemon for Daemon {
                     Ok(true) => {}
                     Ok(false) => {
                         warn!("User attempted to register with endpoint not bound here.");
-                        status.send(Err(
-                            "Endpoint invalid for this BundleProtocolAgent".to_string()
-                        ));
+                        if let Err(e) = status.send(Err(
+                            "Endpoint invalid for this BundleProtocolAgent".to_string(),
+                        )) {
+                            error!("Error sending response to requestor {:?}", e);
+                        }
                         return;
                     }
                     Err(e) => {
-                        warn!("Error receiving is_endpoint_local from BPA: {:?}", e);
-                        status.send(Err("internal error".to_string()));
+                        error!("Error receiving is_endpoint_local from BPA: {:?}", e);
+                        if let Err(e) = status.send(Err("internal error".to_string())) {
+                            error!("Error sending response to requestor {:?}", e);
+                        }
                         return;
                     }
                 }
@@ -103,9 +109,12 @@ impl crate::common::agent::Daemon for Daemon {
                     .send(BPARequest::NewClientConnected { destination })
                     .await
                 {
-                    warn!("Error sending bundle send request to BPA: {:?}", e);
+                    error!("Error sending bundle send request to BPA: {:?}", e);
                 }
-                status.send(Ok(()));
+
+                if let Err(e) = status.send(Ok(())) {
+                    error!("Error sending response to requestor {:?}", e);
+                }
             }
             ClientAgentRequest::AgentGetClient {
                 destination,
