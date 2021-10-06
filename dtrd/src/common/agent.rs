@@ -14,6 +14,8 @@ pub trait Daemon {
 
     fn get_channel_receiver(&mut self) -> Option<mpsc::Receiver<Self::MessageType>>;
 
+    fn validate(&self) {}
+
     async fn run(
         &mut self,
         shutdown_signal: broadcast::Receiver<()>,
@@ -23,6 +25,7 @@ pub trait Daemon {
         if channel_receiver.is_none() {
             panic!("Must call init_cannel before calling run (also run may only be called once)");
         }
+        self.validate();
         info!("{} starting...", self.get_agent_name());
 
         let mut shutdown = Shutdown::new(shutdown_signal);

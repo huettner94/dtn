@@ -11,18 +11,20 @@ use bp7::{
     time::{CreationTimestamp, DtnTime},
 };
 use log::{debug, info, warn};
-use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::bundlestorageagent::messages::BSARequest;
+use crate::{
+    bundlestorageagent::messages::BSARequest,
+    clientagent::messages::{ClientAgentRequest, ListenBundlesResponse},
+};
 
-use super::messages::{BPARequest, ListenBundlesResponse};
+use super::messages::BPARequest;
 
 pub struct Daemon {
     endpoint: Endpoint,
     channel_receiver: Option<mpsc::Receiver<BPARequest>>,
     bsa_sender: Option<mpsc::Sender<BSARequest>>,
-    clients: HashMap<Endpoint, mpsc::Sender<ListenBundlesResponse>>,
+    client_agent_sender: Option<mpsc::Sender<ClientAgentRequest>>,
 }
 
 #[async_trait]
@@ -34,7 +36,7 @@ impl crate::common::agent::Daemon for Daemon {
             endpoint: Endpoint::new(&"dtn://itsme").unwrap(),
             channel_receiver: None,
             bsa_sender: None,
-            clients: HashMap::new(),
+            client_agent_sender: None,
         }
     }
 
@@ -46,11 +48,11 @@ impl crate::common::agent::Daemon for Daemon {
         self.channel_receiver.take()
     }
 
-    async fn on_shutdown(&mut self) {
-        info!("Closing all client agent channels");
-        for (client_endpoint, client_sender) in self.clients.drain() {
-            drop(client_sender);
-            info!("Closed agent channel for {:?}", client_endpoint);
+    fn validate(&self) {
+        if self.client_agent_sender.is_none() {
+            panic!(
+                "Must call set_client_agent before calling run (also run may only be called once)"
+            );
         }
     }
 
@@ -63,34 +65,10 @@ impl crate::common::agent::Daemon for Daemon {
             } => {
                 self.transmit_bundle(destination, payload, lifetime).await;
             }
-            BPARequest::ListenBundles {
-                destination,
-                responder,
-                status,
-            } => {
-                info!("Registering new client for endpoint {}", destination);
-
-                if !self.endpoint.matches_node(&destination) {
-                    warn!("User attempted to register with endpoint not bound here.");
-                    if let Err(e) = status.send(Err(
-                        "Endpoint invalid for this BundleProtocolAgent".to_string(),
-                    )) {
-                        panic!(
-                            "some error happened when responding to the apiagent {:?}",
-                            e
-                        );
-                    };
-                    return;
-                }
-                if let Err(e) = status.send(Ok(())) {
-                    panic!(
-                        "some error happened when responding to the apiagent {:?}",
-                        e
-                    );
-                };
-
-                self.clients.insert(destination.clone(), responder);
-
+            BPARequest::IsEndpointLocal { endpoint, sender } => {
+                sender.send(self.endpoint.matches_node(&endpoint));
+            }
+            BPARequest::NewClientConnected { destination } => {
                 let (response_sender, response_receiver) = oneshot::channel();
                 if let Err(e) = self
                     .bsa_sender
@@ -132,6 +110,13 @@ impl Daemon {
         let (channel_sender, channel_receiver) = mpsc::channel::<BPARequest>(1);
         self.channel_receiver = Some(channel_receiver);
         return channel_sender;
+    }
+
+    pub fn set_client_agent(
+        &mut self,
+        client_agent_sender: tokio::sync::mpsc::Sender<ClientAgentRequest>,
+    ) {
+        self.client_agent_sender = Some(client_agent_sender);
     }
 
     async fn transmit_bundle(&mut self, destination: Endpoint, data: Vec<u8>, lifetime: u64) {
@@ -206,11 +191,15 @@ impl Daemon {
     async fn local_delivery(&mut self, bundle: &Bundle) -> Result<(), ()> {
         debug!("locally delivering bundle {:?}", &bundle);
         if bundle.primary_block.fragment_offset.is_some() {
-            warn!("Bundle is a fragment. No idea what to do");
-            return Err(());
+            panic!("Bundle is a fragment. No idea what to do");
+            //TODO
         }
+
         //TODO: send status report if reqeusted
-        if let Some(sender) = self.clients.get(&bundle.primary_block.destination_endpoint) {
+        if let Some(sender) = self
+            .get_connected_client(bundle.primary_block.destination_endpoint.clone())
+            .await
+        {
             let result = sender
                 .send(ListenBundlesResponse {
                     data: bundle.payload_block().data,
@@ -223,8 +212,6 @@ impl Daemon {
                     Ok(())
                 }
                 Err(_) => {
-                    self.clients
-                        .remove(&bundle.primary_block.destination_endpoint);
                     info!("Local agent not available. Bundle queued.");
                     Err(())
                 }
@@ -232,6 +219,34 @@ impl Daemon {
         } else {
             info!("No local agent registered for endpoint. Bundle queued.");
             Err(())
+        }
+    }
+
+    async fn get_connected_client(
+        &self,
+        endpoint: Endpoint,
+    ) -> Option<mpsc::Sender<ListenBundlesResponse>> {
+        let (responder_sender, responder_receiver) =
+            oneshot::channel::<Option<mpsc::Sender<ListenBundlesResponse>>>();
+
+        let client_agent = self.client_agent_sender.as_ref().unwrap();
+        if let Err(e) = client_agent
+            .send(ClientAgentRequest::AgentGetClient {
+                destination: endpoint,
+                responder: responder_sender,
+            })
+            .await
+        {
+            warn!("Error sending request to Client Agent: {:?}", e);
+            return None;
+        }
+
+        match responder_receiver.await {
+            Ok(s) => s,
+            Err(e) => {
+                warn!("Error receiving response from Client Agent: {:?}", e);
+                None
+            }
         }
     }
 }

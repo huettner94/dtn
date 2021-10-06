@@ -1,9 +1,7 @@
 use async_trait::async_trait;
 use bp7::bundle::Bundle;
-use log::{debug, info, warn};
-use tokio::sync::{broadcast, mpsc};
-
-use crate::shutdown::Shutdown;
+use log::{debug, warn};
+use tokio::sync::mpsc;
 
 use super::messages::BSARequest;
 

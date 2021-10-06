@@ -1,11 +1,5 @@
 use bp7::endpoint::Endpoint;
-use tokio::sync::{mpsc, oneshot};
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct ListenBundlesResponse {
-    pub endpoint: Endpoint,
-    pub data: Vec<u8>,
-}
+use tokio::sync::oneshot;
 
 #[derive(Debug)]
 pub enum BPARequest {
@@ -14,9 +8,11 @@ pub enum BPARequest {
         payload: Vec<u8>,
         lifetime: u64,
     },
-    ListenBundles {
+    IsEndpointLocal {
+        endpoint: Endpoint,
+        sender: oneshot::Sender<bool>,
+    },
+    NewClientConnected {
         destination: Endpoint,
-        responder: mpsc::Sender<ListenBundlesResponse>,
-        status: oneshot::Sender<Result<(), String>>,
     },
 }

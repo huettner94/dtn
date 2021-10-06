@@ -5,6 +5,7 @@ use tokio::sync::{broadcast, mpsc};
 mod apiagent;
 mod bundleprotocolagent;
 mod bundlestorageagent;
+mod clientagent;
 mod common;
 mod shutdown;
 
@@ -27,6 +28,11 @@ async fn runserver(ctrl_c: impl Future) -> Result<(), Box<dyn std::error::Error>
 
     let mut bundle_protocol_agent = bundleprotocolagent::agent::Daemon::new();
     let bpa_sender = bundle_protocol_agent.init_channels(bsa_sender.clone());
+
+    let mut client_agent = clientagent::agent::Daemon::new();
+    let client_agent_sender = client_agent.init_channels(bpa_sender.clone());
+
+    bundle_protocol_agent.set_client_agent(client_agent_sender.clone());
 
     let bpa_task_shutdown_notifier = notify_shutdown.subscribe();
     let bpa_task_shutdown_complete_tx_task = shutdown_complete_tx.clone();
@@ -58,14 +64,29 @@ async fn runserver(ctrl_c: impl Future) -> Result<(), Box<dyn std::error::Error>
         }
     });
 
+    let client_agent_task_shutdown_notifier = notify_shutdown.subscribe();
+    let client_agent_task_shutdown_complete_tx_task = shutdown_complete_tx.clone();
+    let client_agent_task = tokio::spawn(async move {
+        match client_agent
+            .run(
+                client_agent_task_shutdown_notifier,
+                client_agent_task_shutdown_complete_tx_task,
+            )
+            .await
+        {
+            Ok(_) => Ok(()),
+            Err(e) => Err(e.to_string()),
+        }
+    });
+
     let api_agent_task_shutdown_notifier = notify_shutdown.subscribe();
     let api_agent_task_shutdown_complete_tx_task = shutdown_complete_tx.clone();
-    let api_agent_task_bpa_sender = bpa_sender.clone();
+    let api_agent_task_client_agent_sender = client_agent_sender.clone();
     let api_agent_task = tokio::spawn(async move {
         match apiagent::main(
             api_agent_task_shutdown_notifier,
             api_agent_task_shutdown_complete_tx_task,
-            api_agent_task_bpa_sender,
+            api_agent_task_client_agent_sender,
         )
         .await
         {
@@ -88,6 +109,11 @@ async fn runserver(ctrl_c: impl Future) -> Result<(), Box<dyn std::error::Error>
         res = bsa_task => {
             if let Ok(Err(e)) = res {
                 info!("something bad happened with the bsa agent {:?}. Aborting...", e);
+            }
+        }
+        res = client_agent_task => {
+            if let Ok(Err(e)) = res {
+                info!("something bad happened with the client agent {:?}. Aborting...", e);
             }
         }
         _ = ctrl_c => {

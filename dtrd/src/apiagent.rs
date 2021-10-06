@@ -7,7 +7,7 @@ use log::info;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tonic::{transport::Server, Response, Status};
 
-use crate::bundleprotocolagent::messages::{BPARequest, ListenBundlesResponse};
+use crate::clientagent::messages::{ClientAgentRequest, ListenBundlesResponse};
 use bp7::endpoint::Endpoint;
 
 mod bundleservice {
@@ -40,7 +40,7 @@ impl Stream for ListenBundleResponseTransformer {
 }
 
 pub struct MyBundleService {
-    bpa_sender: mpsc::Sender<BPARequest>,
+    client_agent_sender: mpsc::Sender<ClientAgentRequest>,
 }
 
 #[tonic::async_trait]
@@ -51,14 +51,14 @@ impl BundleService for MyBundleService {
     ) -> Result<tonic::Response<bundleservice::SubmitBundleRespone>, tonic::Status> {
         let req = request.into_inner();
 
-        let msg = BPARequest::SendBundle {
+        let msg = ClientAgentRequest::ClientSendBundle {
             destination: Endpoint::new(&req.destination)
                 .ok_or_else(|| tonic::Status::invalid_argument("destination invalid"))?,
             payload: req.payload,
             lifetime: req.lifetime,
         };
 
-        self.bpa_sender
+        self.client_agent_sender
             .send(msg)
             .await
             .map_err(|e| tonic::Status::unknown(e.to_string()))?;
@@ -78,14 +78,14 @@ impl BundleService for MyBundleService {
         let (channel_sender, channel_receiver) = mpsc::channel(1);
         let (status_sender, status_receiver) = oneshot::channel();
 
-        let msg = BPARequest::ListenBundles {
+        let msg = ClientAgentRequest::ClientListenBundles {
             destination: Endpoint::new(&req.endpoint)
                 .ok_or_else(|| tonic::Status::invalid_argument("listen endpoint invalid"))?,
             responder: channel_sender,
             status: status_sender,
         };
 
-        self.bpa_sender
+        self.client_agent_sender
             .send(msg)
             .await
             .map_err(|e| tonic::Status::unknown(e.to_string()))?;
@@ -105,11 +105,11 @@ impl BundleService for MyBundleService {
 pub async fn main(
     mut shutdown: broadcast::Receiver<()>,
     _sender: mpsc::Sender<()>,
-    bpa_sender: mpsc::Sender<BPARequest>,
+    client_agent_sender: mpsc::Sender<ClientAgentRequest>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let addr = "[::1]:50051".parse().unwrap();
     let echo = MyBundleService {
-        bpa_sender: bpa_sender.clone(),
+        client_agent_sender: client_agent_sender.clone(),
     };
 
     info!("Server listening on {}", addr);
