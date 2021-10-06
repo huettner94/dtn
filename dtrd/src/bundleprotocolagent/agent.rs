@@ -63,41 +63,14 @@ impl crate::common::agent::Daemon for Daemon {
                 payload,
                 lifetime,
             } => {
-                self.transmit_bundle(destination, payload, lifetime).await;
+                self.message_send_bundle(destination, payload, lifetime)
+                    .await;
             }
             BPARequest::IsEndpointLocal { endpoint, sender } => {
-                if let Err(e) = sender.send(self.endpoint.matches_node(&endpoint)) {
-                    error!("Error sending response to requestor {:?}", e);
-                }
+                self.message_is_endpoint_local(endpoint, sender).await;
             }
             BPARequest::NewClientConnected { destination } => {
-                let (response_sender, response_receiver) = oneshot::channel();
-                if let Err(e) = self
-                    .bsa_sender
-                    .as_ref()
-                    .unwrap()
-                    .send(BSARequest::GetBundleForDestination {
-                        destination,
-                        bundles: response_sender,
-                    })
-                    .await
-                {
-                    error!("Error sending request to bsa {:?}", e);
-                };
-
-                match response_receiver.await {
-                    Ok(Ok(bundles)) => {
-                        for bundle in bundles {
-                            self.dispatch_bundle(bundle).await;
-                        }
-                    }
-                    Ok(Err(e)) => {
-                        error!("Error receiving response from bsa {:?}", e);
-                    }
-                    Err(e) => {
-                        error!("Error receiving response from bsa {:?}", e);
-                    }
-                }
+                self.message_new_client_connected(destination).await;
             }
         }
     }
@@ -121,7 +94,47 @@ impl Daemon {
         self.client_agent_sender = Some(client_agent_sender);
     }
 
-    async fn transmit_bundle(&mut self, destination: Endpoint, data: Vec<u8>, lifetime: u64) {
+    async fn message_send_bundle(&self, destination: Endpoint, payload: Vec<u8>, lifetime: u64) {
+        self.transmit_bundle(destination, payload, lifetime).await;
+    }
+
+    async fn message_is_endpoint_local(&self, endpoint: Endpoint, sender: oneshot::Sender<bool>) {
+        if let Err(e) = sender.send(self.endpoint.matches_node(&endpoint)) {
+            error!("Error sending response to requestor {:?}", e);
+        }
+    }
+
+    async fn message_new_client_connected(&self, destination: Endpoint) {
+        let (response_sender, response_receiver) = oneshot::channel();
+        if let Err(e) = self
+            .bsa_sender
+            .as_ref()
+            .unwrap()
+            .send(BSARequest::GetBundleForDestination {
+                destination,
+                bundles: response_sender,
+            })
+            .await
+        {
+            error!("Error sending request to bsa {:?}", e);
+        };
+
+        match response_receiver.await {
+            Ok(Ok(bundles)) => {
+                for bundle in bundles {
+                    self.dispatch_bundle(bundle).await;
+                }
+            }
+            Ok(Err(e)) => {
+                error!("Error receiving response from bsa {:?}", e);
+            }
+            Err(e) => {
+                error!("Error receiving response from bsa {:?}", e);
+            }
+        }
+    }
+
+    async fn transmit_bundle(&self, destination: Endpoint, data: Vec<u8>, lifetime: u64) {
         let bundle = Bundle {
             primary_block: PrimaryBlock {
                 version: 7,
@@ -149,7 +162,7 @@ impl Daemon {
         self.dispatch_bundle(bundle).await;
     }
 
-    async fn dispatch_bundle(&mut self, bundle: Bundle) {
+    async fn dispatch_bundle(&self, bundle: Bundle) {
         if bundle
             .primary_block
             .destination_endpoint
@@ -190,7 +203,7 @@ impl Daemon {
         self.dispatch_bundle(bundle).await;
     }
 
-    async fn local_delivery(&mut self, bundle: &Bundle) -> Result<(), ()> {
+    async fn local_delivery(&self, bundle: &Bundle) -> Result<(), ()> {
         debug!("locally delivering bundle {:?}", &bundle);
         if bundle.primary_block.fragment_offset.is_some() {
             panic!("Bundle is a fragment. No idea what to do");

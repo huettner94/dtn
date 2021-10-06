@@ -1,7 +1,7 @@
 use async_trait::async_trait;
-use bp7::bundle::Bundle;
+use bp7::{bundle::Bundle, endpoint::Endpoint};
 use log::{debug, error, warn};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 use super::messages::BSARequest;
 
@@ -41,30 +41,14 @@ impl crate::common::agent::Daemon for Daemon {
     async fn handle_message(&mut self, msg: BSARequest) {
         match msg {
             BSARequest::StoreBundle { bundle } => {
-                debug!("Storing Bundle {:?} for later", bundle);
-                self.bundles.push(bundle);
+                self.message_store_bundle(bundle).await;
             }
             BSARequest::GetBundleForDestination {
                 destination,
                 bundles,
             } => {
-                let mut ret = Vec::new();
-                let mut i = 0;
-                while i < self.bundles.len() {
-                    if self.bundles[i].primary_block.destination_endpoint == destination {
-                        ret.push(self.bundles.remove(i));
-                    } else {
-                        i += 1;
-                    }
-                }
-                debug!(
-                    "Returning {} bundles for destination {}",
-                    ret.len(),
-                    destination
-                );
-                if let Err(e) = bundles.send(Ok(ret)) {
-                    error!("Error sending bundles to sender {:?}", e);
-                }
+                self.message_get_bundle_for_destination(destination, bundles)
+                    .await;
             }
         }
     }
@@ -75,5 +59,34 @@ impl Daemon {
         let (channel_sender, channel_receiver) = mpsc::channel::<BSARequest>(1);
         self.channel_receiver = Some(channel_receiver);
         return channel_sender;
+    }
+
+    async fn message_store_bundle(&mut self, bundle: Bundle) {
+        debug!("Storing Bundle {:?} for later", bundle);
+        self.bundles.push(bundle);
+    }
+
+    async fn message_get_bundle_for_destination(
+        &mut self,
+        destination: Endpoint,
+        bundles: oneshot::Sender<Result<Vec<Bundle>, String>>,
+    ) {
+        let mut ret = Vec::new();
+        let mut i = 0;
+        while i < self.bundles.len() {
+            if self.bundles[i].primary_block.destination_endpoint == destination {
+                ret.push(self.bundles.remove(i));
+            } else {
+                i += 1;
+            }
+        }
+        debug!(
+            "Returning {} bundles for destination {}",
+            ret.len(),
+            destination
+        );
+        if let Err(e) = bundles.send(Ok(ret)) {
+            error!("Error sending bundles to sender {:?}", e);
+        }
     }
 }

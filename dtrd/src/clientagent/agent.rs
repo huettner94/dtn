@@ -50,17 +50,8 @@ impl crate::common::agent::Daemon for Daemon {
                 payload,
                 lifetime,
             } => {
-                let sender = self.bpa_sender.as_ref().unwrap();
-                if let Err(e) = sender
-                    .send(BPARequest::SendBundle {
-                        destination,
-                        payload,
-                        lifetime,
-                    })
-                    .await
-                {
-                    error!("Error sending bundle send request to BPA: {:?}", e);
-                }
+                self.message_client_send_bundle(destination, payload, lifetime)
+                    .await;
             }
             ClientAgentRequest::ClientListenBundles {
                 destination,
@@ -68,75 +59,14 @@ impl crate::common::agent::Daemon for Daemon {
                 status,
                 canceltoken,
             } => {
-                let sender = self.bpa_sender.as_ref().unwrap();
-                let (endpoint_local_response_sender, endpoint_local_response_receiver) =
-                    oneshot::channel::<bool>();
-                if let Err(e) = sender
-                    .send(BPARequest::IsEndpointLocal {
-                        endpoint: destination.clone(),
-                        sender: endpoint_local_response_sender,
-                    })
-                    .await
-                {
-                    error!("Error sending is_endpoint_local to BPA: {:?}", e);
-                    if let Err(e) = status.send(Err("internal error".to_string())) {
-                        error!("Error sending response to requestor {:?}", e);
-                    }
-                    return;
-                }
-
-                match endpoint_local_response_receiver.await {
-                    Ok(true) => {}
-                    Ok(false) => {
-                        warn!("User attempted to register with endpoint not bound here.");
-                        if let Err(e) = status.send(Err(
-                            "Endpoint invalid for this BundleProtocolAgent".to_string(),
-                        )) {
-                            error!("Error sending response to requestor {:?}", e);
-                        }
-                        return;
-                    }
-                    Err(e) => {
-                        error!("Error receiving is_endpoint_local from BPA: {:?}", e);
-                        if let Err(e) = status.send(Err("internal error".to_string())) {
-                            error!("Error sending response to requestor {:?}", e);
-                        }
-                        return;
-                    }
-                }
-
-                self.clients
-                    .insert(destination.clone(), (responder.clone(), canceltoken));
-                if let Err(e) = sender
-                    .send(BPARequest::NewClientConnected { destination })
-                    .await
-                {
-                    error!("Error sending bundle send request to BPA: {:?}", e);
-                }
-
-                if let Err(e) = status.send(Ok(())) {
-                    error!("Error sending response to requestor {:?}", e);
-                }
+                self.message_client_listen_bundles(destination, responder, status, canceltoken)
+                    .await;
             }
             ClientAgentRequest::AgentGetClient {
                 destination,
                 responder,
             } => {
-                let resp = match self.clients.get(&destination) {
-                    Some((sender, canceltoken)) => {
-                        if canceltoken.is_canceled() {
-                            info!("Client for endpoint {} already disconnected", destination);
-                            self.clients.remove(&destination);
-                            None
-                        } else {
-                            Some(sender.clone())
-                        }
-                    }
-                    None => None,
-                };
-                if let Err(e) = responder.send(resp) {
-                    warn!("Error sending client get back to requestor: {:?}", e);
-                }
+                self.message_agent_get_client(destination, responder).await;
             }
         }
     }
@@ -151,5 +81,104 @@ impl Daemon {
         let (channel_sender, channel_receiver) = mpsc::channel::<ClientAgentRequest>(1);
         self.channel_receiver = Some(channel_receiver);
         return channel_sender;
+    }
+
+    async fn message_client_send_bundle(
+        &self,
+        destination: Endpoint,
+        payload: Vec<u8>,
+        lifetime: u64,
+    ) {
+        let sender = self.bpa_sender.as_ref().unwrap();
+        if let Err(e) = sender
+            .send(BPARequest::SendBundle {
+                destination,
+                payload,
+                lifetime,
+            })
+            .await
+        {
+            error!("Error sending bundle send request to BPA: {:?}", e);
+        }
+    }
+
+    async fn message_client_listen_bundles(
+        &mut self,
+        destination: Endpoint,
+        responder: mpsc::Sender<ListenBundlesResponse>,
+        status: oneshot::Sender<Result<(), String>>,
+        canceltoken: CancelToken,
+    ) {
+        let sender = self.bpa_sender.as_ref().unwrap();
+        let (endpoint_local_response_sender, endpoint_local_response_receiver) =
+            oneshot::channel::<bool>();
+        if let Err(e) = sender
+            .send(BPARequest::IsEndpointLocal {
+                endpoint: destination.clone(),
+                sender: endpoint_local_response_sender,
+            })
+            .await
+        {
+            error!("Error sending is_endpoint_local to BPA: {:?}", e);
+            if let Err(e) = status.send(Err("internal error".to_string())) {
+                error!("Error sending response to requestor {:?}", e);
+            }
+            return;
+        }
+
+        match endpoint_local_response_receiver.await {
+            Ok(true) => {}
+            Ok(false) => {
+                warn!("User attempted to register with endpoint not bound here.");
+                if let Err(e) = status.send(Err(
+                    "Endpoint invalid for this BundleProtocolAgent".to_string()
+                )) {
+                    error!("Error sending response to requestor {:?}", e);
+                }
+                return;
+            }
+            Err(e) => {
+                error!("Error receiving is_endpoint_local from BPA: {:?}", e);
+                if let Err(e) = status.send(Err("internal error".to_string())) {
+                    error!("Error sending response to requestor {:?}", e);
+                }
+                return;
+            }
+        }
+
+        self.clients
+            .insert(destination.clone(), (responder.clone(), canceltoken));
+        if let Err(e) = sender
+            .send(BPARequest::NewClientConnected { destination })
+            .await
+        {
+            error!("Error sending bundle send request to BPA: {:?}", e);
+        }
+
+        if let Err(e) = status.send(Ok(())) {
+            error!("Error sending response to requestor {:?}", e);
+        }
+    }
+
+    async fn message_agent_get_client(
+        &mut self,
+        destination: Endpoint,
+        responder: oneshot::Sender<Option<mpsc::Sender<ListenBundlesResponse>>>,
+    ) {
+        let resp = match self.clients.get(&destination) {
+            Some((sender, canceltoken)) => {
+                if canceltoken.is_canceled() {
+                    info!("Client for endpoint {} already disconnected", destination);
+                    self.clients.remove(&destination);
+                    None
+                } else {
+                    Some(sender.clone())
+                }
+            }
+            None => None,
+        };
+        if let Err(e) = responder.send(resp) {
+            warn!("Error sending client get back to requestor: {:?}", e);
+        }
     }
 }
