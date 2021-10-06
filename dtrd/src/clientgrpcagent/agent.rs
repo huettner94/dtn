@@ -7,7 +7,10 @@ use log::info;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tonic::{transport::Server, Response, Status};
 
-use crate::clientagent::messages::{ClientAgentRequest, ListenBundlesResponse};
+use crate::{
+    clientagent::messages::{ClientAgentRequest, ListenBundlesResponse},
+    common::canceltoken::CancelToken,
+};
 use bp7::endpoint::Endpoint;
 
 mod bundleservice {
@@ -16,6 +19,7 @@ mod bundleservice {
 
 pub struct ListenBundleResponseTransformer {
     rec: mpsc::Receiver<ListenBundlesResponse>,
+    canceltoken: CancelToken,
 }
 
 impl Stream for ListenBundleResponseTransformer {
@@ -36,6 +40,12 @@ impl Stream for ListenBundleResponseTransformer {
             Poll::Ready(None) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,
         }
+    }
+}
+
+impl Drop for ListenBundleResponseTransformer {
+    fn drop(&mut self) {
+        self.canceltoken.cancel();
     }
 }
 
@@ -78,11 +88,14 @@ impl BundleService for MyBundleService {
         let (channel_sender, channel_receiver) = mpsc::channel(1);
         let (status_sender, status_receiver) = oneshot::channel();
 
+        let canceltoken = CancelToken::new();
+
         let msg = ClientAgentRequest::ClientListenBundles {
             destination: Endpoint::new(&req.endpoint)
                 .ok_or_else(|| tonic::Status::invalid_argument("listen endpoint invalid"))?,
             responder: channel_sender,
             status: status_sender,
+            canceltoken: canceltoken.clone(),
         };
 
         self.client_agent_sender
@@ -98,6 +111,7 @@ impl BundleService for MyBundleService {
 
         return Ok(Response::new(ListenBundleResponseTransformer {
             rec: channel_receiver,
+            canceltoken: canceltoken,
         }));
     }
 }

@@ -1,6 +1,8 @@
 use bp7::endpoint::Endpoint;
 use tokio::sync::{mpsc, oneshot};
 
+use crate::common::canceltoken::CancelToken;
+
 #[derive(Debug)]
 pub struct ListenBundlesResponse {
     pub endpoint: Endpoint,
@@ -18,6 +20,7 @@ pub enum ClientAgentRequest {
         destination: Endpoint,
         responder: mpsc::Sender<ListenBundlesResponse>,
         status: oneshot::Sender<Result<(), String>>,
+        canceltoken: CancelToken,
     },
     AgentGetClient {
         destination: Endpoint,

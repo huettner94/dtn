@@ -5,12 +5,12 @@ use bp7::endpoint::Endpoint;
 use log::{error, info, warn};
 use tokio::sync::{mpsc, oneshot};
 
-use crate::bundleprotocolagent::messages::BPARequest;
+use crate::{bundleprotocolagent::messages::BPARequest, common::canceltoken::CancelToken};
 
 use super::messages::{ClientAgentRequest, ListenBundlesResponse};
 
 pub struct Daemon {
-    clients: HashMap<Endpoint, mpsc::Sender<ListenBundlesResponse>>,
+    clients: HashMap<Endpoint, (mpsc::Sender<ListenBundlesResponse>, CancelToken)>,
     channel_receiver: Option<mpsc::Receiver<ClientAgentRequest>>,
     bpa_sender: Option<mpsc::Sender<BPARequest>>,
 }
@@ -66,6 +66,7 @@ impl crate::common::agent::Daemon for Daemon {
                 destination,
                 responder,
                 status,
+                canceltoken,
             } => {
                 let sender = self.bpa_sender.as_ref().unwrap();
                 let (endpoint_local_response_sender, endpoint_local_response_receiver) =
@@ -104,7 +105,8 @@ impl crate::common::agent::Daemon for Daemon {
                     }
                 }
 
-                self.clients.insert(destination.clone(), responder.clone());
+                self.clients
+                    .insert(destination.clone(), (responder.clone(), canceltoken));
                 if let Err(e) = sender
                     .send(BPARequest::NewClientConnected { destination })
                     .await
@@ -121,7 +123,15 @@ impl crate::common::agent::Daemon for Daemon {
                 responder,
             } => {
                 let resp = match self.clients.get(&destination) {
-                    Some(sender) => Some(sender.clone()),
+                    Some((sender, canceltoken)) => {
+                        if canceltoken.is_canceled() {
+                            info!("Client for endpoint {} already disconnected", destination);
+                            self.clients.remove(&destination);
+                            None
+                        } else {
+                            Some(sender.clone())
+                        }
+                    }
                     None => None,
                 };
                 if let Err(e) = responder.send(resp) {

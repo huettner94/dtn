@@ -2,10 +2,10 @@ use futures_util::Future;
 use log::info;
 use tokio::sync::{broadcast, mpsc};
 
-mod apiagent;
 mod bundleprotocolagent;
 mod bundlestorageagent;
 mod clientagent;
+mod clientgrpcagent;
 mod common;
 mod shutdown;
 
@@ -83,7 +83,7 @@ async fn runserver(ctrl_c: impl Future) -> Result<(), Box<dyn std::error::Error>
     let api_agent_task_shutdown_complete_tx_task = shutdown_complete_tx.clone();
     let api_agent_task_client_agent_sender = client_agent_sender.clone();
     let api_agent_task = tokio::spawn(async move {
-        match apiagent::main(
+        match clientgrpcagent::agent::main(
             api_agent_task_shutdown_notifier,
             api_agent_task_shutdown_complete_tx_task,
             api_agent_task_client_agent_sender,
