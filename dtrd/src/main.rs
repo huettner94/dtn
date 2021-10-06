@@ -5,7 +5,10 @@ use tokio::sync::{broadcast, mpsc};
 mod apiagent;
 mod bundleprotocolagent;
 mod bundlestorageagent;
+mod common;
 mod shutdown;
+
+use crate::common::agent::Daemon;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

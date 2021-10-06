@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use bp7::{
     block::payload_block::PayloadBlock,
     block::{Block, CanonicalBlock},
@@ -11,9 +12,9 @@ use bp7::{
 };
 use log::{debug, info, warn};
 use std::collections::HashMap;
-use tokio::sync::{broadcast, mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot};
 
-use crate::{bundlestorageagent::messages::BSARequest, shutdown::Shutdown};
+use crate::bundlestorageagent::messages::BSARequest;
 
 use super::messages::{BPARequest, ListenBundlesResponse};
 
@@ -24,8 +25,11 @@ pub struct Daemon {
     clients: HashMap<Endpoint, mpsc::Sender<ListenBundlesResponse>>,
 }
 
-impl Daemon {
-    pub fn new() -> Self {
+#[async_trait]
+impl crate::common::agent::Daemon for Daemon {
+    type MessageType = BPARequest;
+
+    fn new() -> Self {
         Daemon {
             endpoint: Endpoint::new(&"dtn://itsme").unwrap(),
             channel_receiver: None,
@@ -34,60 +38,20 @@ impl Daemon {
         }
     }
 
-    pub fn init_channels(
-        &mut self,
-        bsa_sender: mpsc::Sender<BSARequest>,
-    ) -> mpsc::Sender<BPARequest> {
-        self.bsa_sender = Some(bsa_sender);
-        let (channel_sender, channel_receiver) = mpsc::channel::<BPARequest>(1);
-        self.channel_receiver = Some(channel_receiver);
-        return channel_sender;
+    fn get_agent_name(&self) -> &'static str {
+        "BPA"
     }
 
-    pub async fn run(
-        mut self,
-        shutdown_signal: broadcast::Receiver<()>,
-        _sender: mpsc::Sender<()>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        if self.channel_receiver.is_none() || self.bsa_sender.is_none() {
-            panic!("Must call init_cannel before calling run (also run may only be called once)");
-        }
-        info!("BPA starting...");
+    fn get_channel_receiver(&mut self) -> Option<mpsc::Receiver<Self::MessageType>> {
+        self.channel_receiver.take()
+    }
 
-        let mut shutdown = Shutdown::new(shutdown_signal);
-        let mut receiver = self.channel_receiver.take().unwrap();
-
-        while !shutdown.is_shutdown() {
-            tokio::select! {
-                res = receiver.recv() => {
-                    if let Some(msg) = res {
-                        self.handle_message(msg).await;
-                    } else {
-                        info!("BPA can no longer receive messages. Exiting");
-                        return Ok(())
-                    }
-                }
-                _ = shutdown.recv() => {
-                    info!("BPA received shutdown");
-                    receiver.close();
-                    info!("BPA will not allow more requests to be sent");
-                }
-            }
-        }
-
-        while let Some(msg) = receiver.recv().await {
-            self.handle_message(msg).await;
-        }
-
+    async fn on_shutdown(&mut self) {
         info!("Closing all client agent channels");
         for (client_endpoint, client_sender) in self.clients.drain() {
             drop(client_sender);
             info!("Closed agent channel for {:?}", client_endpoint);
         }
-
-        info!("BPA has shutdown. See you");
-        // _sender is explicitly dropped here
-        Ok(())
     }
 
     async fn handle_message(&mut self, msg: BPARequest) {
@@ -156,6 +120,18 @@ impl Daemon {
                 }
             }
         }
+    }
+}
+
+impl Daemon {
+    pub fn init_channels(
+        &mut self,
+        bsa_sender: tokio::sync::mpsc::Sender<BSARequest>,
+    ) -> mpsc::Sender<BPARequest> {
+        self.bsa_sender = Some(bsa_sender);
+        let (channel_sender, channel_receiver) = mpsc::channel::<BPARequest>(1);
+        self.channel_receiver = Some(channel_receiver);
+        return channel_sender;
     }
 
     async fn transmit_bundle(&mut self, destination: Endpoint, data: Vec<u8>, lifetime: u64) {

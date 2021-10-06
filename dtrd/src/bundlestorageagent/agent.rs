@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use bp7::bundle::Bundle;
 use log::{debug, info, warn};
 use tokio::sync::{broadcast, mpsc};
@@ -11,65 +12,32 @@ pub struct Daemon {
     channel_receiver: Option<mpsc::Receiver<BSARequest>>,
 }
 
-impl Daemon {
-    pub fn new() -> Self {
+#[async_trait]
+impl crate::common::agent::Daemon for Daemon {
+    type MessageType = BSARequest;
+
+    fn new() -> Self {
         Daemon {
             bundles: Vec::new(),
             channel_receiver: None,
         }
     }
 
-    pub fn init_channels(&mut self) -> mpsc::Sender<BSARequest> {
-        let (channel_sender, channel_receiver) = mpsc::channel::<BSARequest>(1);
-        self.channel_receiver = Some(channel_receiver);
-        return channel_sender;
+    fn get_agent_name(&self) -> &'static str {
+        "BSA"
     }
 
-    pub async fn run(
-        mut self,
-        shutdown_signal: broadcast::Receiver<()>,
-        _sender: mpsc::Sender<()>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        if self.channel_receiver.is_none() {
-            panic!("Must call init_cannel before calling run (also run may only be called once)");
-        }
-        info!("BSA starting...");
+    fn get_channel_receiver(&mut self) -> Option<mpsc::Receiver<Self::MessageType>> {
+        self.channel_receiver.take()
+    }
 
-        let mut shutdown = Shutdown::new(shutdown_signal);
-        let mut receiver = self.channel_receiver.take().unwrap();
-
-        while !shutdown.is_shutdown() {
-            tokio::select! {
-                res = receiver.recv() => {
-                    if let Some(msg) = res {
-                        self.handle_message(msg).await;
-                    } else {
-                        info!("BSA can no longer receive messages. Exiting");
-                        return Ok(())
-                    }
-                }
-                _ = shutdown.recv() => {
-                    info!("BSA received shutdown");
-                    receiver.close();
-                    info!("BSA will not allow more requests to be sent");
-                }
-            }
-        }
-
-        while let Some(msg) = receiver.recv().await {
-            self.handle_message(msg).await;
-        }
-
+    async fn on_shutdown(&mut self) {
         if self.bundles.len() != 0 {
             warn!(
                 "BSA had {} bundles left over, they will be gone now.",
                 self.bundles.len()
             );
         }
-
-        info!("BSA has shutdown. See you");
-        // _sender is explicitly dropped here
-        Ok(())
     }
 
     async fn handle_message(&mut self, msg: BSARequest) {
@@ -101,5 +69,13 @@ impl Daemon {
                 }
             }
         }
+    }
+}
+
+impl Daemon {
+    pub fn init_channels(&mut self) -> mpsc::Sender<BSARequest> {
+        let (channel_sender, channel_receiver) = mpsc::channel::<BSARequest>(1);
+        self.channel_receiver = Some(channel_receiver);
+        return channel_sender;
     }
 }
