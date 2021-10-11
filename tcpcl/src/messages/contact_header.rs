@@ -1,7 +1,4 @@
-use std::io::Read;
-
 use bitflags::bitflags;
-use log::{debug, info};
 
 use super::{errors::Errors, reader::Reader, transform::Transform};
 
@@ -13,7 +10,7 @@ bitflags! {
 
 const DTN_MAGIC_BYTES: [u8; 4] = [0x64, 0x74, 0x6E, 0x21];
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ContactHeader {
     magic: [u8; 4],
     version: u8,

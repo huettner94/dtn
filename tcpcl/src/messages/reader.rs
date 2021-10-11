@@ -1,6 +1,5 @@
-use log::{debug, info};
 use tokio::{
-    io::{self, AsyncReadExt},
+    io::{self},
     net::TcpStream,
 };
 
