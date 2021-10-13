@@ -5,8 +5,12 @@ use tokio::io::Interest;
 use crate::errors::Errors;
 
 use super::{
-    contact_header::ContactHeader, reader::Reader, sess_init::SessInit, sess_term::SessTerm,
-    transform::Transform, MessageType, Messages,
+    contact_header::ContactHeader,
+    reader::Reader,
+    sess_init::SessInit,
+    sess_term::{ReasonCode, SessTerm},
+    transform::Transform,
+    MessageType, Messages,
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -20,8 +24,10 @@ pub enum States {
     // Session Initialization
     SendSessInit,
     WaitSessInit,
+    // Session Established
+    SessionEstablished,
     // Session Termination
-    SendSessTerm,
+    SendSessTerm(Option<ReasonCode>),
     WaitSessTerm,
     // Final
     ConnectionClose,
@@ -32,7 +38,7 @@ pub struct StateMachine {
     pub state: States,
     my_contact_header: Option<ContactHeader>,
     peer_contact_header: Option<ContactHeader>,
-    has_send_termination: bool,
+    terminating: bool,
 }
 
 impl StateMachine {
@@ -41,7 +47,7 @@ impl StateMachine {
             state: States::ActiveSendContactHeader,
             my_contact_header: None,
             peer_contact_header: None,
-            has_send_termination: false,
+            terminating: false,
         }
     }
     pub fn new_passive() -> Self {
@@ -49,7 +55,7 @@ impl StateMachine {
             state: States::PassiveWaitContactHeader,
             my_contact_header: None,
             peer_contact_header: None,
-            has_send_termination: false,
+            terminating: false,
         }
     }
 
@@ -65,8 +71,8 @@ impl StateMachine {
                 writer.push(MessageType::SessInit.into());
                 si.write(writer);
             }
-            States::SendSessTerm => {
-                let st = SessTerm::new(super::sess_term::ReasonCode::Unkown);
+            States::SendSessTerm(r) => {
+                let st = SessTerm::new(r.unwrap_or(ReasonCode::Unkown), self.terminating);
                 writer.push(MessageType::SessTerm.into());
                 st.write(writer);
             }
@@ -91,9 +97,14 @@ impl StateMachine {
             States::PassiveWaitContactHeader | States::ActiveWaitContactHeader => {
                 let ch = ContactHeader::read(reader)?;
                 self.peer_contact_header = Some(ch.clone());
+                if self.state == States::PassiveWaitContactHeader {
+                    self.state = States::PassiveSendContactHeader;
+                } else {
+                    self.state = States::SendSessInit;
+                }
                 Ok(Messages::ContactHeader(ch))
             }
-            States::WaitSessInit | States::WaitSessTerm => {
+            States::WaitSessInit | States::WaitSessTerm | States::SessionEstablished => {
                 let message_type: MessageType = reader
                     .read_u8()
                     .try_into()
@@ -101,10 +112,18 @@ impl StateMachine {
                 match message_type {
                     MessageType::SessInit if self.state == States::WaitSessInit => {
                         let si = SessInit::read(reader)?;
+                        self.state = States::SessionEstablished;
                         Ok(Messages::SessInit(si))
                     }
                     MessageType::SessTerm if self.state == States::WaitSessTerm => {
                         let st = SessTerm::read(reader)?;
+                        self.state = States::ConnectionClose;
+                        Ok(Messages::SessTerm(st))
+                    }
+                    MessageType::SessTerm if self.state == States::SessionEstablished => {
+                        let st = SessTerm::read(reader)?;
+                        self.state = States::SendSessTerm(Some(st.reason));
+                        self.terminating = true;
                         Ok(Messages::SessTerm(st))
                     }
                     _ => Err(Errors::MessageTypeInappropriate),
@@ -121,10 +140,11 @@ impl StateMachine {
             States::ActiveSendContactHeader
             | States::PassiveSendContactHeader
             | States::SendSessInit
-            | States::SendSessTerm => Interest::WRITABLE,
+            | States::SendSessTerm(_) => Interest::WRITABLE,
             States::PassiveWaitContactHeader
             | States::ActiveWaitContactHeader
             | States::WaitSessInit
+            | States::SessionEstablished
             | States::WaitSessTerm => Interest::READABLE,
             States::ConnectionClose => {
                 panic!("Tried to continue after connection should be closed")
@@ -132,20 +152,30 @@ impl StateMachine {
         }
     }
 
-    pub fn state_complete(&mut self) {
+    pub fn send_complete(&mut self) {
         match self.state {
             States::ActiveSendContactHeader => self.state = States::ActiveWaitContactHeader,
-            States::PassiveWaitContactHeader => self.state = States::PassiveSendContactHeader,
-            States::ActiveWaitContactHeader => self.state = States::SendSessInit,
             States::PassiveSendContactHeader => self.state = States::SendSessInit,
             States::SendSessInit => self.state = States::WaitSessInit,
-            States::WaitSessInit => self.state = States::SendSessTerm,
-            States::SendSessTerm => self.state = States::WaitSessTerm,
-            States::WaitSessTerm => self.state = States::ConnectionClose,
-            States::ConnectionClose => {
-                panic!("Tried to continue after connection should be closed")
+            States::SendSessTerm(_) => {
+                self.terminating = true;
+                self.state = States::WaitSessTerm
+            }
+            _ => {
+                panic!("{:?} is not a valid state to complete sending", self.state);
             }
         }
+    }
+
+    pub fn close_connection(&mut self, reason: Option<ReasonCode>) {
+        if !self.is_established() {
+            panic!("Attempted to close a non-established connection");
+        }
+        self.state = States::SendSessTerm(reason);
+    }
+
+    pub fn is_established(&self) -> bool {
+        return self.state == States::SessionEstablished;
     }
 
     pub fn should_close(&self) -> bool {

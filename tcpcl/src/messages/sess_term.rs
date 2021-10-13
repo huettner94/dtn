@@ -15,7 +15,7 @@ bitflags! {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, TryFromPrimitive, IntoPrimitive)]
+#[derive(Debug, Eq, PartialEq, Clone, Copy, TryFromPrimitive, IntoPrimitive)]
 #[repr(u8)]
 pub enum ReasonCode {
     Unkown = 0x00,
@@ -29,15 +29,16 @@ pub enum ReasonCode {
 #[derive(Debug)]
 pub struct SessTerm {
     flags: MessageFlags,
-    reason: ReasonCode,
+    pub reason: ReasonCode,
 }
 
 impl SessTerm {
-    pub fn new(reason: ReasonCode) -> Self {
-        SessTerm {
-            flags: MessageFlags::empty(),
-            reason,
-        }
+    pub fn new(reason: ReasonCode, reply: bool) -> Self {
+        let flags = match reply {
+            true => MessageFlags::REPLY,
+            false => MessageFlags::empty(),
+        };
+        SessTerm { flags, reason }
     }
 }
 
