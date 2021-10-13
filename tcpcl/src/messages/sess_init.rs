@@ -5,7 +5,7 @@ use bitflags::bitflags;
 use super::{reader::Reader, transform::Transform};
 
 bitflags! {
-    pub struct SessionExtensionFlags: u8 {
+    struct SessionExtensionFlags: u8 {
         const CRITICAL = 0x01;
     }
 }

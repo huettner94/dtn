@@ -3,10 +3,12 @@ use num_enum::TryFromPrimitive;
 
 use self::contact_header::ContactHeader;
 use self::sess_init::SessInit;
+use self::sess_term::SessTerm;
 
 pub mod contact_header;
 pub mod reader;
 pub mod sess_init;
+pub mod sess_term;
 pub mod statemachine;
 pub mod transform;
 
@@ -14,6 +16,7 @@ pub mod transform;
 pub enum Messages {
     ContactHeader(ContactHeader),
     SessInit(SessInit),
+    SessTerm(SessTerm),
 }
 
 #[derive(Debug, Eq, PartialEq, TryFromPrimitive, IntoPrimitive)]

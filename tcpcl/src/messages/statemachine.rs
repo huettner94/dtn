@@ -5,8 +5,8 @@ use tokio::io::Interest;
 use crate::errors::Errors;
 
 use super::{
-    contact_header::ContactHeader, reader::Reader, sess_init::SessInit, transform::Transform,
-    MessageType, Messages,
+    contact_header::ContactHeader, reader::Reader, sess_init::SessInit, sess_term::SessTerm,
+    transform::Transform, MessageType, Messages,
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -20,6 +20,9 @@ pub enum States {
     // Session Initialization
     SendSessInit,
     WaitSessInit,
+    // Session Termination
+    SendSessTerm,
+    WaitSessTerm,
     // Final
     ConnectionClose,
 }
@@ -29,6 +32,7 @@ pub struct StateMachine {
     pub state: States,
     my_contact_header: Option<ContactHeader>,
     peer_contact_header: Option<ContactHeader>,
+    has_send_termination: bool,
 }
 
 impl StateMachine {
@@ -37,6 +41,7 @@ impl StateMachine {
             state: States::ActiveSendContactHeader,
             my_contact_header: None,
             peer_contact_header: None,
+            has_send_termination: false,
         }
     }
     pub fn new_passive() -> Self {
@@ -44,6 +49,7 @@ impl StateMachine {
             state: States::PassiveWaitContactHeader,
             my_contact_header: None,
             peer_contact_header: None,
+            has_send_termination: false,
         }
     }
 
@@ -58,6 +64,11 @@ impl StateMachine {
                 let si = SessInit::new();
                 writer.push(MessageType::SessInit.into());
                 si.write(writer);
+            }
+            States::SendSessTerm => {
+                let st = SessTerm::new(super::sess_term::ReasonCode::Unkown);
+                writer.push(MessageType::SessTerm.into());
+                st.write(writer);
             }
             _ => {
                 panic!("Tried to send a message while we should be receiving")
@@ -82,15 +93,19 @@ impl StateMachine {
                 self.peer_contact_header = Some(ch.clone());
                 Ok(Messages::ContactHeader(ch))
             }
-            States::WaitSessInit => {
+            States::WaitSessInit | States::WaitSessTerm => {
                 let message_type: MessageType = reader
                     .read_u8()
                     .try_into()
                     .map_err(|_| Errors::UnkownMessageType)?;
                 match message_type {
-                    MessageType::SessInit => {
+                    MessageType::SessInit if self.state == States::WaitSessInit => {
                         let si = SessInit::read(reader)?;
                         Ok(Messages::SessInit(si))
+                    }
+                    MessageType::SessTerm if self.state == States::WaitSessTerm => {
+                        let st = SessTerm::read(reader)?;
+                        Ok(Messages::SessTerm(st))
                     }
                     _ => Err(Errors::MessageTypeInappropriate),
                 }
@@ -105,10 +120,12 @@ impl StateMachine {
         match self.state {
             States::ActiveSendContactHeader
             | States::PassiveSendContactHeader
-            | States::SendSessInit => Interest::WRITABLE,
+            | States::SendSessInit
+            | States::SendSessTerm => Interest::WRITABLE,
             States::PassiveWaitContactHeader
             | States::ActiveWaitContactHeader
-            | States::WaitSessInit => Interest::READABLE,
+            | States::WaitSessInit
+            | States::WaitSessTerm => Interest::READABLE,
             States::ConnectionClose => {
                 panic!("Tried to continue after connection should be closed")
             }
@@ -122,7 +139,9 @@ impl StateMachine {
             States::ActiveWaitContactHeader => self.state = States::SendSessInit,
             States::PassiveSendContactHeader => self.state = States::SendSessInit,
             States::SendSessInit => self.state = States::WaitSessInit,
-            States::WaitSessInit => self.state = States::ConnectionClose,
+            States::WaitSessInit => self.state = States::SendSessTerm,
+            States::SendSessTerm => self.state = States::WaitSessTerm,
+            States::WaitSessTerm => self.state = States::ConnectionClose,
             States::ConnectionClose => {
                 panic!("Tried to continue after connection should be closed")
             }

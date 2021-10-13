@@ -1,4 +1,7 @@
-use std::{io, net::SocketAddr};
+use std::{
+    io::{self, ErrorKind},
+    net::SocketAddr,
+};
 
 use errors::ErrorType;
 use log::{debug, info, warn};
@@ -20,7 +23,13 @@ pub async fn listen(socket: SocketAddr) -> Result<(), std::io::Error> {
     info!("Socket open, waiting for connection");
     loop {
         let (socket, _) = listener.accept().await?;
-        process_socket(socket).await?;
+        match process_socket(socket).await {
+            Ok(_) => {}
+            Err(e) if e.kind() == ErrorKind::ConnectionReset => {
+                warn!("Remote reset connection unexpectedly");
+            }
+            Err(e) => return Err(e),
+        };
     }
 }
 
@@ -72,6 +81,10 @@ async fn handle_connection(mut socket: TcpStream, mut sm: StateMachine) -> Resul
                         }
                         Ok(Messages::SessInit(s)) => {
                             info!("Got sessinit: {:?}", s);
+                            sm.state_complete();
+                        }
+                        Ok(Messages::SessTerm(s)) => {
+                            info!("Got sessterm: {:?}", s);
                             sm.state_complete();
                         }
                         Err(Errors::MessageTooShort) => {
