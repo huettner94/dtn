@@ -4,8 +4,8 @@ use log::{debug, info, warn};
 use tokio::{
     io::{self, AsyncWriteExt, Interest},
     net::TcpStream,
+    sync::oneshot,
 };
-use tokio_util::sync::CancellationToken;
 
 use crate::{
     errors::{ErrorType, Errors},
@@ -18,17 +18,21 @@ pub struct TCPCLSession {
     reader: Reader,
     writer: Vec<u8>,
     statemachine: StateMachine,
-    cancellationtoken: CancellationToken,
+    close_channel: (
+        Option<oneshot::Sender<ReasonCode>>,
+        Option<oneshot::Receiver<ReasonCode>>,
+    ),
 }
 
 impl TCPCLSession {
     pub fn new(stream: TcpStream) -> Self {
+        let close_channel = oneshot::channel();
         TCPCLSession {
             stream,
             reader: Reader::new(),
             writer: Vec::new(),
             statemachine: StateMachine::new_passive(),
-            cancellationtoken: CancellationToken::new(),
+            close_channel: (Some(close_channel.0), Some(close_channel.1)),
         }
     }
 
@@ -37,21 +41,30 @@ impl TCPCLSession {
             .await
             .map_err::<ErrorType, _>(|e| e.into())?;
         debug!("Connected to peer at {}", socket);
+        let close_channel = oneshot::channel();
         Ok(TCPCLSession {
             stream,
             reader: Reader::new(),
             writer: Vec::new(),
             statemachine: StateMachine::new_active(),
-            cancellationtoken: CancellationToken::new(),
+            close_channel: (Some(close_channel.0), Some(close_channel.1)),
         })
     }
 
-    pub fn get_cancellation_token(&self) -> CancellationToken {
-        self.cancellationtoken.clone()
+    pub fn get_close_channel(&mut self) -> oneshot::Sender<ReasonCode> {
+        return self
+            .close_channel
+            .0
+            .take()
+            .expect("May not get a close channel > 1 time");
     }
 
     pub async fn manage_connection(mut self) {
-        let canceltoken = self.cancellationtoken.clone();
+        let mut close_channel = self
+            .close_channel
+            .1
+            .take()
+            .expect("can not manage the connection > 1 time");
         loop {
             tokio::select! {
                 out = self.drive_statemachine() => {
@@ -62,8 +75,8 @@ impl TCPCLSession {
                     }
                     break;
                 }
-                _ = canceltoken.cancelled(), if !self.statemachine.connection_closing() => {
-                    self.statemachine.close_connection(None);
+                reason = (&mut close_channel), if !self.statemachine.connection_closing() => {
+                    self.statemachine.close_connection(Some(reason.unwrap_or(ReasonCode::Unkown)));
                 }
             }
         }

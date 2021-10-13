@@ -29,13 +29,18 @@ pub async fn listen(socket: SocketAddr) -> Result<(), std::io::Error> {
 }
 
 pub async fn connect(socket: SocketAddr) -> Result<(), ErrorType> {
-    let sess = TCPCLSession::connect(socket).await?;
-    let canceltoken = sess.get_cancellation_token();
+    let mut sess = TCPCLSession::connect(socket).await?;
+    let close_channel = sess.get_close_channel();
     let jh = tokio::spawn(sess.manage_connection());
 
     debug!("Now sleeping for 1 secs");
     sleep(Duration::from_secs(1)).await;
-    canceltoken.cancel();
+    match close_channel.send(ReasonCode::ResourceExhaustion) {
+        Ok(_) => {}
+        Err(_) => {
+            warn!("Some channel error happened")
+        }
+    };
 
     match jh.await {
         Ok(_) => {}
