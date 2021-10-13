@@ -5,6 +5,7 @@ use tokio::{
     io::{self, AsyncWriteExt, Interest},
     net::TcpStream,
 };
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     errors::{ErrorType, Errors},
@@ -17,20 +18,18 @@ pub struct TCPCLSession {
     reader: Reader,
     writer: Vec<u8>,
     statemachine: StateMachine,
+    cancellationtoken: CancellationToken,
 }
 
 impl TCPCLSession {
-    pub async fn new(stream: TcpStream) -> Result<Self, ErrorType> {
-        let mut sess = TCPCLSession {
+    pub fn new(stream: TcpStream) -> Self {
+        TCPCLSession {
             stream,
             reader: Reader::new(),
             writer: Vec::new(),
             statemachine: StateMachine::new_passive(),
-        };
-
-        sess.drive_statemachine().await?;
-
-        return Ok(sess);
+            cancellationtoken: CancellationToken::new(),
+        }
     }
 
     pub async fn connect(socket: SocketAddr) -> Result<Self, ErrorType> {
@@ -38,26 +37,36 @@ impl TCPCLSession {
             .await
             .map_err::<ErrorType, _>(|e| e.into())?;
         debug!("Connected to peer at {}", socket);
-        let mut sess = TCPCLSession {
+        Ok(TCPCLSession {
             stream,
             reader: Reader::new(),
             writer: Vec::new(),
             statemachine: StateMachine::new_active(),
-        };
-
-        sess.drive_statemachine().await?;
-
-        return Ok(sess);
+            cancellationtoken: CancellationToken::new(),
+        })
     }
 
-    pub async fn close(&mut self, reason: Option<ReasonCode>) -> Result<(), ErrorType> {
-        self.statemachine.close_connection(reason);
-
-        self.drive_statemachine().await
+    pub fn get_cancellation_token(&self) -> CancellationToken {
+        self.cancellationtoken.clone()
     }
 
-    pub async fn wait(&mut self) -> Result<(), ErrorType> {
-        self.drive_statemachine().await
+    pub async fn manage_connection(mut self) {
+        let canceltoken = self.cancellationtoken.clone();
+        loop {
+            tokio::select! {
+                out = self.drive_statemachine() => {
+                    if out.is_err() {
+                        warn!("Connection completed with error {:?}", out.unwrap_err());
+                    } else {
+                        info!("Connection has completed");
+                    }
+                    break;
+                }
+                _ = canceltoken.cancelled(), if !self.statemachine.connection_closing() => {
+                    self.statemachine.close_connection(None);
+                }
+            }
+        }
     }
 
     async fn drive_statemachine(&mut self) -> Result<(), ErrorType> {
@@ -67,10 +76,6 @@ impl TCPCLSession {
             if self.statemachine.should_close() {
                 info!("We are done. Closing connection");
                 self.stream.shutdown().await?;
-                return Ok(());
-            }
-            if self.statemachine.is_established() {
-                info!("Session to peer {} established", self.stream.peer_addr()?);
                 return Ok(());
             }
 

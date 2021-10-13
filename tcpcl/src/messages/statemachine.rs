@@ -177,6 +177,13 @@ impl StateMachine {
         self.state = States::SendSessTerm(reason);
     }
 
+    pub fn connection_closing(&self) -> bool {
+        match self.state {
+            States::SendSessTerm(_) | States::WaitSessTerm | States::ConnectionClose => true,
+            _ => false,
+        }
+    }
+
     pub fn is_established(&self) -> bool {
         return self.state == States::SessionEstablished;
     }
