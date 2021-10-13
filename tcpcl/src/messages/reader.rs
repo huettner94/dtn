@@ -1,9 +1,11 @@
+use std::string::FromUtf8Error;
+
 use tokio::{
     io::{self},
     net::TcpStream,
 };
 
-const READER_BUFFER_SIZE: usize = 10240;
+pub const READER_BUFFER_SIZE: usize = 10240;
 
 #[derive(Debug)]
 pub struct Reader {
@@ -37,6 +39,33 @@ impl Reader {
         val
     }
 
+    pub fn read_u16(&mut self) -> u16 {
+        if self.left() < 2 {
+            panic!("Attempted to read beyond buffer!");
+        }
+        let mut data: [u8; 2] = [0; 2];
+        self.read_u8_array(&mut data, 2);
+        u16::from_be_bytes(data)
+    }
+
+    pub fn read_u32(&mut self) -> u32 {
+        if self.left() < 4 {
+            panic!("Attempted to read beyond buffer!");
+        }
+        let mut data: [u8; 4] = [0; 4];
+        self.read_u8_array(&mut data, 4);
+        u32::from_be_bytes(data)
+    }
+
+    pub fn read_u64(&mut self) -> u64 {
+        if self.left() < 8 {
+            panic!("Attempted to read beyond buffer!");
+        }
+        let mut data: [u8; 8] = [0; 8];
+        self.read_u8_array(&mut data, 8);
+        u64::from_be_bytes(data)
+    }
+
     pub fn read_u8_array(&mut self, target: &mut [u8], count: usize) {
         if self.left() < count {
             panic!("Attempted to read beyond buffer!");
@@ -45,6 +74,19 @@ impl Reader {
             target[i] = self.data[self.read_pos + i];
         }
         self.read_pos += count;
+    }
+
+    pub fn read_string(&mut self, len: usize) -> Result<String, FromUtf8Error> {
+        if self.left() < len {
+            panic!("Attempted to read beyond buffer!");
+        }
+        let out = String::from_utf8(self.data[self.read_pos..self.read_pos + len].to_vec());
+        self.read_pos += len;
+        return out;
+    }
+
+    pub fn current_pos(&self) -> usize {
+        self.read_pos
     }
 
     pub fn left(&self) -> usize {

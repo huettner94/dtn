@@ -2,6 +2,10 @@
 pub enum Errors {
     MessageTooShort,
     InvalidHeader,
+    NodeIdInvalid,
+    UnkownCriticalSessionExtension(u16),
+    UnkownMessageType,
+    MessageTypeInappropriate,
 }
 
 #[derive(Debug)]

@@ -70,12 +70,35 @@ async fn handle_connection(mut socket: TcpStream, mut sm: StateMachine) -> Resul
                             info!("Got contact header: {:?}", h);
                             sm.state_complete();
                         }
+                        Ok(Messages::SessInit(s)) => {
+                            info!("Got sessinit: {:?}", s);
+                            sm.state_complete();
+                        }
                         Err(Errors::MessageTooShort) => {
                             debug!("Message was too short, retrying later");
                             continue;
                         }
                         e @ Err(Errors::InvalidHeader) => {
                             warn!("Header invalid");
+                            return Err(e.unwrap_err().into());
+                        }
+                        e @ Err(Errors::NodeIdInvalid) => {
+                            warn!("Remote Node-Id was invalid");
+                            return Err(e.unwrap_err().into());
+                        }
+                        Err(Errors::UnkownCriticalSessionExtension(ext)) => {
+                            warn!(
+                                "Remote send critical session extension {} that we dont know",
+                                ext
+                            );
+                            return Err(Errors::UnkownCriticalSessionExtension(ext).into());
+                        }
+                        e @ Err(Errors::UnkownMessageType) => {
+                            warn!("Received a unkown message type");
+                            return Err(e.unwrap_err().into());
+                        }
+                        e @ Err(Errors::MessageTypeInappropriate) => {
+                            warn!("Remote send message type currently not applicable");
                             return Err(e.unwrap_err().into());
                         }
                     }
