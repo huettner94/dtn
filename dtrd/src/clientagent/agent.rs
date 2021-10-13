@@ -4,13 +4,14 @@ use async_trait::async_trait;
 use bp7::endpoint::Endpoint;
 use log::{error, info, warn};
 use tokio::sync::{mpsc, oneshot};
+use tokio_util::sync::CancellationToken;
 
-use crate::{bundleprotocolagent::messages::BPARequest, common::canceltoken::CancelToken};
+use crate::bundleprotocolagent::messages::BPARequest;
 
 use super::messages::{ClientAgentRequest, ListenBundlesResponse};
 
 pub struct Daemon {
-    clients: HashMap<Endpoint, (mpsc::Sender<ListenBundlesResponse>, CancelToken)>,
+    clients: HashMap<Endpoint, (mpsc::Sender<ListenBundlesResponse>, CancellationToken)>,
     channel_receiver: Option<mpsc::Receiver<ClientAgentRequest>>,
     bpa_sender: Option<mpsc::Sender<BPARequest>>,
 }
@@ -107,7 +108,7 @@ impl Daemon {
         destination: Endpoint,
         responder: mpsc::Sender<ListenBundlesResponse>,
         status: oneshot::Sender<Result<(), String>>,
-        canceltoken: CancelToken,
+        canceltoken: CancellationToken,
     ) {
         let sender = self.bpa_sender.as_ref().unwrap();
         let (endpoint_local_response_sender, endpoint_local_response_receiver) =
@@ -167,7 +168,7 @@ impl Daemon {
     ) {
         let resp = match self.clients.get(&destination) {
             Some((sender, canceltoken)) => {
-                if canceltoken.is_canceled() {
+                if canceltoken.is_cancelled() {
                     info!("Client for endpoint {} already disconnected", destination);
                     self.clients.remove(&destination);
                     None

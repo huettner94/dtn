@@ -5,12 +5,10 @@ use futures_util::{future::FutureExt, Stream};
 use bundleservice::bundle_service_server::{BundleService, BundleServiceServer};
 use log::info;
 use tokio::sync::{broadcast, mpsc, oneshot};
+use tokio_util::sync::CancellationToken;
 use tonic::{transport::Server, Response, Status};
 
-use crate::{
-    clientagent::messages::{ClientAgentRequest, ListenBundlesResponse},
-    common::canceltoken::CancelToken,
-};
+use crate::clientagent::messages::{ClientAgentRequest, ListenBundlesResponse};
 use bp7::endpoint::Endpoint;
 
 mod bundleservice {
@@ -19,7 +17,7 @@ mod bundleservice {
 
 pub struct ListenBundleResponseTransformer {
     rec: mpsc::Receiver<ListenBundlesResponse>,
-    canceltoken: CancelToken,
+    canceltoken: CancellationToken,
 }
 
 impl Stream for ListenBundleResponseTransformer {
@@ -88,7 +86,7 @@ impl BundleService for MyBundleService {
         let (channel_sender, channel_receiver) = mpsc::channel(1);
         let (status_sender, status_receiver) = oneshot::channel();
 
-        let canceltoken = CancelToken::new();
+        let canceltoken = CancellationToken::new();
 
         let msg = ClientAgentRequest::ClientListenBundles {
             destination: Endpoint::new(&req.endpoint)
