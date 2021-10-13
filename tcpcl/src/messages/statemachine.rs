@@ -105,6 +105,9 @@ impl StateMachine {
                 Ok(Messages::ContactHeader(ch))
             }
             States::WaitSessInit | States::WaitSessTerm | States::SessionEstablished => {
+                if reader.left() < 1 {
+                    return Err(Errors::MessageTooShort);
+                }
                 let message_type: MessageType = reader
                     .read_u8()
                     .try_into()

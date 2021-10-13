@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 
 use log::{debug, info, warn};
 use tokio::{
-    io::{self, AsyncWriteExt},
+    io::{self, AsyncWriteExt, Interest},
     net::TcpStream,
 };
 
@@ -64,7 +64,25 @@ impl TCPCLSession {
         loop {
             debug!("We are now at state {:?}", self.statemachine.state);
 
-            let ready = self.stream.ready(self.statemachine.get_interests()).await?;
+            if self.statemachine.should_close() {
+                info!("We are done. Closing connection");
+                self.stream.shutdown().await?;
+                return Ok(());
+            }
+            if self.statemachine.is_established() {
+                info!("Session to peer {} established", self.stream.peer_addr()?);
+                return Ok(());
+            }
+
+            let stream_interest = self.statemachine.get_interests();
+            if stream_interest == Interest::READABLE && self.reader.left() > 0 {
+                match self.read_message() {
+                    Ok(_) => continue,
+                    Err(ErrorType::TCPCLError(Errors::MessageTooShort)) => {}
+                    Err(e) => return Err(e),
+                }
+            }
+            let ready = self.stream.ready(stream_interest).await?;
 
             if ready.is_readable() {
                 match self.reader.read(&mut self.stream).await {
@@ -72,47 +90,8 @@ impl TCPCLSession {
                         info!("Connection closed by peer");
                         return Ok(());
                     }
-                    Ok(n) => {
-                        info!("read {} bytes", n);
-                        let msg = self.statemachine.decode_message(&mut self.reader);
-                        match msg {
-                            Ok(Messages::ContactHeader(h)) => {
-                                info!("Got contact header: {:?}", h);
-                            }
-                            Ok(Messages::SessInit(s)) => {
-                                info!("Got sessinit: {:?}", s);
-                            }
-                            Ok(Messages::SessTerm(s)) => {
-                                info!("Got sessterm: {:?}", s);
-                            }
-                            Err(Errors::MessageTooShort) => {
-                                debug!("Message was too short, retrying later");
-                                continue;
-                            }
-                            e @ Err(Errors::InvalidHeader) => {
-                                warn!("Header invalid");
-                                return Err(e.unwrap_err().into());
-                            }
-                            e @ Err(Errors::NodeIdInvalid) => {
-                                warn!("Remote Node-Id was invalid");
-                                return Err(e.unwrap_err().into());
-                            }
-                            Err(Errors::UnkownCriticalSessionExtension(ext)) => {
-                                warn!(
-                                    "Remote send critical session extension {} that we dont know",
-                                    ext
-                                );
-                                return Err(Errors::UnkownCriticalSessionExtension(ext).into());
-                            }
-                            e @ Err(Errors::UnkownMessageType) => {
-                                warn!("Received a unkown message type");
-                                return Err(e.unwrap_err().into());
-                            }
-                            e @ Err(Errors::MessageTypeInappropriate) => {
-                                warn!("Remote send message type currently not applicable");
-                                return Err(e.unwrap_err().into());
-                            }
-                        }
+                    Ok(_) => {
+                        self.read_message()?;
                     }
                     Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
                         continue;
@@ -133,29 +112,59 @@ impl TCPCLSession {
                         return Ok(());
                     }
                     Ok(n) => {
-                        info!("wrote {} bytes", n);
                         if self.writer.len() == n {
                             self.writer.clear();
                             self.statemachine.send_complete();
-                            info!("Write complete");
                         } else {
                             self.writer.drain(0..n);
-                            info!("write incomplete. Trying again");
+                            debug!("write incomplete. Trying again");
                         }
                     }
                     Err(_) => {}
                 }
             }
+        }
+    }
 
-            if self.statemachine.should_close() {
-                info!("We are done. Closing connection");
-                self.stream.shutdown().await?;
-                return Ok(());
+    fn read_message(&mut self) -> Result<(), ErrorType> {
+        let msg = self.statemachine.decode_message(&mut self.reader);
+        match msg {
+            Ok(Messages::ContactHeader(h)) => {
+                info!("Got contact header: {:?}", h);
             }
-            if self.statemachine.is_established() {
-                info!("Session to peer {} established", self.stream.peer_addr()?);
-                return Ok(());
+            Ok(Messages::SessInit(s)) => {
+                info!("Got sessinit: {:?}", s);
+            }
+            Ok(Messages::SessTerm(s)) => {
+                info!("Got sessterm: {:?}", s);
+            }
+            Err(Errors::MessageTooShort) => {
+                debug!("Message was too short, retrying later");
+            }
+            e @ Err(Errors::InvalidHeader) => {
+                warn!("Header invalid");
+                return Err(e.unwrap_err().into());
+            }
+            e @ Err(Errors::NodeIdInvalid) => {
+                warn!("Remote Node-Id was invalid");
+                return Err(e.unwrap_err().into());
+            }
+            Err(Errors::UnkownCriticalSessionExtension(ext)) => {
+                warn!(
+                    "Remote send critical session extension {} that we dont know",
+                    ext
+                );
+                return Err(Errors::UnkownCriticalSessionExtension(ext).into());
+            }
+            e @ Err(Errors::UnkownMessageType) => {
+                warn!("Received a unkown message type");
+                return Err(e.unwrap_err().into());
+            }
+            e @ Err(Errors::MessageTypeInappropriate) => {
+                warn!("Remote send message type currently not applicable");
+                return Err(e.unwrap_err().into());
             }
         }
+        Ok(())
     }
 }
