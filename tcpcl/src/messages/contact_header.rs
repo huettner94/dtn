@@ -1,6 +1,8 @@
 use bitflags::bitflags;
 
-use super::{errors::Errors, reader::Reader, transform::Transform};
+use crate::errors::Errors;
+
+use super::{reader::Reader, transform::Transform};
 
 bitflags! {
     pub struct ContactHeaderFields: u8 {
@@ -32,7 +34,7 @@ impl Transform for ContactHeader {
     where
         Self: Sized,
     {
-        if reader.left() != 6 {
+        if reader.left() < 6 {
             return Err(Errors::MessageTooShort);
         }
         let mut magic: [u8; 4] = [0; 4];

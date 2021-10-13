@@ -1,8 +1,8 @@
 use tokio::io::Interest;
 
-use super::{
-    contact_header::ContactHeader, errors::Errors, reader::Reader, transform::Transform, Messages,
-};
+use crate::errors::Errors;
+
+use super::{contact_header::ContactHeader, reader::Reader, transform::Transform, Messages};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum States {

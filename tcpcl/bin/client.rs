@@ -1,9 +1,9 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-use tcpcl::connect;
+use tcpcl::{connect, errors::ErrorType};
 
 #[tokio::main]
-async fn main() -> Result<(), std::io::Error> {
+async fn main() -> Result<(), ErrorType> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
     connect(socket).await
