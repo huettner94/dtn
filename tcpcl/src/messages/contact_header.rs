@@ -23,7 +23,7 @@ impl ContactHeader {
     pub fn new() -> Self {
         ContactHeader {
             magic: DTN_MAGIC_BYTES,
-            version: 7,
+            version: 4,
             flags: ContactHeaderFields::empty(),
         }
     }

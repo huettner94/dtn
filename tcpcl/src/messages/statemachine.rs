@@ -21,9 +21,12 @@ pub enum States {
     // Handshake Part 2
     ActiveWaitContactHeader,
     PassiveSendContactHeader,
-    // Session Initialization
-    SendSessInit,
-    WaitSessInit,
+    // Session Initialization Part 1
+    ActiveSendSessInit,
+    PassiveWaitSessInit,
+    // Session Initialization Part 2
+    ActiveWaitSessInit,
+    PassiveSendSessInit,
     // Session Established
     SessionEstablished,
     // Session Termination
@@ -66,7 +69,7 @@ impl StateMachine {
                 self.my_contact_header = Some(ch.clone());
                 ch.write(writer);
             }
-            States::SendSessInit => {
+            States::ActiveSendSessInit | States::PassiveSendSessInit => {
                 let si = SessInit::new();
                 writer.push(MessageType::SessInit.into());
                 si.write(writer);
@@ -100,11 +103,14 @@ impl StateMachine {
                 if self.state == States::PassiveWaitContactHeader {
                     self.state = States::PassiveSendContactHeader;
                 } else {
-                    self.state = States::SendSessInit;
+                    self.state = States::ActiveSendSessInit;
                 }
                 Ok(Messages::ContactHeader(ch))
             }
-            States::WaitSessInit | States::WaitSessTerm | States::SessionEstablished => {
+            States::ActiveWaitSessInit
+            | States::PassiveWaitSessInit
+            | States::WaitSessTerm
+            | States::SessionEstablished => {
                 if reader.left() < 1 {
                     return Err(Errors::MessageTooShort);
                 }
@@ -113,9 +119,14 @@ impl StateMachine {
                     .try_into()
                     .map_err(|_| Errors::UnkownMessageType)?;
                 match message_type {
-                    MessageType::SessInit if self.state == States::WaitSessInit => {
+                    MessageType::SessInit if self.state == States::ActiveWaitSessInit => {
                         let si = SessInit::read(reader)?;
                         self.state = States::SessionEstablished;
+                        Ok(Messages::SessInit(si))
+                    }
+                    MessageType::SessInit if self.state == States::PassiveWaitSessInit => {
+                        let si = SessInit::read(reader)?;
+                        self.state = States::PassiveSendSessInit;
                         Ok(Messages::SessInit(si))
                     }
                     MessageType::SessTerm if self.state == States::WaitSessTerm => {
@@ -142,11 +153,13 @@ impl StateMachine {
         match self.state {
             States::ActiveSendContactHeader
             | States::PassiveSendContactHeader
-            | States::SendSessInit
+            | States::ActiveSendSessInit
+            | States::PassiveSendSessInit
             | States::SendSessTerm(_) => Interest::WRITABLE,
             States::PassiveWaitContactHeader
             | States::ActiveWaitContactHeader
-            | States::WaitSessInit
+            | States::ActiveWaitSessInit
+            | States::PassiveWaitSessInit
             | States::SessionEstablished
             | States::WaitSessTerm => Interest::READABLE,
             States::ConnectionClose => {
@@ -158,8 +171,9 @@ impl StateMachine {
     pub fn send_complete(&mut self) {
         match self.state {
             States::ActiveSendContactHeader => self.state = States::ActiveWaitContactHeader,
-            States::PassiveSendContactHeader => self.state = States::SendSessInit,
-            States::SendSessInit => self.state = States::WaitSessInit,
+            States::PassiveSendContactHeader => self.state = States::PassiveWaitSessInit,
+            States::ActiveSendSessInit => self.state = States::ActiveWaitSessInit,
+            States::PassiveSendSessInit => self.state = States::SessionEstablished,
             States::SendSessTerm(_) => {
                 self.terminating = true;
                 self.state = States::WaitSessTerm
