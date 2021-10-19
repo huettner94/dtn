@@ -4,13 +4,14 @@ use log::{debug, info, warn};
 use tokio::{
     io::{self, AsyncWriteExt, Interest},
     net::TcpStream,
-    sync::oneshot,
+    sync::{mpsc, oneshot},
 };
 
 use crate::{
     errors::{ErrorType, Errors},
+    transfer::Transfer,
     v4::{
-        messages::{sess_term::ReasonCode, Messages},
+        messages::{sess_term::ReasonCode, xfer_segment, Messages},
         reader::Reader,
         statemachine::StateMachine,
     },
@@ -22,21 +23,26 @@ pub struct TCPCLSession {
     reader: Reader,
     writer: Vec<u8>,
     statemachine: StateMachine,
+    receiving_transfer: Option<Transfer>,
     close_channel: (
         Option<oneshot::Sender<ReasonCode>>,
         Option<oneshot::Receiver<ReasonCode>>,
     ),
+    receive_channel: (mpsc::Sender<Transfer>, Option<mpsc::Receiver<Transfer>>),
 }
 
 impl TCPCLSession {
     pub fn new(stream: TcpStream) -> Self {
         let close_channel = oneshot::channel();
+        let receive_channel = mpsc::channel(10);
         TCPCLSession {
             stream,
             reader: Reader::new(),
             writer: Vec::new(),
             statemachine: StateMachine::new_passive(),
+            receiving_transfer: None,
             close_channel: (Some(close_channel.0), Some(close_channel.1)),
+            receive_channel: (receive_channel.0, Some(receive_channel.1)),
         }
     }
 
@@ -46,12 +52,15 @@ impl TCPCLSession {
             .map_err::<ErrorType, _>(|e| e.into())?;
         debug!("Connected to peer at {}", socket);
         let close_channel = oneshot::channel();
+        let receive_channel = mpsc::channel(10);
         Ok(TCPCLSession {
             stream,
             reader: Reader::new(),
             writer: Vec::new(),
             statemachine: StateMachine::new_active(),
+            receiving_transfer: None,
             close_channel: (Some(close_channel.0), Some(close_channel.1)),
+            receive_channel: (receive_channel.0, Some(receive_channel.1)),
         })
     }
 
@@ -61,6 +70,14 @@ impl TCPCLSession {
             .0
             .take()
             .expect("May not get a close channel > 1 time");
+    }
+
+    pub fn get_receive_channel(&mut self) -> mpsc::Receiver<Transfer> {
+        return self
+            .receive_channel
+            .1
+            .take()
+            .expect("May not get a receive channel > 1 time");
     }
 
     pub async fn manage_connection(mut self) {
@@ -98,7 +115,7 @@ impl TCPCLSession {
 
             let stream_interest = self.statemachine.get_interests();
             if stream_interest == Interest::READABLE && self.reader.left() > 0 {
-                match self.read_message() {
+                match self.read_message().await {
                     Ok(_) => continue,
                     Err(ErrorType::TCPCLError(Errors::MessageTooShort)) => {}
                     Err(e) => return Err(e),
@@ -113,7 +130,7 @@ impl TCPCLSession {
                         return Ok(());
                     }
                     Ok(_) => {
-                        self.read_message()?;
+                        self.read_message().await?;
                     }
                     Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
                         continue;
@@ -148,7 +165,7 @@ impl TCPCLSession {
         }
     }
 
-    fn read_message(&mut self) -> Result<(), ErrorType> {
+    async fn read_message(&mut self) -> Result<(), ErrorType> {
         let msg = self.statemachine.decode_message(&mut self.reader);
         match msg {
             Ok(Messages::ContactHeader(h)) => {
@@ -165,8 +182,54 @@ impl TCPCLSession {
             }
             Ok(Messages::XferSegment(x)) => {
                 info!("Got xfer segment {:?}", x);
-                self.statemachine
-                    .send_ack(x.to_xfer_ack(x.data.len() as u64))
+                if self.receiving_transfer.is_some()
+                    && x.flags.contains(xfer_segment::MessageFlags::START)
+                {
+                    warn!(
+                        "Remote startet transfer with id {} while {} is still being received",
+                        x.transfer_id,
+                        self.receiving_transfer.as_ref().unwrap().id
+                    );
+                    //TODO close connection
+                }
+
+                let ack = match &mut self.receiving_transfer {
+                    Some(t) => {
+                        if t.id == x.transfer_id {
+                            t.data.extend_from_slice(&x.data);
+                            x.to_xfer_ack(t.data.len() as u64)
+                        } else {
+                            warn!(
+                                "Remote sent transfer with id {} while {} is still being received",
+                                x.transfer_id, t.id
+                            );
+                            //TODO close connection
+                            return Ok(());
+                        }
+                    }
+                    None => {
+                        let a = x.to_xfer_ack(x.data.len() as u64);
+                        self.receiving_transfer = Some(Transfer {
+                            id: x.transfer_id,
+                            data: x.data,
+                        });
+                        a
+                    }
+                };
+
+                if x.flags.contains(xfer_segment::MessageFlags::END) {
+                    info!("Fully received transfer {}, passing it up", x.transfer_id);
+                    if let Err(e) = self
+                        .receive_channel
+                        .0
+                        .send(self.receiving_transfer.take().unwrap())
+                        .await
+                    {
+                        warn!("Error sending transfer to receive channel: {:?}", e);
+                        //TODO close connection
+                    };
+                }
+                self.statemachine.send_ack(ack);
             }
             Ok(Messages::XferAck(x)) => {
                 info!("Got xfer ack, no idea what to do now: {:?}", x);

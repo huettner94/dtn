@@ -12,6 +12,7 @@ use crate::v4::messages::sess_term::ReasonCode;
 
 pub mod errors;
 pub mod session;
+pub mod transfer;
 mod v4;
 
 pub async fn listen(socket: SocketAddr) -> Result<(), std::io::Error> {
@@ -55,8 +56,28 @@ pub async fn connect(socket: SocketAddr) -> Result<(), ErrorType> {
 async fn process_socket(socket: TcpStream) -> Result<(), std::io::Error> {
     info!("New connection from {}", socket.peer_addr()?);
 
-    let sess = TCPCLSession::new(socket);
-    tokio::spawn(sess.manage_connection());
+    let mut sess = TCPCLSession::new(socket);
+
+    let mut receiver = sess.get_receive_channel();
+
+    let jh = tokio::spawn(sess.manage_connection());
+    tokio::spawn(async move {
+        loop {
+            match receiver.recv().await {
+                Some(t) => {
+                    info!("Received transfer {:?}", t)
+                }
+                None => break,
+            }
+        }
+    });
+
+    match jh.await {
+        Ok(_) => {}
+        Err(_) => {
+            warn!("A join error happened")
+        }
+    };
 
     Ok(())
 }
