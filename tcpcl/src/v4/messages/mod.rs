@@ -31,7 +31,7 @@ pub enum Messages {
     XferRefuse(XferRefuse),
 }
 
-#[derive(Debug, Eq, PartialEq, TryFromPrimitive, IntoPrimitive)]
+#[derive(Debug, Eq, PartialEq, TryFromPrimitive, IntoPrimitive, Clone, Copy)]
 #[repr(u8)]
 pub enum MessageType {
     SessInit = 0x07,

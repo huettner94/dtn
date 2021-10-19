@@ -1,7 +1,7 @@
 use crate::errors::Errors;
 use crate::v4::{messages::xfer_segment::MessageFlags, reader::Reader, transform::Transform};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct XferAck {
     flags: MessageFlags,
     transfer_id: u64,
@@ -9,9 +9,9 @@ pub struct XferAck {
 }
 
 impl XferAck {
-    pub fn new(transfer_id: u64, acknowleged_length: u64) -> Self {
+    pub fn new(flags: MessageFlags, transfer_id: u64, acknowleged_length: u64) -> Self {
         XferAck {
-            flags: MessageFlags::empty(),
+            flags,
             transfer_id,
             acknowleged_length,
         }
@@ -37,7 +37,7 @@ impl Transform for XferAck {
         })
     }
 
-    fn write(self, target: &mut Vec<u8>) {
+    fn write(&self, target: &mut Vec<u8>) {
         target.reserve(9);
         target.push(self.flags.bits());
         target.extend_from_slice(&self.transfer_id.to_be_bytes());

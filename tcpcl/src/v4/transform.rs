@@ -7,5 +7,5 @@ pub trait Transform {
     where
         Self: Sized;
 
-    fn write(self, target: &mut Vec<u8>);
+    fn write(&self, target: &mut Vec<u8>);
 }

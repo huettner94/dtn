@@ -164,7 +164,9 @@ impl TCPCLSession {
                 info!("Got keepalive");
             }
             Ok(Messages::XferSegment(x)) => {
-                info!("Got xfer segment, no idea what to do now: {:?}", x);
+                info!("Got xfer segment {:?}", x);
+                self.statemachine
+                    .send_ack(x.to_xfer_ack(x.data.len() as u64))
             }
             Ok(Messages::XferAck(x)) => {
                 info!("Got xfer ack, no idea what to do now: {:?}", x);

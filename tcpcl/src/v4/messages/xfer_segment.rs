@@ -1,8 +1,11 @@
 use bitflags::bitflags;
+use log::debug;
 
 use crate::errors::Errors;
 use crate::v4::reader::Reader;
 use crate::v4::transform::Transform;
+
+use super::xfer_ack::XferAck;
 
 bitflags! {
     struct TransferExtensionFlags: u8 {
@@ -32,7 +35,7 @@ impl Transform for TransferExtension {
         if reader.left() < value_length.into() {
             return Err(Errors::MessageTooShort);
         }
-        let mut value: Vec<u8> = Vec::with_capacity(value_length.into());
+        let mut value: Vec<u8> = vec![0; value_length as usize];
         reader.read_u8_array(&mut value[..], value_length.into());
 
         Ok(TransferExtension {
@@ -42,7 +45,7 @@ impl Transform for TransferExtension {
         })
     }
 
-    fn write(self, target: &mut Vec<u8>) {
+    fn write(&self, target: &mut Vec<u8>) {
         target.reserve(5 + self.value.len());
         target.push(self.flags.bits);
         target.extend_from_slice(&self.extension_type.to_be_bytes());
@@ -63,7 +66,7 @@ pub struct XferSegment {
     flags: MessageFlags,
     transfer_id: u64,
     transfer_extensions: Vec<TransferExtension>,
-    data: Vec<u8>,
+    pub data: Vec<u8>,
 }
 
 impl XferSegment {
@@ -74,6 +77,10 @@ impl XferSegment {
             transfer_extensions: Vec::new(),
             data: Vec::new(),
         }
+    }
+
+    pub fn to_xfer_ack(&self, acknowleged_length: u64) -> XferAck {
+        XferAck::new(self.flags, self.transfer_id, acknowleged_length)
     }
 }
 
@@ -106,7 +113,7 @@ impl Transform for XferSegment {
         if reader.left() < (data_length as usize) {
             return Err(Errors::MessageTooShort);
         }
-        let mut data: Vec<u8> = Vec::with_capacity(data_length as usize);
+        let mut data: Vec<u8> = vec![0; data_length as usize];
         reader.read_u8_array(&mut data[..], data_length as usize);
 
         Ok(XferSegment {
@@ -117,13 +124,13 @@ impl Transform for XferSegment {
         })
     }
 
-    fn write(self, target: &mut Vec<u8>) {
+    fn write(&self, target: &mut Vec<u8>) {
         target.reserve(21 + self.data.len() + self.transfer_extensions.len() * 5);
         target.push(self.flags.bits);
         target.extend_from_slice(&self.transfer_id.to_be_bytes());
 
         let mut transfer_extension_bytes: Vec<u8> = Vec::new();
-        for transfer_extension in self.transfer_extensions {
+        for transfer_extension in &self.transfer_extensions {
             transfer_extension.write(&mut transfer_extension_bytes);
         }
         target.extend_from_slice(&(transfer_extension_bytes.len() as u32).to_be_bytes());

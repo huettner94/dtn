@@ -52,7 +52,7 @@ impl Transform for ContactHeader {
         })
     }
 
-    fn write(self, target: &mut Vec<u8>) {
+    fn write(&self, target: &mut Vec<u8>) {
         target.reserve(6);
         target.extend_from_slice(&self.magic);
         target.push(self.version);

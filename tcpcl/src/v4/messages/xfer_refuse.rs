@@ -51,7 +51,7 @@ impl Transform for XferRefuse {
         })
     }
 
-    fn write(self, target: &mut Vec<u8>) {
+    fn write(&self, target: &mut Vec<u8>) {
         target.reserve(5);
         target.push(self.reason.into());
         target.extend_from_slice(&self.transfer_id.to_be_bytes());

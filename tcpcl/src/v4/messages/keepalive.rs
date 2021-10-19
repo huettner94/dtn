@@ -20,5 +20,5 @@ impl Transform for Keepalive {
         Ok(Keepalive {})
     }
 
-    fn write(self, _target: &mut Vec<u8>) {}
+    fn write(&self, _target: &mut Vec<u8>) {}
 }

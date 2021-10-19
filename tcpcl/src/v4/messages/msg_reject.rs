@@ -52,7 +52,7 @@ impl Transform for MsgReject {
         })
     }
 
-    fn write(self, target: &mut Vec<u8>) {
+    fn write(&self, target: &mut Vec<u8>) {
         target.reserve(2);
         target.push(self.reason.into());
         target.push(self.message_header.into());

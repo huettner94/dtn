@@ -59,7 +59,7 @@ impl Transform for SessTerm {
         })
     }
 
-    fn write(self, target: &mut Vec<u8>) {
+    fn write(&self, target: &mut Vec<u8>) {
         target.reserve(2);
         target.push(self.flags.bits);
         target.push(self.reason.into());

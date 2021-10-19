@@ -9,6 +9,8 @@ use super::{
         contact_header::ContactHeader,
         sess_init::SessInit,
         sess_term::{ReasonCode, SessTerm},
+        xfer_ack::XferAck,
+        xfer_segment::XferSegment,
         MessageType, Messages,
     },
     reader::Reader,
@@ -31,6 +33,8 @@ pub enum States {
     PassiveSendSessInit,
     // Session Established
     SessionEstablished,
+    // Data Transfer
+    SendXferAck(XferAck),
     // Session Termination
     SendSessTerm(Option<ReasonCode>),
     WaitSessTerm,
@@ -65,7 +69,7 @@ impl StateMachine {
     }
 
     pub fn send_message(&mut self, writer: &mut Vec<u8>) {
-        match self.state {
+        match &self.state {
             States::ActiveSendContactHeader | States::PassiveSendContactHeader => {
                 let ch = ContactHeader::new();
                 self.my_contact_header = Some(ch.clone());
@@ -75,6 +79,10 @@ impl StateMachine {
                 let si = SessInit::new();
                 writer.push(MessageType::SessInit.into());
                 si.write(writer);
+            }
+            States::SendXferAck(xfer_ack) => {
+                writer.push(MessageType::XferAck.into());
+                xfer_ack.write(writer);
             }
             States::SendSessTerm(r) => {
                 let st = SessTerm::new(r.unwrap_or(ReasonCode::Unkown), self.terminating);
@@ -97,7 +105,7 @@ impl StateMachine {
         return out;
     }
 
-    pub fn decode_message_inner(&mut self, reader: &mut Reader) -> Result<Messages, Errors> {
+    fn decode_message_inner(&mut self, reader: &mut Reader) -> Result<Messages, Errors> {
         match self.state {
             States::PassiveWaitContactHeader | States::ActiveWaitContactHeader => {
                 let ch = ContactHeader::read(reader)?;
@@ -142,6 +150,10 @@ impl StateMachine {
                         self.terminating = true;
                         Ok(Messages::SessTerm(st))
                     }
+                    MessageType::XferSegment if self.state == States::SessionEstablished => {
+                        let xs = XferSegment::read(reader)?;
+                        Ok(Messages::XferSegment(xs))
+                    }
                     _ => Err(Errors::MessageTypeInappropriate),
                 }
             }
@@ -157,6 +169,7 @@ impl StateMachine {
             | States::PassiveSendContactHeader
             | States::ActiveSendSessInit
             | States::PassiveSendSessInit
+            | States::SendXferAck(_)
             | States::SendSessTerm(_) => Interest::WRITABLE,
             States::PassiveWaitContactHeader
             | States::ActiveWaitContactHeader
@@ -175,7 +188,9 @@ impl StateMachine {
             States::ActiveSendContactHeader => self.state = States::ActiveWaitContactHeader,
             States::PassiveSendContactHeader => self.state = States::PassiveWaitSessInit,
             States::ActiveSendSessInit => self.state = States::ActiveWaitSessInit,
-            States::PassiveSendSessInit => self.state = States::SessionEstablished,
+            States::PassiveSendSessInit | States::SendXferAck(_) => {
+                self.state = States::SessionEstablished
+            }
             States::SendSessTerm(_) => {
                 self.terminating = true;
                 self.state = States::WaitSessTerm
@@ -184,6 +199,13 @@ impl StateMachine {
                 panic!("{:?} is not a valid state to complete sending", self.state);
             }
         }
+    }
+
+    pub fn send_ack(&mut self, ack: XferAck) {
+        if !self.is_established() {
+            panic!("Attempted to send an ack on a non-established connection");
+        }
+        self.state = States::SendXferAck(ack);
     }
 
     pub fn close_connection(&mut self, reason: Option<ReasonCode>) {
