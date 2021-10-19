@@ -6,8 +6,8 @@ use num_enum::TryFromPrimitive;
 use bitflags::bitflags;
 
 use crate::errors::Errors;
-
-use super::{reader::Reader, transform::Transform};
+use crate::v4::reader::Reader;
+use crate::v4::transform::Transform;
 
 bitflags! {
     struct MessageFlags: u8 {

@@ -1,8 +1,9 @@
-use crate::errors::Errors;
+use crate::{
+    errors::Errors,
+    v4::{reader::Reader, transform::Transform},
+};
 
 use bitflags::bitflags;
-
-use super::{reader::Reader, transform::Transform};
 
 bitflags! {
     struct SessionExtensionFlags: u8 {
@@ -64,7 +65,7 @@ impl SessInit {
     pub fn new() -> Self {
         SessInit {
             keepalive_interval: 0,
-            segment_mru: super::reader::READER_BUFFER_SIZE as u64,
+            segment_mru: crate::v4::reader::READER_BUFFER_SIZE as u64,
             transfer_mru: 100000,
             node_id: "somestring".into(),
             session_extensions: Vec::new(),

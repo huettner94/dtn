@@ -9,7 +9,11 @@ use tokio::{
 
 use crate::{
     errors::{ErrorType, Errors},
-    messages::{reader::Reader, sess_term::ReasonCode, statemachine::StateMachine, Messages},
+    v4::{
+        messages::{sess_term::ReasonCode, Messages},
+        reader::Reader,
+        statemachine::StateMachine,
+    },
 };
 
 #[derive(Debug)]
@@ -156,6 +160,21 @@ impl TCPCLSession {
             Ok(Messages::SessTerm(s)) => {
                 info!("Got sessterm: {:?}", s);
             }
+            Ok(Messages::Keepalive(_)) => {
+                info!("Got keepalive");
+            }
+            Ok(Messages::XferSegment(x)) => {
+                info!("Got xfer segment, no idea what to do now: {:?}", x);
+            }
+            Ok(Messages::XferAck(x)) => {
+                info!("Got xfer ack, no idea what to do now: {:?}", x);
+            }
+            Ok(Messages::XferRefuse(x)) => {
+                info!("Got xfer refuse, no idea what to do now: {:?}", x);
+            }
+            Ok(Messages::MsgReject(m)) => {
+                info!("Got msg reject, no idea what to do now: {:?}", m);
+            }
             Err(Errors::MessageTooShort) => {
                 debug!("Message was too short, retrying later");
             }
@@ -173,6 +192,13 @@ impl TCPCLSession {
                     ext
                 );
                 return Err(Errors::UnkownCriticalSessionExtension(ext).into());
+            }
+            Err(Errors::UnkownCriticalTransferExtension(ext)) => {
+                warn!(
+                    "Remote send critical transfer extension {} that we dont know",
+                    ext
+                );
+                return Err(Errors::UnkownCriticalTransferExtension(ext).into());
             }
             e @ Err(Errors::UnkownMessageType) => {
                 warn!("Received a unkown message type");

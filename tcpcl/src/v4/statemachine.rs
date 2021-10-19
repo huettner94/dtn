@@ -5,12 +5,14 @@ use tokio::io::Interest;
 use crate::errors::Errors;
 
 use super::{
-    contact_header::ContactHeader,
+    messages::{
+        contact_header::ContactHeader,
+        sess_init::SessInit,
+        sess_term::{ReasonCode, SessTerm},
+        MessageType, Messages,
+    },
     reader::Reader,
-    sess_init::SessInit,
-    sess_term::{ReasonCode, SessTerm},
     transform::Transform,
-    MessageType, Messages,
 };
 
 #[derive(Debug, PartialEq, Eq)]

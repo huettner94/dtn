@@ -2,16 +2,17 @@ use std::{io::ErrorKind, net::SocketAddr, time::Duration};
 
 use errors::ErrorType;
 use log::{debug, info, warn};
-use messages::sess_term::ReasonCode;
 use session::TCPCLSession;
 use tokio::{
     net::{TcpListener, TcpStream},
     time::sleep,
 };
 
+use crate::v4::messages::sess_term::ReasonCode;
+
 pub mod errors;
-mod messages;
 pub mod session;
+mod v4;
 
 pub async fn listen(socket: SocketAddr) -> Result<(), std::io::Error> {
     let listener = TcpListener::bind(&socket).await?;

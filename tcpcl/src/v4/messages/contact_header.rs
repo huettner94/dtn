@@ -1,8 +1,9 @@
 use bitflags::bitflags;
 
-use crate::errors::Errors;
-
-use super::{reader::Reader, transform::Transform};
+use crate::{
+    errors::Errors,
+    v4::{reader::Reader, transform::Transform},
+};
 
 bitflags! {
     pub struct ContactHeaderFields: u8 {

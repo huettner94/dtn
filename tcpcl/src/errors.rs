@@ -4,6 +4,7 @@ pub enum Errors {
     InvalidHeader,
     NodeIdInvalid,
     UnkownCriticalSessionExtension(u16),
+    UnkownCriticalTransferExtension(u16),
     UnkownMessageType,
     MessageTypeInappropriate,
 }
