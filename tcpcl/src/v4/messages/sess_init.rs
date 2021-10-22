@@ -67,7 +67,7 @@ impl SessInit {
             keepalive_interval: 0,
             segment_mru: (crate::v4::reader::READER_BUFFER_SIZE - 1024) as u64, // Hopefully 1024 is enough for all future headers
             transfer_mru: 100000,
-            node_id: "somestring".into(),
+            node_id: "dtn://somestring".into(),
             session_extensions: Vec::new(),
         }
     }

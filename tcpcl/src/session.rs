@@ -8,6 +8,7 @@ use tokio::{
 };
 
 use crate::{
+    connection_info::ConnectionInfo,
     errors::{ErrorType, Errors},
     transfer::Transfer,
     v4::{
@@ -24,6 +25,11 @@ pub struct TCPCLSession {
     writer: Vec<u8>,
     statemachine: StateMachine,
     receiving_transfer: Option<Transfer>,
+    connection_info: Option<ConnectionInfo>,
+    established_channel: (
+        Option<oneshot::Sender<ConnectionInfo>>,
+        Option<oneshot::Receiver<ConnectionInfo>>,
+    ),
     close_channel: (Option<oneshot::Sender<()>>, Option<oneshot::Receiver<()>>),
     receive_channel: (mpsc::Sender<Transfer>, Option<mpsc::Receiver<Transfer>>),
     send_channel: (mpsc::Sender<Transfer>, Option<mpsc::Receiver<Transfer>>),
@@ -31,6 +37,7 @@ pub struct TCPCLSession {
 
 impl TCPCLSession {
     pub fn new(stream: TcpStream) -> Self {
+        let established_channel = oneshot::channel();
         let close_channel = oneshot::channel();
         let receive_channel = mpsc::channel(10);
         let send_channel = mpsc::channel(10);
@@ -40,6 +47,8 @@ impl TCPCLSession {
             writer: Vec::new(),
             statemachine: StateMachine::new_passive(),
             receiving_transfer: None,
+            connection_info: None,
+            established_channel: (Some(established_channel.0), Some(established_channel.1)),
             close_channel: (Some(close_channel.0), Some(close_channel.1)),
             receive_channel: (receive_channel.0, Some(receive_channel.1)),
             send_channel: (send_channel.0, Some(send_channel.1)),
@@ -51,6 +60,7 @@ impl TCPCLSession {
             .await
             .map_err::<ErrorType, _>(|e| e.into())?;
         debug!("Connected to peer at {}", socket);
+        let established_channel = oneshot::channel();
         let close_channel = oneshot::channel();
         let receive_channel = mpsc::channel(10);
         let send_channel = mpsc::channel(10);
@@ -60,10 +70,20 @@ impl TCPCLSession {
             writer: Vec::new(),
             statemachine: StateMachine::new_active(),
             receiving_transfer: None,
+            connection_info: None,
+            established_channel: (Some(established_channel.0), Some(established_channel.1)),
             close_channel: (Some(close_channel.0), Some(close_channel.1)),
             receive_channel: (receive_channel.0, Some(receive_channel.1)),
             send_channel: (send_channel.0, Some(send_channel.1)),
         })
+    }
+
+    pub fn get_established_channel(&mut self) -> oneshot::Receiver<ConnectionInfo> {
+        return self
+            .established_channel
+            .1
+            .take()
+            .expect("May not get a established channel > 1 time");
     }
 
     pub fn get_close_channel(&mut self) -> oneshot::Sender<()> {
@@ -86,7 +106,11 @@ impl TCPCLSession {
         return self.send_channel.0.clone();
     }
 
-    pub async fn manage_connection(mut self) {
+    pub fn get_connection_info(&self) -> Option<ConnectionInfo> {
+        self.connection_info.clone()
+    }
+
+    pub async fn manage_connection(&mut self) {
         let mut close_channel = self
             .close_channel
             .1
@@ -122,6 +146,21 @@ impl TCPCLSession {
         let mut send_channel_receiver = Some(scr);
         loop {
             debug!("We are now at statemachine state {:?}", self.statemachine);
+            if self.statemachine.is_established() && self.established_channel.0.is_some() {
+                let connection_info = ConnectionInfo {
+                    peer_endpoint: self.statemachine.get_peer_node_id(),
+                };
+                self.connection_info = Some(connection_info.clone());
+                if let Err(e) = self
+                    .established_channel
+                    .0
+                    .take()
+                    .unwrap()
+                    .send(connection_info)
+                {
+                    warn!("Error sending connection info: {:?}", e);
+                };
+            }
 
             if self.statemachine.should_close() {
                 info!("We are done. Closing connection");

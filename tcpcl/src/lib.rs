@@ -8,8 +8,9 @@ use tokio::{
     time::sleep,
 };
 
-use crate::{transfer::Transfer};
+use crate::transfer::Transfer;
 
+pub mod connection_info;
 pub mod errors;
 pub mod session;
 pub mod transfer;
@@ -34,7 +35,7 @@ pub async fn connect(socket: SocketAddr) -> Result<(), ErrorType> {
     let mut sess = TCPCLSession::connect(socket).await?;
     let close_channel = sess.get_close_channel();
     let transfer_send = sess.get_send_channel();
-    let jh = tokio::spawn(sess.manage_connection());
+    let jh = tokio::spawn(async move { sess.manage_connection().await });
 
     info!("Now sleeping for 1 secs");
     sleep(Duration::from_secs(1)).await;
@@ -79,7 +80,7 @@ async fn process_socket(socket: TcpStream) -> Result<(), std::io::Error> {
 
     let mut receiver = sess.get_receive_channel();
 
-    let jh = tokio::spawn(sess.manage_connection());
+    let jh = tokio::spawn(async move { sess.manage_connection().await });
     tokio::spawn(async move {
         loop {
             match receiver.recv().await {

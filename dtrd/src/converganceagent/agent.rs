@@ -48,6 +48,12 @@ impl crate::common::agent::Daemon for Daemon {
             } => {
                 self.message_agent_get_node(destination, responder).await;
             }
+            ConverganceAgentRequest::CLRegisterNode { node } => {
+                info!("Received a registration request for node {}", node);
+            }
+            ConverganceAgentRequest::CLUnregisterNode { node } => {
+                info!("Received an unregistration request for node {}", node);
+            }
         }
     }
 }

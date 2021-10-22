@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 
+use bp7::endpoint::Endpoint;
 use log::{error, info, warn};
 use tcpcl::session::TCPCLSession;
 use tokio::{
@@ -97,15 +98,41 @@ impl Daemon {
     async fn process_socket(&mut self, stream: TcpStream) {
         let mut sess = TCPCLSession::new(stream);
 
-        let mut receiver = sess.get_receive_channel();
         let close_channel = sess.get_close_channel();
         self.close_channels.push(close_channel);
 
-        let jh = tokio::spawn(sess.manage_connection());
-        self.tcpcl_sessions.push(jh);
+        let established_channel = sess.get_established_channel();
+        let established_convergane_agent_sender =
+            self.convergance_agent_sender.as_ref().unwrap().clone();
+        tokio::spawn(async move {
+            match established_channel.await {
+                Ok(ci) => match Endpoint::new(&ci.peer_endpoint) {
+                    Some(node) => {
+                        if let Err(e) = established_convergane_agent_sender
+                            .send(ConverganceAgentRequest::CLRegisterNode { node })
+                            .await
+                        {
+                            warn!(
+                                "Error sending node registration to Convergance Agent: {:?}",
+                                e
+                            );
+                            //TODO: close the session
+                            return;
+                        };
+                    }
+                    None => {
+                        warn!("Peer send invalid id '{}'.", ci.peer_endpoint);
+                        //TODO: close the session
+                    }
+                },
+                Err(_) => {}
+            }
+        });
+
+        let mut transfer_receiver = sess.get_receive_channel();
         tokio::spawn(async move {
             loop {
-                match receiver.recv().await {
+                match transfer_receiver.recv().await {
                     Some(t) => {
                         info!("Received transfer {:?}", t)
                     }
@@ -113,5 +140,34 @@ impl Daemon {
                 }
             }
         });
+
+        let finished_convergane_agent_sender =
+            self.convergance_agent_sender.as_ref().unwrap().clone();
+        let jh = tokio::spawn(async move {
+            sess.manage_connection().await;
+            match sess.get_connection_info() {
+                Some(ci) => match Endpoint::new(&ci.peer_endpoint) {
+                    Some(node) => {
+                        if let Err(e) = finished_convergane_agent_sender
+                            .send(ConverganceAgentRequest::CLUnregisterNode { node })
+                            .await
+                        {
+                            warn!(
+                                "Error sending node registration to Convergance Agent: {:?}",
+                                e
+                            );
+                            //TODO: close the session
+                            return;
+                        };
+                    }
+                    None => {
+                        warn!("Peer send invalid id '{}'.", ci.peer_endpoint);
+                        //TODO: close the session
+                    }
+                },
+                None => {}
+            }
+        });
+        self.tcpcl_sessions.push(jh);
     }
 }

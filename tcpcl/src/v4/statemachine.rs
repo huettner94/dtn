@@ -349,6 +349,13 @@ impl StateMachine {
         }
     }
 
+    pub fn get_peer_node_id(&self) -> String {
+        if !self.is_established() {
+            panic!("Attempted to get the peer node-id on a non-established connection");
+        }
+        self.peer_sess_init.as_ref().unwrap().node_id.clone()
+    }
+
     pub fn is_established(&self) -> bool {
         self.state == States::SessionEstablished
     }

@@ -12,4 +12,10 @@ pub enum ConverganceAgentRequest {
         destination: Endpoint,
         responder: oneshot::Sender<Option<mpsc::Sender<AgentForwardBundle>>>,
     },
+    CLRegisterNode {
+        node: Endpoint,
+    },
+    CLUnregisterNode {
+        node: Endpoint,
+    },
 }
