@@ -123,6 +123,13 @@ impl Endpoint {
             Endpoint::IPN(s) => matches!(other, Endpoint::IPN(o) if s.matches_node(o)),
         }
     }
+
+    pub fn get_node_endpoint(&self) -> Endpoint {
+        match self {
+            Endpoint::DTN(s) => Endpoint::DTN(s.get_node_endpoint()),
+            Endpoint::IPN(s) => Endpoint::IPN(s.get_node_endpoint()),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
@@ -153,6 +160,10 @@ impl DTNEndpoint {
 
     pub fn matches_node(&self, other: &DTNEndpoint) -> bool {
         return self.node_name() == other.node_name();
+    }
+
+    pub fn get_node_endpoint(&self) -> DTNEndpoint {
+        DTNEndpoint::from_str(&("//".to_owned() + self.node_name())).unwrap()
     }
 }
 
@@ -255,6 +266,13 @@ impl IPNEndpoint {
 
     pub fn matches_node(&self, other: &IPNEndpoint) -> bool {
         return self.node == other.node;
+    }
+
+    pub fn get_node_endpoint(&self) -> IPNEndpoint {
+        IPNEndpoint {
+            node: self.node,
+            service: 0,
+        }
     }
 }
 

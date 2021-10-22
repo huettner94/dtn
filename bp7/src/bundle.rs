@@ -10,7 +10,7 @@ use crate::{block::CanonicalBlock, primaryblock::PrimaryBlock, SerializationErro
 
 use super::block::payload_block::PayloadBlock;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Bundle {
     pub primary_block: PrimaryBlock,
     pub blocks: Vec<CanonicalBlock>,

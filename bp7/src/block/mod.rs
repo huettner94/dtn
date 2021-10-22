@@ -46,7 +46,7 @@ pub enum Block {
     Unkown(UnkownBlock),
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct CanonicalBlock {
     pub block: Block,
     pub block_number: u64,

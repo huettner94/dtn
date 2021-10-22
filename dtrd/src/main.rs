@@ -7,6 +7,7 @@ mod bundlestorageagent;
 mod clientagent;
 mod clientgrpcagent;
 mod common;
+mod converganceagent;
 mod shutdown;
 
 use crate::common::agent::Daemon;
@@ -32,7 +33,13 @@ async fn runserver(ctrl_c: impl Future) -> Result<(), Box<dyn std::error::Error>
     let mut client_agent = clientagent::agent::Daemon::new();
     let client_agent_sender = client_agent.init_channels(bpa_sender.clone());
 
-    bundle_protocol_agent.set_client_agent(client_agent_sender.clone());
+    let mut convergance_agent = converganceagent::agent::Daemon::new();
+    let convergance_agent_sender = convergance_agent.init_channels();
+
+    bundle_protocol_agent.set_agents(
+        client_agent_sender.clone(),
+        convergance_agent_sender.clone(),
+    );
 
     let bpa_task_shutdown_notifier = notify_shutdown.subscribe();
     let bpa_task_shutdown_complete_tx_task = shutdown_complete_tx.clone();
@@ -95,6 +102,21 @@ async fn runserver(ctrl_c: impl Future) -> Result<(), Box<dyn std::error::Error>
         }
     });
 
+    let convergance_agent_task_shutdown_notifier = notify_shutdown.subscribe();
+    let convergance_agent_task_shutdown_complete_tx_task = shutdown_complete_tx.clone();
+    let convergance_agent_task = tokio::spawn(async move {
+        match convergance_agent
+            .run(
+                convergance_agent_task_shutdown_notifier,
+                convergance_agent_task_shutdown_complete_tx_task,
+            )
+            .await
+        {
+            Ok(_) => Ok(()),
+            Err(e) => Err(e.to_string()),
+        }
+    });
+
     tokio::select! {
         res = api_agent_task => {
             if let Ok(Err(e)) = res {
@@ -114,6 +136,11 @@ async fn runserver(ctrl_c: impl Future) -> Result<(), Box<dyn std::error::Error>
         res = client_agent_task => {
             if let Ok(Err(e)) = res {
                 info!("something bad happened with the client agent {:?}. Aborting...", e);
+            }
+        }
+        res = convergance_agent_task => {
+            if let Ok(Err(e)) = res {
+                info!("something bad happened with the convergance agent {:?}. Aborting...", e);
             }
         }
         _ = ctrl_c => {

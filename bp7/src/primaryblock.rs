@@ -4,7 +4,7 @@ use crate::{
     bundleflags::BundleFlags, crc::CRCType, endpoint::Endpoint, time::CreationTimestamp, *,
 };
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PrimaryBlock {
     pub version: u64,
     pub bundle_processing_flags: BundleFlags,

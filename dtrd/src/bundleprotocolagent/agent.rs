@@ -16,6 +16,7 @@ use tokio::sync::{mpsc, oneshot};
 use crate::{
     bundlestorageagent::messages::BSARequest,
     clientagent::messages::{ClientAgentRequest, ListenBundlesResponse},
+    converganceagent::messages::{AgentForwardBundle, ConverganceAgentRequest},
 };
 
 use super::messages::BPARequest;
@@ -25,6 +26,7 @@ pub struct Daemon {
     channel_receiver: Option<mpsc::Receiver<BPARequest>>,
     bsa_sender: Option<mpsc::Sender<BSARequest>>,
     client_agent_sender: Option<mpsc::Sender<ClientAgentRequest>>,
+    convergance_agent_sender: Option<mpsc::Sender<ConverganceAgentRequest>>,
 }
 
 #[async_trait]
@@ -37,6 +39,7 @@ impl crate::common::agent::Daemon for Daemon {
             channel_receiver: None,
             bsa_sender: None,
             client_agent_sender: None,
+            convergance_agent_sender: None,
         }
     }
 
@@ -87,11 +90,13 @@ impl Daemon {
         return channel_sender;
     }
 
-    pub fn set_client_agent(
+    pub fn set_agents(
         &mut self,
-        client_agent_sender: tokio::sync::mpsc::Sender<ClientAgentRequest>,
+        client_agent_sender: mpsc::Sender<ClientAgentRequest>,
+        convergance_agent_sender: mpsc::Sender<ConverganceAgentRequest>,
     ) {
         self.client_agent_sender = Some(client_agent_sender);
+        self.convergance_agent_sender = Some(convergance_agent_sender);
     }
 
     async fn message_send_bundle(&self, destination: Endpoint, payload: Vec<u8>, lifetime: u64) {
@@ -176,8 +181,14 @@ impl Daemon {
                 }
             };
         } else {
-            info!("Bundle is not for me. adding to todo list {:?}", &bundle);
-            self.store_bundle(bundle).await;
+            info!("Bundle is not for me. trying to forward");
+            match self.forward_bundle(bundle).await {
+                Ok(_) => {}
+                Err(bundle) => {
+                    info!("Some issue appeared during local delivery. Adding to todo list.");
+                    self.store_bundle(bundle).await;
+                }
+            };
         }
     }
 
@@ -191,9 +202,37 @@ impl Daemon {
         };
     }
 
-    fn forward_bundle(&self, bundle: Bundle) {
-        info!("No idea what to do now :)");
-        //TODO
+    async fn forward_bundle(&self, bundle: Bundle) -> Result<(), Bundle> {
+        debug!("forwarding bundle {:?}", &bundle);
+        if bundle.primary_block.fragment_offset.is_some() {
+            panic!("Bundle is a fragment. No idea what to do");
+            //TODO
+        }
+
+        if let Some(sender) = self
+            .get_connected_node(bundle.primary_block.destination_endpoint.clone())
+            .await
+        {
+            let result = sender
+                .send(AgentForwardBundle {
+                    bundle: bundle.clone(),
+                })
+                .await;
+            match result {
+                Ok(_) => {
+                    //TODO: send status report if reqeusted
+                    debug!("Bundle forwarded to remote node");
+                    return Ok(());
+                }
+                Err(_) => {
+                    info!("Remote node not available. Bundle queued.");
+                    return Err(bundle);
+                }
+            }
+        } else {
+            info!("No remote node registered for endpoint. Bundle queued.");
+            return Err(bundle);
+        }
     }
 
     async fn receive_bundle(&mut self, bundle: Bundle) {
@@ -210,7 +249,6 @@ impl Daemon {
             //TODO
         }
 
-        //TODO: send status report if reqeusted
         if let Some(sender) = self
             .get_connected_client(bundle.primary_block.destination_endpoint.clone())
             .await
@@ -223,6 +261,7 @@ impl Daemon {
                 .await;
             match result {
                 Ok(_) => {
+                    //TODO: send status report if reqeusted
                     debug!("Bundle dispatched to local agent");
                     Ok(())
                 }
@@ -260,6 +299,34 @@ impl Daemon {
             Ok(s) => s,
             Err(e) => {
                 error!("Error receiving response from Client Agent: {:?}", e);
+                None
+            }
+        }
+    }
+
+    async fn get_connected_node(
+        &self,
+        endpoint: Endpoint,
+    ) -> Option<mpsc::Sender<AgentForwardBundle>> {
+        let (responder_sender, responder_receiver) =
+            oneshot::channel::<Option<mpsc::Sender<AgentForwardBundle>>>();
+
+        let convergance_agent = self.convergance_agent_sender.as_ref().unwrap();
+        if let Err(e) = convergance_agent
+            .send(ConverganceAgentRequest::AgentGetNode {
+                destination: endpoint,
+                responder: responder_sender,
+            })
+            .await
+        {
+            error!("Error sending request to Convergance Agent: {:?}", e);
+            return None;
+        }
+
+        match responder_receiver.await {
+            Ok(s) => s,
+            Err(e) => {
+                error!("Error receiving response from Convergance Agent: {:?}", e);
                 None
             }
         }
