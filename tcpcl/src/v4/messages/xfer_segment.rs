@@ -69,9 +69,9 @@ pub struct XferSegment {
 }
 
 impl XferSegment {
-    pub fn new(transfer_id: u64, data: Vec<u8>) -> Self {
+    pub fn new(flags: MessageFlags, transfer_id: u64, data: Vec<u8>) -> Self {
         XferSegment {
-            flags: MessageFlags::empty(),
+            flags,
             transfer_id,
             transfer_extensions: Vec::new(),
             data,

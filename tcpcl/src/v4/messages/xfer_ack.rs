@@ -4,8 +4,8 @@ use crate::v4::{messages::xfer_segment::MessageFlags, reader::Reader, transform:
 #[derive(Debug, PartialEq, Eq)]
 pub struct XferAck {
     flags: MessageFlags,
-    transfer_id: u64,
-    acknowleged_length: u64,
+    pub transfer_id: u64,
+    pub acknowleged_length: u64,
 }
 
 impl XferAck {

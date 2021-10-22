@@ -1,14 +1,14 @@
 use std::{io::ErrorKind, net::SocketAddr, time::Duration};
 
 use errors::ErrorType;
-use log::{debug, info, warn};
+use log::{info, warn};
 use session::TCPCLSession;
 use tokio::{
     net::{TcpListener, TcpStream},
     time::sleep,
 };
 
-use crate::v4::messages::sess_term::ReasonCode;
+use crate::{transfer::Transfer, v4::messages::sess_term::ReasonCode};
 
 pub mod errors;
 pub mod session;
@@ -33,10 +33,29 @@ pub async fn listen(socket: SocketAddr) -> Result<(), std::io::Error> {
 pub async fn connect(socket: SocketAddr) -> Result<(), ErrorType> {
     let mut sess = TCPCLSession::connect(socket).await?;
     let close_channel = sess.get_close_channel();
+    let transfer_send = sess.get_send_channel();
     let jh = tokio::spawn(sess.manage_connection());
 
-    debug!("Now sleeping for 1 secs");
+    info!("Now sleeping for 1 secs");
     sleep(Duration::from_secs(1)).await;
+    info!("Will now send a bundle");
+
+    match transfer_send
+        .send(Transfer {
+            id: 12345,
+            data: "this is a test. Lets see what happens :)".as_bytes().into(),
+        })
+        .await
+    {
+        Ok(_) => {}
+        Err(_) => {
+            warn!("Some channel error happened")
+        }
+    };
+
+    info!("Now sleeping for 5 secs");
+    sleep(Duration::from_secs(5)).await;
+    info!("Will now close the session");
     match close_channel.send(ReasonCode::ResourceExhaustion) {
         Ok(_) => {}
         Err(_) => {

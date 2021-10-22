@@ -11,7 +11,7 @@ bitflags! {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SessionExtension {
     flags: SessionExtensionFlags,
     extension_type: u16,
@@ -52,13 +52,13 @@ impl Transform for SessionExtension {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SessInit {
-    keepalive_interval: u16,
-    segment_mru: u64,
-    transfer_mru: u64,
-    node_id: String,
-    session_extensions: Vec<SessionExtension>,
+    pub keepalive_interval: u16,
+    pub segment_mru: u64,
+    pub transfer_mru: u64,
+    pub node_id: String,
+    pub session_extensions: Vec<SessionExtension>,
 }
 
 impl SessInit {
