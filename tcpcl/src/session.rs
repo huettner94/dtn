@@ -24,10 +24,7 @@ pub struct TCPCLSession {
     writer: Vec<u8>,
     statemachine: StateMachine,
     receiving_transfer: Option<Transfer>,
-    close_channel: (
-        Option<oneshot::Sender<ReasonCode>>,
-        Option<oneshot::Receiver<ReasonCode>>,
-    ),
+    close_channel: (Option<oneshot::Sender<()>>, Option<oneshot::Receiver<()>>),
     receive_channel: (mpsc::Sender<Transfer>, Option<mpsc::Receiver<Transfer>>),
     send_channel: (mpsc::Sender<Transfer>, Option<mpsc::Receiver<Transfer>>),
 }
@@ -69,7 +66,7 @@ impl TCPCLSession {
         })
     }
 
-    pub fn get_close_channel(&mut self) -> oneshot::Sender<ReasonCode> {
+    pub fn get_close_channel(&mut self) -> oneshot::Sender<()> {
         return self
             .close_channel
             .0
@@ -111,8 +108,8 @@ impl TCPCLSession {
                     }
                     break;
                 }
-                reason = (&mut close_channel), if !self.statemachine.connection_closing() => {
-                    self.statemachine.close_connection(Some(reason.unwrap_or(ReasonCode::Unkown)));
+                _ = (&mut close_channel), if !self.statemachine.connection_closing() => {
+                    self.statemachine.close_connection(Some(ReasonCode::ResourceExhaustion));
                 }
             }
         }

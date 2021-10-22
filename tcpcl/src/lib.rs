@@ -8,7 +8,7 @@ use tokio::{
     time::sleep,
 };
 
-use crate::{transfer::Transfer, v4::messages::sess_term::ReasonCode};
+use crate::{transfer::Transfer};
 
 pub mod errors;
 pub mod session;
@@ -56,7 +56,7 @@ pub async fn connect(socket: SocketAddr) -> Result<(), ErrorType> {
     info!("Now sleeping for 5 secs");
     sleep(Duration::from_secs(5)).await;
     info!("Will now close the session");
-    match close_channel.send(ReasonCode::ResourceExhaustion) {
+    match close_channel.send(()) {
         Ok(_) => {}
         Err(_) => {
             warn!("Some channel error happened")

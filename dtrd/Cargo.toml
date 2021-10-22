@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 bp7 = {path = "../bp7"}
+tcpcl = {path = "../tcpcl"}
 log = "0.4"
 tonic = "0.5.2"
 prost = "0.8"
