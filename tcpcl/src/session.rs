@@ -32,7 +32,7 @@ pub struct TCPCLSession {
     ),
     close_channel: (Option<oneshot::Sender<()>>, Option<oneshot::Receiver<()>>),
     receive_channel: (mpsc::Sender<Transfer>, Option<mpsc::Receiver<Transfer>>),
-    send_channel: (mpsc::Sender<Transfer>, Option<mpsc::Receiver<Transfer>>),
+    send_channel: (mpsc::Sender<Vec<u8>>, Option<mpsc::Receiver<Vec<u8>>>),
 }
 
 impl TCPCLSession {
@@ -102,7 +102,7 @@ impl TCPCLSession {
             .expect("May not get a receive channel > 1 time");
     }
 
-    pub fn get_send_channel(&mut self) -> mpsc::Sender<Transfer> {
+    pub fn get_send_channel(&mut self) -> mpsc::Sender<Vec<u8>> {
         return self.send_channel.0.clone();
     }
 
@@ -141,7 +141,7 @@ impl TCPCLSession {
 
     async fn drive_statemachine(
         &mut self,
-        scr: &mut mpsc::Receiver<Transfer>,
+        scr: &mut mpsc::Receiver<Vec<u8>>,
     ) -> Result<(), ErrorType> {
         let mut send_channel_receiver = Some(scr);
         loop {

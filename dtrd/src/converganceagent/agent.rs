@@ -4,12 +4,11 @@ use async_trait::async_trait;
 use bp7::endpoint::Endpoint;
 use log::{info, warn};
 use tokio::sync::{mpsc, oneshot};
-use tokio_util::sync::CancellationToken;
 
 use super::messages::{AgentForwardBundle, ConverganceAgentRequest};
 
 pub struct Daemon {
-    connected_nodes: HashMap<Endpoint, (mpsc::Sender<AgentForwardBundle>, CancellationToken)>,
+    connected_nodes: HashMap<Endpoint, mpsc::Sender<AgentForwardBundle>>,
     channel_receiver: Option<mpsc::Receiver<ConverganceAgentRequest>>,
 }
 
@@ -48,11 +47,11 @@ impl crate::common::agent::Daemon for Daemon {
             } => {
                 self.message_agent_get_node(destination, responder).await;
             }
-            ConverganceAgentRequest::CLRegisterNode { node } => {
-                info!("Received a registration request for node {}", node);
+            ConverganceAgentRequest::CLRegisterNode { node, sender } => {
+                self.message_cl_register_node(node, sender).await;
             }
             ConverganceAgentRequest::CLUnregisterNode { node } => {
-                info!("Received an unregistration request for node {}", node);
+                self.message_cl_unregister_node(node).await;
             }
         }
     }
@@ -72,19 +71,25 @@ impl Daemon {
     ) {
         let dst = destination.get_node_endpoint();
         let resp = match self.connected_nodes.get(&dst) {
-            Some((sender, canceltoken)) => {
-                if canceltoken.is_cancelled() {
-                    info!("Node for endpoint {} already disconnected", dst);
-                    self.connected_nodes.remove(&dst);
-                    None
-                } else {
-                    Some(sender.clone())
-                }
-            }
+            Some(sender) => Some(sender.clone()),
             None => None,
         };
         if let Err(e) = responder.send(resp) {
             warn!("Error sending Convergance get back to requestor: {:?}", e);
         }
+    }
+
+    async fn message_cl_register_node(
+        &mut self,
+        node: Endpoint,
+        sender: mpsc::Sender<AgentForwardBundle>,
+    ) {
+        info!("Received a registration request for node {}", node);
+        self.connected_nodes.insert(node, sender);
+    }
+
+    async fn message_cl_unregister_node(&mut self, node: Endpoint) {
+        info!("Received an unregistration request for node {}", node);
+        self.connected_nodes.remove(&node);
     }
 }

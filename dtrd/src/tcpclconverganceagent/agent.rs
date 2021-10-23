@@ -9,7 +9,7 @@ use tokio::{
     task::JoinHandle,
 };
 
-use crate::converganceagent::messages::ConverganceAgentRequest;
+use crate::converganceagent::messages::{AgentForwardBundle, ConverganceAgentRequest};
 
 pub struct Daemon {
     convergance_agent_sender: Option<mpsc::Sender<ConverganceAgentRequest>>,
@@ -101,6 +101,8 @@ impl Daemon {
         let close_channel = sess.get_close_channel();
         self.close_channels.push(close_channel);
 
+        let send_channel = sess.get_send_channel();
+
         let established_channel = sess.get_established_channel();
         let established_convergane_agent_sender =
             self.convergance_agent_sender.as_ref().unwrap().clone();
@@ -108,8 +110,12 @@ impl Daemon {
             match established_channel.await {
                 Ok(ci) => match Endpoint::new(&ci.peer_endpoint) {
                     Some(node) => {
+                        let bundle_sender = get_bundle_sender(send_channel);
                         if let Err(e) = established_convergane_agent_sender
-                            .send(ConverganceAgentRequest::CLRegisterNode { node })
+                            .send(ConverganceAgentRequest::CLRegisterNode {
+                                node,
+                                sender: bundle_sender,
+                            })
                             .await
                         {
                             warn!(
@@ -153,7 +159,7 @@ impl Daemon {
                             .await
                         {
                             warn!(
-                                "Error sending node registration to Convergance Agent: {:?}",
+                                "Error sending node unregistration to Convergance Agent: {:?}",
                                 e
                             );
                             //TODO: close the session
@@ -170,4 +176,37 @@ impl Daemon {
         });
         self.tcpcl_sessions.push(jh);
     }
+}
+
+fn get_bundle_sender(
+    send_channel: mpsc::Sender<Vec<u8>>,
+) -> mpsc::Sender<crate::converganceagent::messages::AgentForwardBundle> {
+    let (bundle_sender, mut bundle_receiver) = mpsc::channel::<AgentForwardBundle>(1);
+
+    tokio::spawn(async move {
+        loop {
+            match bundle_receiver.recv().await {
+                Some(afb) => {
+                    match afb.bundle.try_into() {
+                        Ok(bundle_data) => match send_channel.send(bundle_data).await {
+                            Ok(_) => {}
+                            Err(e) => {
+                                error!("Error sending bundle to tcpcl connection. Bundle will be dropped here: {}", e);
+                            }
+                        },
+                        Err(e) => {
+                            error!(
+                                "Error converting bundle to bytes. Bundle will be dropped here: {:?}",
+                                e
+                            );
+                            //TODO: dont drop stuff :)
+                        }
+                    };
+                }
+                None => return,
+            }
+        }
+    });
+
+    return bundle_sender;
 }

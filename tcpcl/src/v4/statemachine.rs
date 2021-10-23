@@ -60,6 +60,7 @@ enum States {
 #[derive(Debug)]
 pub struct StateMachine {
     state: States,
+    last_used_transfer_id: u64,
     my_contact_header: Option<ContactHeader>,
     peer_contact_header: Option<ContactHeader>,
     my_sess_init: Option<SessInit>,
@@ -71,6 +72,7 @@ impl StateMachine {
     pub fn new_active() -> Self {
         StateMachine {
             state: States::ActiveSendContactHeader,
+            last_used_transfer_id: 0,
             my_contact_header: None,
             peer_contact_header: None,
             my_sess_init: None,
@@ -81,6 +83,7 @@ impl StateMachine {
     pub fn new_passive() -> Self {
         StateMachine {
             state: States::PassiveWaitContactHeader,
+            last_used_transfer_id: 0,
             my_contact_header: None,
             peer_contact_header: None,
             my_sess_init: None,
@@ -308,12 +311,16 @@ impl StateMachine {
         }
     }
 
-    pub fn send_transfer(&mut self, transfer: Transfer) {
+    pub fn send_transfer(&mut self, data: Vec<u8>) {
         let tracker = TransferTracker {
-            transfer,
+            transfer: Transfer {
+                id: self.last_used_transfer_id,
+                data,
+            },
             pos: 0,
             pos_acked: 0,
         };
+        self.last_used_transfer_id += 1;
         let state = mem::replace(&mut self.state, States::ShouldNeverExist);
         match state {
             States::SendXferAck(ack) => self.state = States::SendXferSegmentsAndAck(tracker, ack),
