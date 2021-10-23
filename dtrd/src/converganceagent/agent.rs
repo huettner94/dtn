@@ -1,25 +1,29 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use bp7::endpoint::Endpoint;
+use bp7::{bundle::Bundle, endpoint::Endpoint};
 use log::{info, warn};
 use tokio::sync::{mpsc, oneshot};
+
+use crate::{bundleprotocolagent::messages::BPARequest, common::settings::Settings};
 
 use super::messages::{AgentForwardBundle, ConverganceAgentRequest};
 
 pub struct Daemon {
     connected_nodes: HashMap<Endpoint, mpsc::Sender<AgentForwardBundle>>,
     channel_receiver: Option<mpsc::Receiver<ConverganceAgentRequest>>,
+    bpa_sender: Option<mpsc::Sender<BPARequest>>,
 }
 
 #[async_trait]
 impl crate::common::agent::Daemon for Daemon {
     type MessageType = ConverganceAgentRequest;
 
-    fn new() -> Self {
+    fn new(settings: &Settings) -> Self {
         Daemon {
             connected_nodes: HashMap::new(),
             channel_receiver: None,
+            bpa_sender: None,
         }
     }
 
@@ -53,12 +57,19 @@ impl crate::common::agent::Daemon for Daemon {
             ConverganceAgentRequest::CLUnregisterNode { node } => {
                 self.message_cl_unregister_node(node).await;
             }
+            ConverganceAgentRequest::CLForwardBundle { bundle } => {
+                self.message_cl_forward_bundle(bundle).await;
+            }
         }
     }
 }
 
 impl Daemon {
-    pub fn init_channels(&mut self) -> mpsc::Sender<ConverganceAgentRequest> {
+    pub fn init_channels(
+        &mut self,
+        bpa_sender: mpsc::Sender<BPARequest>,
+    ) -> mpsc::Sender<ConverganceAgentRequest> {
+        self.bpa_sender = Some(bpa_sender);
         let (channel_sender, channel_receiver) = mpsc::channel::<ConverganceAgentRequest>(1);
         self.channel_receiver = Some(channel_receiver);
         return channel_sender;
@@ -91,5 +102,23 @@ impl Daemon {
     async fn message_cl_unregister_node(&mut self, node: Endpoint) {
         info!("Received an unregistration request for node {}", node);
         self.connected_nodes.remove(&node);
+    }
+
+    async fn message_cl_forward_bundle(&mut self, bundle: Bundle) {
+        match self
+            .bpa_sender
+            .as_ref()
+            .unwrap()
+            .send(BPARequest::ReceiveBundle { bundle })
+            .await
+        {
+            Ok(_) => {}
+            Err(e) => {
+                warn!(
+                    "Error sending Bundle to bpa. Bundle will be dropped: {:?}",
+                    e
+                );
+            }
+        }
     }
 }

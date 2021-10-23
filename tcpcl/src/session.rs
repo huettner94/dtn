@@ -36,7 +36,7 @@ pub struct TCPCLSession {
 }
 
 impl TCPCLSession {
-    pub fn new(stream: TcpStream) -> Self {
+    pub fn new(stream: TcpStream, node_id: String) -> Self {
         let established_channel = oneshot::channel();
         let close_channel = oneshot::channel();
         let receive_channel = mpsc::channel(10);
@@ -45,7 +45,7 @@ impl TCPCLSession {
             stream,
             reader: Reader::new(),
             writer: Vec::new(),
-            statemachine: StateMachine::new_passive(),
+            statemachine: StateMachine::new_passive(node_id),
             receiving_transfer: None,
             connection_info: None,
             established_channel: (Some(established_channel.0), Some(established_channel.1)),
@@ -55,7 +55,7 @@ impl TCPCLSession {
         }
     }
 
-    pub async fn connect(socket: SocketAddr) -> Result<Self, ErrorType> {
+    pub async fn connect(socket: SocketAddr, node_id: String) -> Result<Self, ErrorType> {
         let stream = TcpStream::connect(&socket)
             .await
             .map_err::<ErrorType, _>(|e| e.into())?;
@@ -68,7 +68,7 @@ impl TCPCLSession {
             stream,
             reader: Reader::new(),
             writer: Vec::new(),
-            statemachine: StateMachine::new_active(),
+            statemachine: StateMachine::new_active(node_id),
             receiving_transfer: None,
             connection_info: None,
             established_channel: (Some(established_channel.0), Some(established_channel.1)),

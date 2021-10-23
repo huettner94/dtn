@@ -16,6 +16,7 @@ use tokio::sync::{mpsc, oneshot};
 use crate::{
     bundlestorageagent::messages::BSARequest,
     clientagent::messages::{ClientAgentRequest, ListenBundlesResponse},
+    common::settings::Settings,
     converganceagent::messages::{AgentForwardBundle, ConverganceAgentRequest},
 };
 
@@ -33,9 +34,9 @@ pub struct Daemon {
 impl crate::common::agent::Daemon for Daemon {
     type MessageType = BPARequest;
 
-    fn new() -> Self {
+    fn new(settings: &Settings) -> Self {
         Daemon {
-            endpoint: Endpoint::new(&"dtn://itsme").unwrap(),
+            endpoint: Endpoint::new(&settings.my_node_id).unwrap(),
             channel_receiver: None,
             bsa_sender: None,
             client_agent_sender: None,
@@ -74,6 +75,9 @@ impl crate::common::agent::Daemon for Daemon {
             }
             BPARequest::NewClientConnected { destination } => {
                 self.message_new_client_connected(destination).await;
+            }
+            BPARequest::ReceiveBundle { bundle } => {
+                self.message_receive_bundle(bundle).await;
             }
         }
     }
@@ -139,6 +143,10 @@ impl Daemon {
         }
     }
 
+    async fn message_receive_bundle(&mut self, bundle: Bundle) {
+        self.receive_bundle(bundle).await;
+    }
+
     async fn transmit_bundle(&self, destination: Endpoint, data: Vec<u8>, lifetime: u64) {
         let bundle = Bundle {
             primary_block: PrimaryBlock {
@@ -181,7 +189,10 @@ impl Daemon {
                 }
             };
         } else {
-            info!("Bundle is not for me. trying to forward");
+            info!(
+                "Bundle is not for me, but for {}. trying to forward",
+                bundle.primary_block.destination_endpoint
+            );
             match self.forward_bundle(bundle).await {
                 Ok(_) => {}
                 Err(bundle) => {
@@ -236,6 +247,7 @@ impl Daemon {
     }
 
     async fn receive_bundle(&mut self, bundle: Bundle) {
+        debug!("Recived bundle: {:?}", bundle);
         //TODO: send status report if reqeusted
         //TODO: Check crc or drop otherwise
         //TODO: CHeck extensions or do other stuff
@@ -271,7 +283,10 @@ impl Daemon {
                 }
             }
         } else {
-            info!("No local agent registered for endpoint. Bundle queued.");
+            info!(
+                "No local agent registered for endpoint {}. Bundle queued.",
+                bundle.primary_block.destination_endpoint
+            );
             Err(())
         }
     }

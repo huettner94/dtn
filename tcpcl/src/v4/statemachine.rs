@@ -60,6 +60,7 @@ enum States {
 #[derive(Debug)]
 pub struct StateMachine {
     state: States,
+    my_node_id: String,
     last_used_transfer_id: u64,
     my_contact_header: Option<ContactHeader>,
     peer_contact_header: Option<ContactHeader>,
@@ -69,9 +70,10 @@ pub struct StateMachine {
 }
 
 impl StateMachine {
-    pub fn new_active() -> Self {
+    pub fn new_active(node_id: String) -> Self {
         StateMachine {
             state: States::ActiveSendContactHeader,
+            my_node_id: node_id,
             last_used_transfer_id: 0,
             my_contact_header: None,
             peer_contact_header: None,
@@ -80,9 +82,10 @@ impl StateMachine {
             terminating: false,
         }
     }
-    pub fn new_passive() -> Self {
+    pub fn new_passive(node_id: String) -> Self {
         StateMachine {
             state: States::PassiveWaitContactHeader,
+            my_node_id: node_id,
             last_used_transfer_id: 0,
             my_contact_header: None,
             peer_contact_header: None,
@@ -100,7 +103,7 @@ impl StateMachine {
                 ch.write(writer);
             }
             States::ActiveSendSessInit | States::PassiveSendSessInit => {
-                let si = SessInit::new();
+                let si = SessInit::new(self.my_node_id.clone());
                 self.my_sess_init = Some(si.clone());
                 writer.push(MessageType::SessInit.into());
                 si.write(writer);

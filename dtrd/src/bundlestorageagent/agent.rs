@@ -3,6 +3,8 @@ use bp7::{bundle::Bundle, endpoint::Endpoint};
 use log::{debug, error, warn};
 use tokio::sync::{mpsc, oneshot};
 
+use crate::common::settings::Settings;
+
 use super::messages::BSARequest;
 
 pub struct Daemon {
@@ -14,7 +16,7 @@ pub struct Daemon {
 impl crate::common::agent::Daemon for Daemon {
     type MessageType = BSARequest;
 
-    fn new() -> Self {
+    fn new(settings: &Settings) -> Self {
         Daemon {
             bundles: Vec::new(),
             channel_receiver: None,

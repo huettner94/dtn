@@ -4,11 +4,13 @@ use tokio::sync::{broadcast, mpsc};
 
 use crate::shutdown::Shutdown;
 
+use super::settings::Settings;
+
 #[async_trait]
 pub trait Daemon {
     type MessageType: Send;
 
-    fn new() -> Self;
+    fn new(settings: &Settings) -> Self;
 
     fn get_agent_name(&self) -> &'static str;
 

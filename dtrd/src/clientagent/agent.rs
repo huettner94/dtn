@@ -6,7 +6,7 @@ use log::{error, info, warn};
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
-use crate::bundleprotocolagent::messages::BPARequest;
+use crate::{bundleprotocolagent::messages::BPARequest, common::settings::Settings};
 
 use super::messages::{ClientAgentRequest, ListenBundlesResponse};
 
@@ -20,7 +20,7 @@ pub struct Daemon {
 impl crate::common::agent::Daemon for Daemon {
     type MessageType = ClientAgentRequest;
 
-    fn new() -> Self {
+    fn new(settings: &Settings) -> Self {
         Daemon {
             clients: HashMap::new(),
             channel_receiver: None,

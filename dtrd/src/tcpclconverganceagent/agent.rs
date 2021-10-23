@@ -9,17 +9,22 @@ use tokio::{
     task::JoinHandle,
 };
 
-use crate::converganceagent::messages::{AgentForwardBundle, ConverganceAgentRequest};
+use crate::{
+    common::settings::Settings,
+    converganceagent::messages::{AgentForwardBundle, ConverganceAgentRequest},
+};
 
 pub struct Daemon {
+    settings: Settings,
     convergance_agent_sender: Option<mpsc::Sender<ConverganceAgentRequest>>,
     tcpcl_sessions: Vec<JoinHandle<()>>,
     close_channels: Vec<oneshot::Sender<()>>,
 }
 
 impl Daemon {
-    pub fn new() -> Self {
+    pub fn new(settings: Settings) -> Self {
         Daemon {
+            settings,
             convergance_agent_sender: None,
             tcpcl_sessions: Vec::new(),
             close_channels: Vec::new(),
@@ -96,7 +101,7 @@ impl Daemon {
     }
 
     async fn process_socket(&mut self, stream: TcpStream) {
-        let mut sess = TCPCLSession::new(stream);
+        let mut sess = TCPCLSession::new(stream, self.settings.my_node_id.clone());
 
         let close_channel = sess.get_close_channel();
         self.close_channels.push(close_channel);
@@ -136,11 +141,29 @@ impl Daemon {
         });
 
         let mut transfer_receiver = sess.get_receive_channel();
+        let receiver_convergane_agent_sender =
+            self.convergance_agent_sender.as_ref().unwrap().clone();
         tokio::spawn(async move {
             loop {
                 match transfer_receiver.recv().await {
                     Some(t) => {
-                        info!("Received transfer {:?}", t)
+                        info!("Received transfer id {}", t.id);
+                        match t.data.try_into() {
+                            Ok(bundle) => {
+                                if let Err(e) = receiver_convergane_agent_sender
+                                    .send(ConverganceAgentRequest::CLForwardBundle { bundle })
+                                    .await
+                                {
+                                    warn!(
+                                        "Error sending received bundle to Convergance Agent: {:?}",
+                                        e
+                                    );
+                                };
+                            }
+                            Err(e) => {
+                                warn!("Remote send invalid bundle. Dropping...: {:?}", e);
+                            }
+                        }
                     }
                     None => break,
                 }

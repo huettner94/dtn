@@ -19,4 +19,7 @@ pub enum ConverganceAgentRequest {
     CLUnregisterNode {
         node: Endpoint,
     },
+    CLForwardBundle {
+        bundle: Bundle,
+    },
 }

@@ -1,4 +1,4 @@
-use bp7::endpoint::Endpoint;
+use bp7::{bundle::Bundle, endpoint::Endpoint};
 use tokio::sync::oneshot;
 
 #[derive(Debug)]
@@ -14,5 +14,8 @@ pub enum BPARequest {
     },
     NewClientConnected {
         destination: Endpoint,
+    },
+    ReceiveBundle {
+        bundle: Bundle,
     },
 }

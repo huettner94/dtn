@@ -1,5 +1,6 @@
 use futures_util::Future;
 use log::info;
+use std::env;
 use tokio::sync::{broadcast, mpsc};
 
 mod bundleprotocolagent;
@@ -11,7 +12,7 @@ mod converganceagent;
 mod shutdown;
 mod tcpclconverganceagent;
 
-use crate::common::agent::Daemon;
+use crate::common::{agent::Daemon, settings::Settings};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -22,22 +23,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn runserver(ctrl_c: impl Future) -> Result<(), Box<dyn std::error::Error>> {
+    let settings: Settings = Settings {
+        my_node_id: env::var("NODE_ID").unwrap_or("dtn://defaultnodeid".into()),
+    };
+    info!("Starting with settings: {:?}", settings);
+
     let (notify_shutdown, _) = broadcast::channel::<()>(1);
     let (shutdown_complete_tx, mut shutdown_complete_rx) = mpsc::channel::<()>(1);
 
-    let mut bundle_storage_agent = bundlestorageagent::agent::Daemon::new();
+    let mut bundle_storage_agent = bundlestorageagent::agent::Daemon::new(&settings);
     let bsa_sender = bundle_storage_agent.init_channels();
 
-    let mut bundle_protocol_agent = bundleprotocolagent::agent::Daemon::new();
+    let mut bundle_protocol_agent = bundleprotocolagent::agent::Daemon::new(&settings);
     let bpa_sender = bundle_protocol_agent.init_channels(bsa_sender.clone());
 
-    let mut client_agent = clientagent::agent::Daemon::new();
+    let mut client_agent = clientagent::agent::Daemon::new(&settings);
     let client_agent_sender = client_agent.init_channels(bpa_sender.clone());
 
-    let mut convergance_agent = converganceagent::agent::Daemon::new();
-    let convergance_agent_sender = convergance_agent.init_channels();
+    let mut convergance_agent = converganceagent::agent::Daemon::new(&settings);
+    let convergance_agent_sender = convergance_agent.init_channels(bpa_sender.clone());
 
-    let mut tcpcl_agent = tcpclconverganceagent::agent::Daemon::new();
+    let mut tcpcl_agent = tcpclconverganceagent::agent::Daemon::new(settings.clone());
     tcpcl_agent.init_channels(convergance_agent_sender.clone());
 
     bundle_protocol_agent.set_agents(
