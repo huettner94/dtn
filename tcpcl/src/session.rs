@@ -149,6 +149,7 @@ impl TCPCLSession {
             if self.statemachine.is_established() && self.established_channel.0.is_some() {
                 let connection_info = ConnectionInfo {
                     peer_endpoint: self.statemachine.get_peer_node_id(),
+                    peer_address: self.stream.peer_addr()?.to_string(),
                 };
                 self.connection_info = Some(connection_info.clone());
                 if let Err(e) = self

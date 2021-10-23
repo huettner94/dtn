@@ -20,7 +20,27 @@ message ListenBundleResponse {
   bytes payload = 2;
 }
 
+message ListNodesRequest {}
+
+message Node {
+  string url = 1;
+  string status = 2;
+  string endpoint = 3;
+  bool temporary = 4;
+}
+
+message ListNodesResponse { repeated Node nodes = 1; }
+
+message AddNodeRequest { string url = 1; }
+message AddNodeResponse {}
+
+message RemoveNodeRequest { string url = 1; }
+message RemoveNodeResponse {}
+
 service BundleService {
   rpc SubmitBundle(SubmitBundleRequest) returns (SubmitBundleRespone);
   rpc ListenBundles(ListenBundleRequest) returns (stream ListenBundleResponse);
+  rpc ListNodes(ListNodesRequest) returns (ListNodesResponse);
+  rpc AddNode(AddNodeRequest) returns (AddNodeResponse);
+  rpc RemoveNode(RemoveNodeRequest) returns (RemoveNodeResponse);
 }

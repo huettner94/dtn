@@ -109,8 +109,75 @@ impl BundleService for MyBundleService {
 
         return Ok(Response::new(ListenBundleResponseTransformer {
             rec: channel_receiver,
-            canceltoken: canceltoken,
+            canceltoken,
         }));
+    }
+
+    async fn list_nodes(
+        &self,
+        request: tonic::Request<bundleservice::ListNodesRequest>,
+    ) -> Result<tonic::Response<bundleservice::ListNodesResponse>, tonic::Status> {
+        let req = request.into_inner();
+
+        let (list_nodes_sender, list_nodes_receiver) = oneshot::channel();
+        let msg = ClientAgentRequest::ClientListNodes {
+            responder: list_nodes_sender,
+        };
+
+        self.client_agent_sender
+            .send(msg)
+            .await
+            .map_err(|e| tonic::Status::unknown(e.to_string()))?;
+
+        match list_nodes_receiver.await {
+            Ok(node_list) => {
+                let nodes = node_list
+                    .iter()
+                    .map(|node| bundleservice::Node {
+                        url: node.url.clone(),
+                        status: node.connection_status.to_string(),
+                        endpoint: node
+                            .remote_endpoint
+                            .as_ref()
+                            .map(|e| e.to_string())
+                            .unwrap_or_else(|| "".to_string()),
+                        temporary: node.temporary,
+                    })
+                    .collect();
+                return Ok(Response::new(bundleservice::ListNodesResponse { nodes }));
+            }
+            Err(_) => return Err(Status::internal("Error communicating with node agent")),
+        }
+    }
+
+    async fn add_node(
+        &self,
+        request: tonic::Request<bundleservice::AddNodeRequest>,
+    ) -> Result<tonic::Response<bundleservice::AddNodeResponse>, tonic::Status> {
+        let req = request.into_inner();
+
+        let msg = ClientAgentRequest::ClientAddNode { url: req.url };
+
+        self.client_agent_sender
+            .send(msg)
+            .await
+            .map_err(|e| tonic::Status::unknown(e.to_string()))?;
+        Ok(Response::new(bundleservice::AddNodeResponse {}))
+    }
+
+    async fn remove_node(
+        &self,
+        request: tonic::Request<bundleservice::RemoveNodeRequest>,
+    ) -> Result<tonic::Response<bundleservice::RemoveNodeResponse>, tonic::Status> {
+        let req = request.into_inner();
+
+        let msg = ClientAgentRequest::ClientRemoveNode { url: req.url };
+
+        self.client_agent_sender
+            .send(msg)
+            .await
+            .map_err(|e| tonic::Status::unknown(e.to_string()))?;
+        Ok(Response::new(bundleservice::RemoveNodeResponse {}))
     }
 }
 

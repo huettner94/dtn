@@ -9,6 +9,7 @@ mod clientagent;
 mod clientgrpcagent;
 mod common;
 mod converganceagent;
+mod nodeagent;
 mod shutdown;
 mod tcpclconverganceagent;
 
@@ -37,14 +38,20 @@ async fn runserver(ctrl_c: impl Future) -> Result<(), Box<dyn std::error::Error>
     let mut bundle_protocol_agent = bundleprotocolagent::agent::Daemon::new(&settings);
     let bpa_sender = bundle_protocol_agent.init_channels(bsa_sender.clone());
 
-    let mut client_agent = clientagent::agent::Daemon::new(&settings);
-    let client_agent_sender = client_agent.init_channels(bpa_sender.clone());
-
     let mut convergance_agent = converganceagent::agent::Daemon::new(&settings);
     let convergance_agent_sender = convergance_agent.init_channels(bpa_sender.clone());
 
     let mut tcpcl_agent = tcpclconverganceagent::agent::Daemon::new(settings.clone());
     tcpcl_agent.init_channels(convergance_agent_sender.clone());
+
+    let mut node_agent = nodeagent::agent::Daemon::new(&settings);
+    let node_agent_sender = node_agent.init_channels(convergance_agent_sender.clone());
+
+    convergance_agent.set_node_agent_sender(node_agent_sender.clone());
+
+    let mut client_agent = clientagent::agent::Daemon::new(&settings);
+    let client_agent_sender =
+        client_agent.init_channels(bpa_sender.clone(), node_agent_sender.clone());
 
     bundle_protocol_agent.set_agents(
         client_agent_sender.clone(),
@@ -142,6 +149,21 @@ async fn runserver(ctrl_c: impl Future) -> Result<(), Box<dyn std::error::Error>
         }
     });
 
+    let node_agent_task_shutdown_notifier = notify_shutdown.subscribe();
+    let node_agent_task_shutdown_complete_tx_task = shutdown_complete_tx.clone();
+    let node_agent_task = tokio::spawn(async move {
+        match node_agent
+            .run(
+                node_agent_task_shutdown_notifier,
+                node_agent_task_shutdown_complete_tx_task,
+            )
+            .await
+        {
+            Ok(_) => Ok(()),
+            Err(e) => Err(e.to_string()),
+        }
+    });
+
     tokio::select! {
         res = api_agent_task => {
             if let Ok(Err(e)) = res {
@@ -171,6 +193,11 @@ async fn runserver(ctrl_c: impl Future) -> Result<(), Box<dyn std::error::Error>
         res = tcpcl_agent_task => {
             if let Ok(Err(e)) = res {
                 info!("something bad happened with the tcpcl agent {:?}. Aborting...", e);
+            }
+        }
+        res = node_agent_task => {
+            if let Ok(Err(e)) = res {
+                info!("something bad happened with the node agent {:?}. Aborting...", e);
             }
         }
         _ = ctrl_c => {

@@ -6,7 +6,11 @@ use log::{error, info, warn};
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
-use crate::{bundleprotocolagent::messages::BPARequest, common::settings::Settings};
+use crate::{
+    bundleprotocolagent::messages::BPARequest,
+    common::settings::Settings,
+    nodeagent::messages::{Node, NodeAgentRequest},
+};
 
 use super::messages::{ClientAgentRequest, ListenBundlesResponse};
 
@@ -14,17 +18,19 @@ pub struct Daemon {
     clients: HashMap<Endpoint, (mpsc::Sender<ListenBundlesResponse>, CancellationToken)>,
     channel_receiver: Option<mpsc::Receiver<ClientAgentRequest>>,
     bpa_sender: Option<mpsc::Sender<BPARequest>>,
+    node_agent_sender: Option<mpsc::Sender<NodeAgentRequest>>,
 }
 
 #[async_trait]
 impl crate::common::agent::Daemon for Daemon {
     type MessageType = ClientAgentRequest;
 
-    fn new(settings: &Settings) -> Self {
+    fn new(_: &Settings) -> Self {
         Daemon {
             clients: HashMap::new(),
             channel_receiver: None,
             bpa_sender: None,
+            node_agent_sender: None,
         }
     }
 
@@ -63,6 +69,15 @@ impl crate::common::agent::Daemon for Daemon {
                 self.message_client_listen_bundles(destination, responder, status, canceltoken)
                     .await;
             }
+            ClientAgentRequest::ClientListNodes { responder } => {
+                self.message_client_list_nodes(responder).await;
+            }
+            ClientAgentRequest::ClientAddNode { url } => {
+                self.message_client_add_node(url).await;
+            }
+            ClientAgentRequest::ClientRemoveNode { url } => {
+                self.message_client_remove_node(url).await;
+            }
             ClientAgentRequest::AgentGetClient {
                 destination,
                 responder,
@@ -77,8 +92,10 @@ impl Daemon {
     pub fn init_channels(
         &mut self,
         bpa_sender: tokio::sync::mpsc::Sender<BPARequest>,
+        node_agent_sender: mpsc::Sender<NodeAgentRequest>,
     ) -> mpsc::Sender<ClientAgentRequest> {
         self.bpa_sender = Some(bpa_sender);
+        self.node_agent_sender = Some(node_agent_sender);
         let (channel_sender, channel_receiver) = mpsc::channel::<ClientAgentRequest>(1);
         self.channel_receiver = Some(channel_receiver);
         return channel_sender;
@@ -158,6 +175,42 @@ impl Daemon {
 
         if let Err(e) = status.send(Ok(())) {
             error!("Error sending response to requestor {:?}", e);
+        }
+    }
+
+    async fn message_client_list_nodes(&self, responder: oneshot::Sender<Vec<Node>>) {
+        if let Err(e) = self
+            .node_agent_sender
+            .as_ref()
+            .unwrap()
+            .send(NodeAgentRequest::ListNodes { responder })
+            .await
+        {
+            error!("Error sending request to node agent {:?}", e);
+        }
+    }
+
+    async fn message_client_add_node(&self, url: String) {
+        if let Err(e) = self
+            .node_agent_sender
+            .as_ref()
+            .unwrap()
+            .send(NodeAgentRequest::AddNode { url })
+            .await
+        {
+            error!("Error sending request to node agent {:?}", e);
+        }
+    }
+
+    async fn message_client_remove_node(&self, url: String) {
+        if let Err(e) = self
+            .node_agent_sender
+            .as_ref()
+            .unwrap()
+            .send(NodeAgentRequest::RemoveNode { url })
+            .await
+        {
+            error!("Error sending request to node agent {:?}", e);
         }
     }
 

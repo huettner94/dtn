@@ -118,6 +118,7 @@ impl Daemon {
                         let bundle_sender = get_bundle_sender(send_channel);
                         if let Err(e) = established_convergane_agent_sender
                             .send(ConverganceAgentRequest::CLRegisterNode {
+                                url: format!("tcpcl://{}", ci.peer_address),
                                 node,
                                 sender: bundle_sender,
                             })
@@ -178,7 +179,10 @@ impl Daemon {
                 Some(ci) => match Endpoint::new(&ci.peer_endpoint) {
                     Some(node) => {
                         if let Err(e) = finished_convergane_agent_sender
-                            .send(ConverganceAgentRequest::CLUnregisterNode { node })
+                            .send(ConverganceAgentRequest::CLUnregisterNode {
+                                url: format!("tcpcl://{}", ci.peer_address),
+                                node,
+                            })
                             .await
                         {
                             warn!(

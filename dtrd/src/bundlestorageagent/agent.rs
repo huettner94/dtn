@@ -16,7 +16,7 @@ pub struct Daemon {
 impl crate::common::agent::Daemon for Daemon {
     type MessageType = BSARequest;
 
-    fn new(settings: &Settings) -> Self {
+    fn new(_: &Settings) -> Self {
         Daemon {
             bundles: Vec::new(),
             channel_receiver: None,

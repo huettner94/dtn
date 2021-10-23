@@ -5,7 +5,10 @@ use bp7::{bundle::Bundle, endpoint::Endpoint};
 use log::{info, warn};
 use tokio::sync::{mpsc, oneshot};
 
-use crate::{bundleprotocolagent::messages::BPARequest, common::settings::Settings};
+use crate::{
+    bundleprotocolagent::messages::BPARequest, common::settings::Settings,
+    nodeagent::messages::NodeAgentRequest,
+};
 
 use super::messages::{AgentForwardBundle, ConverganceAgentRequest};
 
@@ -13,17 +16,19 @@ pub struct Daemon {
     connected_nodes: HashMap<Endpoint, mpsc::Sender<AgentForwardBundle>>,
     channel_receiver: Option<mpsc::Receiver<ConverganceAgentRequest>>,
     bpa_sender: Option<mpsc::Sender<BPARequest>>,
+    node_agent_sender: Option<mpsc::Sender<NodeAgentRequest>>,
 }
 
 #[async_trait]
 impl crate::common::agent::Daemon for Daemon {
     type MessageType = ConverganceAgentRequest;
 
-    fn new(settings: &Settings) -> Self {
+    fn new(_: &Settings) -> Self {
         Daemon {
             connected_nodes: HashMap::new(),
             channel_receiver: None,
             bpa_sender: None,
+            node_agent_sender: None,
         }
     }
 
@@ -51,11 +56,11 @@ impl crate::common::agent::Daemon for Daemon {
             } => {
                 self.message_agent_get_node(destination, responder).await;
             }
-            ConverganceAgentRequest::CLRegisterNode { node, sender } => {
-                self.message_cl_register_node(node, sender).await;
+            ConverganceAgentRequest::CLRegisterNode { url, node, sender } => {
+                self.message_cl_register_node(url, node, sender).await;
             }
-            ConverganceAgentRequest::CLUnregisterNode { node } => {
-                self.message_cl_unregister_node(node).await;
+            ConverganceAgentRequest::CLUnregisterNode { url, node } => {
+                self.message_cl_unregister_node(url, node).await;
             }
             ConverganceAgentRequest::CLForwardBundle { bundle } => {
                 self.message_cl_forward_bundle(bundle).await;
@@ -75,6 +80,10 @@ impl Daemon {
         return channel_sender;
     }
 
+    pub fn set_node_agent_sender(&mut self, node_agent_sender: mpsc::Sender<NodeAgentRequest>) {
+        self.node_agent_sender = Some(node_agent_sender);
+    }
+
     async fn message_agent_get_node(
         &mut self,
         destination: Endpoint,
@@ -92,16 +101,44 @@ impl Daemon {
 
     async fn message_cl_register_node(
         &mut self,
+        url: String,
         node: Endpoint,
         sender: mpsc::Sender<AgentForwardBundle>,
     ) {
         info!("Received a registration request for node {}", node);
-        self.connected_nodes.insert(node, sender);
+        self.connected_nodes.insert(node.clone(), sender);
+        if let Err(e) = self
+            .node_agent_sender
+            .as_ref()
+            .unwrap()
+            .send(NodeAgentRequest::NotifyNodeConnected {
+                url,
+                endpoint: node,
+            })
+            .await
+        {
+            warn!(
+                "Error sending node connected notification to nodeagent: {:?}",
+                e
+            );
+        }
     }
 
-    async fn message_cl_unregister_node(&mut self, node: Endpoint) {
+    async fn message_cl_unregister_node(&mut self, url: String, node: Endpoint) {
         info!("Received an unregistration request for node {}", node);
         self.connected_nodes.remove(&node);
+        if let Err(e) = self
+            .node_agent_sender
+            .as_ref()
+            .unwrap()
+            .send(NodeAgentRequest::NotifyNodeDisconnected { url })
+            .await
+        {
+            warn!(
+                "Error sending node connected notification to nodeagent: {:?}",
+                e
+            );
+        }
     }
 
     async fn message_cl_forward_bundle(&mut self, bundle: Bundle) {
