@@ -1,4 +1,4 @@
-use std::fmt::{Display, Write};
+use std::fmt::Display;
 
 use bp7::endpoint::Endpoint;
 use tokio::sync::oneshot;

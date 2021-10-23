@@ -115,10 +115,8 @@ impl BundleService for MyBundleService {
 
     async fn list_nodes(
         &self,
-        request: tonic::Request<bundleservice::ListNodesRequest>,
+        _: tonic::Request<bundleservice::ListNodesRequest>,
     ) -> Result<tonic::Response<bundleservice::ListNodesResponse>, tonic::Status> {
-        let req = request.into_inner();
-
         let (list_nodes_sender, list_nodes_receiver) = oneshot::channel();
         let msg = ClientAgentRequest::ClientListNodes {
             responder: list_nodes_sender,
