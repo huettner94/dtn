@@ -7,6 +7,7 @@ use tokio::sync::oneshot;
 pub enum NodeConnectionStatus {
     Disconnected,
     Connected,
+    Connecting,
 }
 
 impl Display for NodeConnectionStatus {
@@ -14,6 +15,7 @@ impl Display for NodeConnectionStatus {
         f.write_str(match self {
             NodeConnectionStatus::Disconnected => "Disconnected",
             NodeConnectionStatus::Connected => "Connected",
+            NodeConnectionStatus::Connecting => "Connecting",
         })
     }
 }

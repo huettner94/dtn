@@ -143,21 +143,24 @@ impl TCPCLSession {
         &mut self,
         scr: &mut mpsc::Receiver<Vec<u8>>,
     ) -> Result<(), ErrorType> {
+        self.connection_info = Some(ConnectionInfo {
+            peer_endpoint: None,
+            peer_address: self.stream.peer_addr()?.to_string(),
+        });
+
         let mut send_channel_receiver = Some(scr);
         loop {
             debug!("We are now at statemachine state {:?}", self.statemachine);
             if self.statemachine.is_established() && self.established_channel.0.is_some() {
-                let connection_info = ConnectionInfo {
-                    peer_endpoint: self.statemachine.get_peer_node_id(),
-                    peer_address: self.stream.peer_addr()?.to_string(),
-                };
-                self.connection_info = Some(connection_info.clone());
+                self.connection_info.as_mut().unwrap().peer_endpoint =
+                    Some(self.statemachine.get_peer_node_id());
+
                 if let Err(e) = self
                     .established_channel
                     .0
                     .take()
                     .unwrap()
-                    .send(connection_info)
+                    .send(self.connection_info.as_ref().unwrap().clone())
                 {
                     warn!("Error sending connection info: {:?}", e);
                 };

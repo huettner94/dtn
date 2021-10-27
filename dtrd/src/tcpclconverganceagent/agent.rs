@@ -117,6 +117,18 @@ impl Daemon {
             Ok(sess) => self.process_socket(sess).await,
             Err(e) => {
                 error!("Error connecting to requested remote {}: {:?}", socket, e);
+                if let Err(e) = self
+                    .convergance_agent_sender
+                    .as_ref()
+                    .unwrap()
+                    .send(ConverganceAgentRequest::CLUnregisterNode {
+                        node: None,
+                        url: format!("tcpcl://{}", &socket),
+                    })
+                    .await
+                {
+                    error!("Error sending message to convergance agent: {:?}", e);
+                }
             }
         };
     }
@@ -150,7 +162,7 @@ impl Daemon {
             self.convergance_agent_sender.as_ref().unwrap().clone();
         tokio::spawn(async move {
             match established_channel.await {
-                Ok(ci) => match Endpoint::new(&ci.peer_endpoint) {
+                Ok(ci) => match Endpoint::new(&ci.peer_endpoint.as_ref().unwrap()) {
                     Some(node) => {
                         let bundle_sender = get_bundle_sender(send_channel);
                         if let Err(e) = established_convergane_agent_sender
@@ -170,7 +182,10 @@ impl Daemon {
                         };
                     }
                     None => {
-                        warn!("Peer send invalid id '{}'.", ci.peer_endpoint);
+                        warn!(
+                            "Peer send invalid id '{}'.",
+                            ci.peer_endpoint.as_ref().unwrap()
+                        );
                         //TODO: close the session
                     }
                 },
@@ -213,30 +228,29 @@ impl Daemon {
         let jh = tokio::spawn(async move {
             sess.manage_connection().await;
             match sess.get_connection_info() {
-                Some(ci) => match Endpoint::new(&ci.peer_endpoint) {
-                    Some(node) => {
-                        if let Err(e) = finished_convergane_agent_sender
-                            .send(ConverganceAgentRequest::CLUnregisterNode {
-                                url: format!("tcpcl://{}", ci.peer_address),
-                                node,
-                            })
-                            .await
-                        {
-                            warn!(
-                                "Error sending node unregistration to Convergance Agent: {:?}",
-                                e
-                            );
-                            //TODO: close the session
-                            return;
-                        };
-                    }
-                    None => {
-                        warn!("Peer send invalid id '{}'.", ci.peer_endpoint);
-                        //TODO: close the session
-                    }
-                },
-                None => {}
-            }
+                Some(ci) => {
+                    let node = match ci.peer_endpoint {
+                        Some(endpoint) => Endpoint::new(&endpoint),
+                        None => None,
+                    };
+                    if let Err(e) = finished_convergane_agent_sender
+                        .send(ConverganceAgentRequest::CLUnregisterNode {
+                            url: format!("tcpcl://{}", ci.peer_address),
+                            node,
+                        })
+                        .await
+                    {
+                        warn!(
+                            "Error sending node unregistration to Convergance Agent: {:?}",
+                            e
+                        );
+                        return;
+                    };
+                }
+                _ => {
+                    warn!("Connection closed but now connection info available.");
+                }
+            };
         });
         self.tcpcl_sessions.push(jh);
     }

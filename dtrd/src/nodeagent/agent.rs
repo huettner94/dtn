@@ -67,13 +67,14 @@ impl Daemon {
     }
 
     async fn message_add_node(&mut self, url: String) {
-        let node = Node {
+        let mut node = Node {
             url: url.clone(),
             connection_status: NodeConnectionStatus::Disconnected,
             remote_endpoint: None,
             temporary: false,
         };
         if !self.nodes.contains(&node) {
+            node.connection_status = NodeConnectionStatus::Connecting;
             self.nodes.push(node);
             if let Err(e) = self
                 .convergance_agent_sender

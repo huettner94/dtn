@@ -170,9 +170,14 @@ impl Daemon {
         }
     }
 
-    async fn message_cl_unregister_node(&mut self, url: String, node: Endpoint) {
-        info!("Received an unregistration request for node {}", node);
-        self.connected_nodes.remove(&node);
+    async fn message_cl_unregister_node(&mut self, url: String, node: Option<Endpoint>) {
+        info!(
+            "Received an unregistration request for node {:?} at url {}",
+            node, url
+        );
+        if node.is_some() {
+            self.connected_nodes.remove(&node.unwrap());
+        }
         if let Err(e) = self
             .node_agent_sender
             .as_ref()

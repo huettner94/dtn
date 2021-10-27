@@ -22,7 +22,7 @@ pub enum ConverganceAgentRequest {
     },
     CLUnregisterNode {
         url: String,
-        node: Endpoint,
+        node: Option<Endpoint>,
     },
     CLForwardBundle {
         bundle: Bundle,
