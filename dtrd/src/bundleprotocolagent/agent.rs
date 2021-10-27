@@ -248,10 +248,6 @@ impl Daemon {
 
     async fn forward_bundle(&self, bundle: Bundle) -> Result<(), Bundle> {
         debug!("forwarding bundle {:?}", &bundle);
-        if bundle.primary_block.fragment_offset.is_some() {
-            panic!("Bundle is a fragment. No idea what to do");
-            //TODO
-        }
 
         if let Some(sender) = self
             .get_connected_node(bundle.primary_block.destination_endpoint.clone())
