@@ -14,8 +14,11 @@ use crate::{
     converganceagent::messages::{AgentForwardBundle, ConverganceAgentRequest},
 };
 
+use super::messages::TCPCLAgentRequest;
+
 pub struct Daemon {
     settings: Settings,
+    channel_receiver: Option<mpsc::Receiver<TCPCLAgentRequest>>,
     convergance_agent_sender: Option<mpsc::Sender<ConverganceAgentRequest>>,
     tcpcl_sessions: Vec<JoinHandle<()>>,
     close_channels: Vec<oneshot::Sender<()>>,
@@ -25,6 +28,7 @@ impl Daemon {
     pub fn new(settings: Settings) -> Self {
         Daemon {
             settings,
+            channel_receiver: None,
             convergance_agent_sender: None,
             tcpcl_sessions: Vec::new(),
             close_channels: Vec::new(),
@@ -34,16 +38,20 @@ impl Daemon {
     pub fn init_channels(
         &mut self,
         convergance_agent_sender: mpsc::Sender<ConverganceAgentRequest>,
-    ) {
+    ) -> mpsc::Sender<TCPCLAgentRequest> {
         self.convergance_agent_sender = Some(convergance_agent_sender);
+        let (channel_sender, channel_receiver) = mpsc::channel::<TCPCLAgentRequest>(1);
+        self.channel_receiver = Some(channel_receiver);
+        return channel_sender;
     }
 
     pub async fn run(
-        &mut self,
+        mut self,
         mut shutdown: broadcast::Receiver<()>,
         _sender: mpsc::Sender<()>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let socket: SocketAddr = "[::1]:4556".parse().unwrap();
+        let socket: SocketAddr = self.settings.tcpcl_listen_address.parse().unwrap();
+        let mut receiver = self.channel_receiver.take().unwrap();
 
         info!("Server listening on {}", socket);
 
@@ -56,12 +64,25 @@ impl Daemon {
                         break;
                     }
                 }
+                received = receiver.recv() => {
+                    if let Some(msg) = received {
+                        self.handle_message(msg).await;
+                    } else {
+                        info!("TCPCL Agent can no longer receive messages. Exiting");
+                        break;
+                    }
+                }
                 _ = shutdown.recv() => {
                     info!("TCPCL agent received shutdown");
                     break;
                 }
             }
         }
+
+        // We are explicitly not handling the message receiver here as we cant use it anymore anyway.
+
+        info!("Closing the incoming tcp listener");
+        drop(listener);
 
         info!("Closing all tcpcl sessions");
         for close_channel in self.close_channels.drain(..) {
@@ -83,6 +104,23 @@ impl Daemon {
         Ok(())
     }
 
+    async fn handle_message(&mut self, message: TCPCLAgentRequest) {
+        match message {
+            TCPCLAgentRequest::ConnectRemote { socket } => {
+                self.connect_remote(socket).await;
+            }
+        }
+    }
+
+    async fn connect_remote(&mut self, socket: SocketAddr) {
+        match TCPCLSession::connect(socket, self.settings.my_node_id.clone()).await {
+            Ok(sess) => self.process_socket(sess).await,
+            Err(e) => {
+                error!("Error connecting to requested remote {}: {:?}", socket, e);
+            }
+        };
+    }
+
     async fn handle_accept(
         &mut self,
         accept: Result<(TcpStream, SocketAddr), std::io::Error>,
@@ -90,7 +128,8 @@ impl Daemon {
         match accept {
             Ok((stream, peer_addr)) => {
                 info!("New connection from {}", peer_addr);
-                self.process_socket(stream).await;
+                let sess = TCPCLSession::new(stream, self.settings.my_node_id.clone());
+                self.process_socket(sess).await;
                 return false;
             }
             Err(e) => {
@@ -100,9 +139,7 @@ impl Daemon {
         }
     }
 
-    async fn process_socket(&mut self, stream: TcpStream) {
-        let mut sess = TCPCLSession::new(stream, self.settings.my_node_id.clone());
-
+    async fn process_socket(&mut self, mut sess: TCPCLSession) {
         let close_channel = sess.get_close_channel();
         self.close_channels.push(close_channel);
 

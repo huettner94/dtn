@@ -2,12 +2,12 @@ use std::collections::HashMap;
 
 use async_trait::async_trait;
 use bp7::{bundle::Bundle, endpoint::Endpoint};
-use log::{info, warn};
+use log::{error, info, warn};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{
     bundleprotocolagent::messages::BPARequest, common::settings::Settings,
-    nodeagent::messages::NodeAgentRequest,
+    nodeagent::messages::NodeAgentRequest, tcpclconverganceagent::messages::TCPCLAgentRequest,
 };
 
 use super::messages::{AgentForwardBundle, ConverganceAgentRequest};
@@ -17,6 +17,7 @@ pub struct Daemon {
     channel_receiver: Option<mpsc::Receiver<ConverganceAgentRequest>>,
     bpa_sender: Option<mpsc::Sender<BPARequest>>,
     node_agent_sender: Option<mpsc::Sender<NodeAgentRequest>>,
+    tcpcl_agent_sender: Option<mpsc::Sender<TCPCLAgentRequest>>,
 }
 
 #[async_trait]
@@ -29,6 +30,7 @@ impl crate::common::agent::Daemon for Daemon {
             channel_receiver: None,
             bpa_sender: None,
             node_agent_sender: None,
+            tcpcl_agent_sender: None,
         }
     }
 
@@ -56,6 +58,9 @@ impl crate::common::agent::Daemon for Daemon {
             } => {
                 self.message_agent_get_node(destination, responder).await;
             }
+            ConverganceAgentRequest::AgentConnectNode { connection_string } => {
+                self.message_agent_connect_node(connection_string).await;
+            }
             ConverganceAgentRequest::CLRegisterNode { url, node, sender } => {
                 self.message_cl_register_node(url, node, sender).await;
             }
@@ -80,8 +85,13 @@ impl Daemon {
         return channel_sender;
     }
 
-    pub fn set_node_agent_sender(&mut self, node_agent_sender: mpsc::Sender<NodeAgentRequest>) {
+    pub fn set_senders(
+        &mut self,
+        node_agent_sender: mpsc::Sender<NodeAgentRequest>,
+        tcpcl_agent_sender: mpsc::Sender<TCPCLAgentRequest>,
+    ) {
         self.node_agent_sender = Some(node_agent_sender);
+        self.tcpcl_agent_sender = Some(tcpcl_agent_sender);
     }
 
     async fn message_agent_get_node(
@@ -96,6 +106,42 @@ impl Daemon {
         };
         if let Err(e) = responder.send(resp) {
             warn!("Error sending Convergance get back to requestor: {:?}", e);
+        }
+    }
+
+    async fn message_agent_connect_node(&mut self, connection_string: String) {
+        match connection_string.split_once(':') {
+            Some((proto, hostport)) => match proto {
+                "tcpcl" => match hostport[2..].parse() {
+                    Ok(socket) => {
+                        if let Err(e) = self
+                            .tcpcl_agent_sender
+                            .as_ref()
+                            .unwrap()
+                            .send(TCPCLAgentRequest::ConnectRemote { socket })
+                            .await
+                        {
+                            error!("Error sending request to tcpcl agent {:?}", e);
+                        }
+                    }
+                    Err(e) => {
+                        error!(
+                            "Invalid address '{}' specified to connect to new nodes: {}",
+                            hostport[2..].to_string(),
+                            e
+                        );
+                        //TODO make a response to the requestor
+                    }
+                },
+                _ => {
+                    error!("Invalid protocol: {}", proto);
+                    //TODO make a response to the requestor
+                }
+            },
+            None => {
+                error!("Invalid connection string format: {}", connection_string);
+                //TODO make a response to the requestor
+            }
         }
     }
 

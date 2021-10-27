@@ -8,7 +8,7 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 use tonic::{transport::Server, Response, Status};
 
-use crate::clientagent::messages::{ClientAgentRequest, ListenBundlesResponse};
+use crate::{clientagent::messages::{ClientAgentRequest, ListenBundlesResponse}, common::settings::Settings};
 use bp7::endpoint::Endpoint;
 
 mod bundleservice {
@@ -180,11 +180,12 @@ impl BundleService for MyBundleService {
 }
 
 pub async fn main(
+    settings: &Settings,
     mut shutdown: broadcast::Receiver<()>,
     _sender: mpsc::Sender<()>,
     client_agent_sender: mpsc::Sender<ClientAgentRequest>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let addr = "[::1]:50051".parse().unwrap();
+    let addr = settings.grpc_clientapi_address.parse().unwrap();
     let echo = MyBundleService {
         client_agent_sender: client_agent_sender.clone(),
     };

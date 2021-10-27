@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use bp7::endpoint::Endpoint;
-use log::warn;
+use log::{error, warn};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{common::settings::Settings, converganceagent::messages::ConverganceAgentRequest};
@@ -68,13 +68,24 @@ impl Daemon {
 
     async fn message_add_node(&mut self, url: String) {
         let node = Node {
-            url,
+            url: url.clone(),
             connection_status: NodeConnectionStatus::Disconnected,
             remote_endpoint: None,
             temporary: false,
         };
         if !self.nodes.contains(&node) {
             self.nodes.push(node);
+            if let Err(e) = self
+                .convergance_agent_sender
+                .as_ref()
+                .unwrap()
+                .send(ConverganceAgentRequest::AgentConnectNode {
+                    connection_string: url,
+                })
+                .await
+            {
+                error!("Error sending request to convergance agent: {:?}", e)
+            }
         }
     }
 

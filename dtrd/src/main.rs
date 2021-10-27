@@ -26,6 +26,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn runserver(ctrl_c: impl Future) -> Result<(), Box<dyn std::error::Error>> {
     let settings: Settings = Settings {
         my_node_id: env::var("NODE_ID").unwrap_or("dtn://defaultnodeid".into()),
+        tcpcl_listen_address: env::var("TCPCL_LISTEN_ADDRESS").unwrap_or("[::1]:4556".into()),
+        grpc_clientapi_address: env::var("GRPC_CLIENTAPI_ADDRESS").unwrap_or("[::1]:50051".into()),
     };
     info!("Starting with settings: {:?}", settings);
 
@@ -42,12 +44,12 @@ async fn runserver(ctrl_c: impl Future) -> Result<(), Box<dyn std::error::Error>
     let convergance_agent_sender = convergance_agent.init_channels(bpa_sender.clone());
 
     let mut tcpcl_agent = tcpclconverganceagent::agent::Daemon::new(settings.clone());
-    tcpcl_agent.init_channels(convergance_agent_sender.clone());
+    let tcpcl_agent_sender = tcpcl_agent.init_channels(convergance_agent_sender.clone());
 
     let mut node_agent = nodeagent::agent::Daemon::new(&settings);
     let node_agent_sender = node_agent.init_channels(convergance_agent_sender.clone());
 
-    convergance_agent.set_node_agent_sender(node_agent_sender.clone());
+    convergance_agent.set_senders(node_agent_sender.clone(), tcpcl_agent_sender.clone());
 
     let mut client_agent = clientagent::agent::Daemon::new(&settings);
     let client_agent_sender =
@@ -106,8 +108,10 @@ async fn runserver(ctrl_c: impl Future) -> Result<(), Box<dyn std::error::Error>
     let api_agent_task_shutdown_notifier = notify_shutdown.subscribe();
     let api_agent_task_shutdown_complete_tx_task = shutdown_complete_tx.clone();
     let api_agent_task_client_agent_sender = client_agent_sender.clone();
+    let api_agent_task_settings = settings.clone();
     let api_agent_task = tokio::spawn(async move {
         match clientgrpcagent::agent::main(
+            &api_agent_task_settings,
             api_agent_task_shutdown_notifier,
             api_agent_task_shutdown_complete_tx_task,
             api_agent_task_client_agent_sender,
