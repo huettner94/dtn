@@ -39,7 +39,7 @@ use tokio::sync::broadcast;
 /// been received. Callers may query for whether the shutdown signal has been
 /// received or not.
 #[derive(Debug)]
-pub(crate) struct Shutdown {
+pub struct Shutdown {
     /// `true` if the shutdown signal has been received
     shutdown: bool,
 

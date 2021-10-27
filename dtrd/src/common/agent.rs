@@ -33,6 +33,24 @@ pub trait Daemon {
         let mut shutdown = Shutdown::new(shutdown_signal);
         let mut receiver = channel_receiver.unwrap();
 
+        self.main_loop(&mut shutdown, &mut receiver).await?;
+
+        while let Some(msg) = receiver.recv().await {
+            self.handle_message(msg).await;
+        }
+
+        self.on_shutdown().await;
+
+        info!("{} has shutdown. See you", self.get_agent_name());
+        // _sender is explicitly dropped here
+        Ok(())
+    }
+
+    async fn main_loop(
+        &mut self,
+        shutdown: &mut Shutdown,
+        receiver: &mut mpsc::Receiver<Self::MessageType>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         while !shutdown.is_shutdown() {
             tokio::select! {
                 res = receiver.recv() => {
@@ -50,15 +68,6 @@ pub trait Daemon {
                 }
             }
         }
-
-        while let Some(msg) = receiver.recv().await {
-            self.handle_message(msg).await;
-        }
-
-        self.on_shutdown().await;
-
-        info!("{} has shutdown. See you", self.get_agent_name());
-        // _sender is explicitly dropped here
         Ok(())
     }
 

@@ -1,9 +1,17 @@
+use std::time::Duration;
+
 use async_trait::async_trait;
 use bp7::endpoint::Endpoint;
-use log::{error, warn};
-use tokio::sync::{mpsc, oneshot};
+use log::{error, info, warn};
+use tokio::{
+    sync::{mpsc, oneshot},
+    time::interval,
+};
 
-use crate::{common::settings::Settings, converganceagent::messages::ConverganceAgentRequest};
+use crate::{
+    common::settings::Settings, converganceagent::messages::ConverganceAgentRequest,
+    shutdown::Shutdown,
+};
 
 use super::messages::{Node, NodeAgentRequest, NodeConnectionStatus};
 
@@ -31,6 +39,35 @@ impl crate::common::agent::Daemon for Daemon {
 
     fn get_channel_receiver(&mut self) -> Option<mpsc::Receiver<Self::MessageType>> {
         self.channel_receiver.take()
+    }
+
+    async fn main_loop(
+        &mut self,
+        shutdown: &mut Shutdown,
+        receiver: &mut mpsc::Receiver<Self::MessageType>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut reconnect_interval = interval(Duration::from_secs(60));
+        while !shutdown.is_shutdown() {
+            tokio::select! {
+                res = receiver.recv() => {
+                    if let Some(msg) = res {
+                        self.handle_message(msg).await;
+                    } else {
+                        info!("{} can no longer receive messages. Exiting", self.get_agent_name());
+                        return Ok(())
+                    }
+                }
+                _ = shutdown.recv() => {
+                    info!("{} received shutdown", self.get_agent_name());
+                    receiver.close();
+                    info!("{} will not allow more requests to be sent", self.get_agent_name());
+                }
+                _ = reconnect_interval.tick() => {
+                    self.handle_reconnect().await;
+                }
+            }
+        }
+        Ok(())
     }
 
     async fn handle_message(&mut self, msg: NodeAgentRequest) {
@@ -153,6 +190,26 @@ impl Daemon {
                     "We received a node disconnect info, but dont know about the node: {}",
                     url
                 );
+            }
+        }
+    }
+
+    async fn handle_reconnect(&mut self) {
+        for node in &mut self.nodes {
+            if node.connection_status == NodeConnectionStatus::Disconnected && !node.temporary {
+                info!("Trying to reconnect to {}", node.url);
+                node.connection_status = NodeConnectionStatus::Connecting;
+                if let Err(e) = self
+                    .convergance_agent_sender
+                    .as_ref()
+                    .unwrap()
+                    .send(ConverganceAgentRequest::AgentConnectNode {
+                        connection_string: node.url.clone(),
+                    })
+                    .await
+                {
+                    error!("Error sending request to convergance agent: {:?}", e)
+                }
             }
         }
     }
