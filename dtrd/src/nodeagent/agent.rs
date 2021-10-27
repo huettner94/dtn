@@ -92,12 +92,31 @@ impl Daemon {
 
     async fn message_remove_node(&mut self, url: String) {
         let node = Node {
-            url,
+            url: url.clone(),
             connection_status: NodeConnectionStatus::Disconnected,
             remote_endpoint: None,
             temporary: false,
         };
-        self.nodes.retain(|x| x != &node);
+        match self.nodes.iter().position(|x| x == &node) {
+            Some(pos) => {
+                let node = &mut self.nodes[pos];
+                node.temporary = true;
+                node.connection_status = NodeConnectionStatus::Disconnecting;
+
+                if let Err(e) = self
+                    .convergance_agent_sender
+                    .as_ref()
+                    .unwrap()
+                    .send(ConverganceAgentRequest::AgentDisconnectNode {
+                        connection_string: url,
+                    })
+                    .await
+                {
+                    error!("Error sending request to convergance agent: {:?}", e)
+                }
+            }
+            None => {}
+        }
     }
 
     async fn message_notify_node_connected(&mut self, url: String, endpoint: Endpoint) {

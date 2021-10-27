@@ -61,6 +61,9 @@ impl crate::common::agent::Daemon for Daemon {
             ConverganceAgentRequest::AgentConnectNode { connection_string } => {
                 self.message_agent_connect_node(connection_string).await;
             }
+            ConverganceAgentRequest::AgentDisconnectNode { connection_string } => {
+                self.message_agent_disconnect_node(connection_string).await;
+            }
             ConverganceAgentRequest::CLRegisterNode { url, node, sender } => {
                 self.message_cl_register_node(url, node, sender).await;
             }
@@ -119,6 +122,42 @@ impl Daemon {
                             .as_ref()
                             .unwrap()
                             .send(TCPCLAgentRequest::ConnectRemote { socket })
+                            .await
+                        {
+                            error!("Error sending request to tcpcl agent {:?}", e);
+                        }
+                    }
+                    Err(e) => {
+                        error!(
+                            "Invalid address '{}' specified to connect to new nodes: {}",
+                            hostport[2..].to_string(),
+                            e
+                        );
+                        //TODO make a response to the requestor
+                    }
+                },
+                _ => {
+                    error!("Invalid protocol: {}", proto);
+                    //TODO make a response to the requestor
+                }
+            },
+            None => {
+                error!("Invalid connection string format: {}", connection_string);
+                //TODO make a response to the requestor
+            }
+        }
+    }
+
+    async fn message_agent_disconnect_node(&mut self, connection_string: String) {
+        match connection_string.split_once(':') {
+            Some((proto, hostport)) => match proto {
+                "tcpcl" => match hostport[2..].parse() {
+                    Ok(socket) => {
+                        if let Err(e) = self
+                            .tcpcl_agent_sender
+                            .as_ref()
+                            .unwrap()
+                            .send(TCPCLAgentRequest::DisonnectRemote { socket })
                             .await
                         {
                             error!("Error sending request to tcpcl agent {:?}", e);

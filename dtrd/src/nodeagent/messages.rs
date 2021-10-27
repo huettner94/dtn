@@ -8,6 +8,7 @@ pub enum NodeConnectionStatus {
     Disconnected,
     Connected,
     Connecting,
+    Disconnecting,
 }
 
 impl Display for NodeConnectionStatus {
@@ -16,6 +17,7 @@ impl Display for NodeConnectionStatus {
             NodeConnectionStatus::Disconnected => "Disconnected",
             NodeConnectionStatus::Connected => "Connected",
             NodeConnectionStatus::Connecting => "Connecting",
+            NodeConnectionStatus::Disconnecting => "Disconnecting",
         })
     }
 }

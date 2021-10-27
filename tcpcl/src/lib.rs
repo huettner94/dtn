@@ -95,7 +95,7 @@ pub async fn connect(socket: SocketAddr) -> Result<(), ErrorType> {
 async fn process_socket(socket: TcpStream) -> Result<(), std::io::Error> {
     info!("New connection from {}", socket.peer_addr()?);
 
-    let mut sess = TCPCLSession::new(socket, "dtn://server".into());
+    let mut sess = TCPCLSession::new(socket, "dtn://server".into())?;
 
     let mut receiver = sess.get_receive_channel();
 

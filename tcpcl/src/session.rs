@@ -25,7 +25,7 @@ pub struct TCPCLSession {
     writer: Vec<u8>,
     statemachine: StateMachine,
     receiving_transfer: Option<Transfer>,
-    connection_info: Option<ConnectionInfo>,
+    connection_info: ConnectionInfo,
     established_channel: (
         Option<oneshot::Sender<ConnectionInfo>>,
         Option<oneshot::Receiver<ConnectionInfo>>,
@@ -36,23 +36,27 @@ pub struct TCPCLSession {
 }
 
 impl TCPCLSession {
-    pub fn new(stream: TcpStream, node_id: String) -> Self {
+    pub fn new(stream: TcpStream, node_id: String) -> Result<Self, std::io::Error> {
+        let peer_addr = stream.peer_addr()?;
         let established_channel = oneshot::channel();
         let close_channel = oneshot::channel();
         let receive_channel = mpsc::channel(10);
         let send_channel = mpsc::channel(10);
-        TCPCLSession {
+        Ok(TCPCLSession {
             stream,
             reader: Reader::new(),
             writer: Vec::new(),
             statemachine: StateMachine::new_passive(node_id),
             receiving_transfer: None,
-            connection_info: None,
+            connection_info: ConnectionInfo {
+                peer_endpoint: None,
+                peer_address: peer_addr,
+            },
             established_channel: (Some(established_channel.0), Some(established_channel.1)),
             close_channel: (Some(close_channel.0), Some(close_channel.1)),
             receive_channel: (receive_channel.0, Some(receive_channel.1)),
             send_channel: (send_channel.0, Some(send_channel.1)),
-        }
+        })
     }
 
     pub async fn connect(socket: SocketAddr, node_id: String) -> Result<Self, ErrorType> {
@@ -70,7 +74,10 @@ impl TCPCLSession {
             writer: Vec::new(),
             statemachine: StateMachine::new_active(node_id),
             receiving_transfer: None,
-            connection_info: None,
+            connection_info: ConnectionInfo {
+                peer_endpoint: None,
+                peer_address: socket,
+            },
             established_channel: (Some(established_channel.0), Some(established_channel.1)),
             close_channel: (Some(close_channel.0), Some(close_channel.1)),
             receive_channel: (receive_channel.0, Some(receive_channel.1)),
@@ -106,7 +113,7 @@ impl TCPCLSession {
         return self.send_channel.0.clone();
     }
 
-    pub fn get_connection_info(&self) -> Option<ConnectionInfo> {
+    pub fn get_connection_info(&self) -> ConnectionInfo {
         self.connection_info.clone()
     }
 
@@ -143,24 +150,18 @@ impl TCPCLSession {
         &mut self,
         scr: &mut mpsc::Receiver<Vec<u8>>,
     ) -> Result<(), ErrorType> {
-        self.connection_info = Some(ConnectionInfo {
-            peer_endpoint: None,
-            peer_address: self.stream.peer_addr()?.to_string(),
-        });
-
         let mut send_channel_receiver = Some(scr);
         loop {
             debug!("We are now at statemachine state {:?}", self.statemachine);
             if self.statemachine.is_established() && self.established_channel.0.is_some() {
-                self.connection_info.as_mut().unwrap().peer_endpoint =
-                    Some(self.statemachine.get_peer_node_id());
+                self.connection_info.peer_endpoint = Some(self.statemachine.get_peer_node_id());
 
                 if let Err(e) = self
                     .established_channel
                     .0
                     .take()
                     .unwrap()
-                    .send(self.connection_info.as_ref().unwrap().clone())
+                    .send(self.connection_info.clone())
                 {
                     warn!("Error sending connection info: {:?}", e);
                 };

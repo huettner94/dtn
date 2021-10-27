@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::{collections::HashMap, net::SocketAddr};
 
 use bp7::endpoint::Endpoint;
 use log::{error, info, warn};
@@ -21,7 +21,7 @@ pub struct Daemon {
     channel_receiver: Option<mpsc::Receiver<TCPCLAgentRequest>>,
     convergance_agent_sender: Option<mpsc::Sender<ConverganceAgentRequest>>,
     tcpcl_sessions: Vec<JoinHandle<()>>,
-    close_channels: Vec<oneshot::Sender<()>>,
+    close_channels: HashMap<SocketAddr, oneshot::Sender<()>>,
 }
 
 impl Daemon {
@@ -31,7 +31,7 @@ impl Daemon {
             channel_receiver: None,
             convergance_agent_sender: None,
             tcpcl_sessions: Vec::new(),
-            close_channels: Vec::new(),
+            close_channels: HashMap::new(),
         }
     }
 
@@ -85,8 +85,8 @@ impl Daemon {
         drop(listener);
 
         info!("Closing all tcpcl sessions");
-        for close_channel in self.close_channels.drain(..) {
-            match close_channel.send(()) {
+        for close_channel in self.close_channels.drain() {
+            match close_channel.1.send(()) {
                 _ => {}
             }
         }
@@ -109,6 +109,7 @@ impl Daemon {
             TCPCLAgentRequest::ConnectRemote { socket } => {
                 self.connect_remote(socket).await;
             }
+            TCPCLAgentRequest::DisonnectRemote { socket } => self.disconnect_remote(socket).await,
         }
     }
 
@@ -133,6 +134,17 @@ impl Daemon {
         };
     }
 
+    async fn disconnect_remote(&mut self, socket: SocketAddr) {
+        match self.close_channels.remove(&socket) {
+            Some(cc) => {
+                if let Err(_) = cc.send(()) {
+                    error!("Error sending message to convergance agent");
+                };
+            }
+            None => {}
+        }
+    }
+
     async fn handle_accept(
         &mut self,
         accept: Result<(TcpStream, SocketAddr), std::io::Error>,
@@ -140,8 +152,14 @@ impl Daemon {
         match accept {
             Ok((stream, peer_addr)) => {
                 info!("New connection from {}", peer_addr);
-                let sess = TCPCLSession::new(stream, self.settings.my_node_id.clone());
-                self.process_socket(sess).await;
+                match TCPCLSession::new(stream, self.settings.my_node_id.clone()) {
+                    Ok(sess) => {
+                        self.process_socket(sess).await;
+                    }
+                    Err(e) => {
+                        warn!("Error accepint new connection: {}", e);
+                    }
+                };
                 return false;
             }
             Err(e) => {
@@ -153,7 +171,8 @@ impl Daemon {
 
     async fn process_socket(&mut self, mut sess: TCPCLSession) {
         let close_channel = sess.get_close_channel();
-        self.close_channels.push(close_channel);
+        self.close_channels
+            .insert(sess.get_connection_info().peer_address, close_channel);
 
         let send_channel = sess.get_send_channel();
 
@@ -227,29 +246,23 @@ impl Daemon {
             self.convergance_agent_sender.as_ref().unwrap().clone();
         let jh = tokio::spawn(async move {
             sess.manage_connection().await;
-            match sess.get_connection_info() {
-                Some(ci) => {
-                    let node = match ci.peer_endpoint {
-                        Some(endpoint) => Endpoint::new(&endpoint),
-                        None => None,
-                    };
-                    if let Err(e) = finished_convergane_agent_sender
-                        .send(ConverganceAgentRequest::CLUnregisterNode {
-                            url: format!("tcpcl://{}", ci.peer_address),
-                            node,
-                        })
-                        .await
-                    {
-                        warn!(
-                            "Error sending node unregistration to Convergance Agent: {:?}",
-                            e
-                        );
-                        return;
-                    };
-                }
-                _ => {
-                    warn!("Connection closed but now connection info available.");
-                }
+            let ci = sess.get_connection_info();
+            let node = match ci.peer_endpoint {
+                Some(endpoint) => Endpoint::new(&endpoint),
+                None => None,
+            };
+            if let Err(e) = finished_convergane_agent_sender
+                .send(ConverganceAgentRequest::CLUnregisterNode {
+                    url: format!("tcpcl://{}", ci.peer_address),
+                    node,
+                })
+                .await
+            {
+                warn!(
+                    "Error sending node unregistration to Convergance Agent: {:?}",
+                    e
+                );
+                return;
             };
         });
         self.tcpcl_sessions.push(jh);

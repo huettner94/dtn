@@ -15,6 +15,9 @@ pub enum ConverganceAgentRequest {
     AgentConnectNode {
         connection_string: String,
     },
+    AgentDisconnectNode {
+        connection_string: String,
+    },
     CLRegisterNode {
         url: String,
         node: Endpoint,
