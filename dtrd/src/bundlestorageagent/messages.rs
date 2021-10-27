@@ -10,4 +10,8 @@ pub enum BSARequest {
         destination: Endpoint,
         bundles: oneshot::Sender<Result<Vec<Bundle>, String>>,
     },
+    GetBundleForNode {
+        destination: Endpoint,
+        bundles: oneshot::Sender<Result<Vec<Bundle>, String>>,
+    },
 }

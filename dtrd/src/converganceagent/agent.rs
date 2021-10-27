@@ -198,8 +198,20 @@ impl Daemon {
             .unwrap()
             .send(NodeAgentRequest::NotifyNodeConnected {
                 url,
-                endpoint: node,
+                endpoint: node.clone(),
             })
+            .await
+        {
+            warn!(
+                "Error sending node connected notification to nodeagent: {:?}",
+                e
+            );
+        }
+        if let Err(e) = self
+            .bpa_sender
+            .as_ref()
+            .unwrap()
+            .send(BPARequest::NewNodeConnected { destination: node })
             .await
         {
             warn!(
