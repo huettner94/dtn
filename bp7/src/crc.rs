@@ -96,3 +96,50 @@ impl CRCType {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::crc::CRCType;
+
+    #[test]
+    fn serialize_nocrc() -> Result<(), serde_cbor::Error> {
+        assert_eq!(serde_cbor::to_vec(&CRCType::NoCRC)?, [0]);
+        Ok(())
+    }
+
+    #[test]
+    fn serialize_crc16() -> Result<(), serde_cbor::Error> {
+        assert_eq!(serde_cbor::to_vec(&CRCType::CRC16([0x55, 0xAA]))?, [1]);
+        Ok(())
+    }
+
+    #[test]
+    fn serialize_crc32() -> Result<(), serde_cbor::Error> {
+        assert_eq!(
+            serde_cbor::to_vec(&CRCType::CRC32([0x55, 0xAA, 0x55, 0xAA]))?,
+            [2]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn deserialize_nocrc() -> Result<(), serde_cbor::Error> {
+        let val: CRCType = serde_cbor::from_slice(&[0])?;
+        assert_eq!(val, CRCType::NoCRC);
+        Ok(())
+    }
+
+    #[test]
+    fn deserialize_crc16() -> Result<(), serde_cbor::Error> {
+        let val: CRCType = serde_cbor::from_slice(&[1])?;
+        assert_eq!(val, CRCType::CRC16([0; 2]));
+        Ok(())
+    }
+
+    #[test]
+    fn deserialize_crc32() -> Result<(), serde_cbor::Error> {
+        let val: CRCType = serde_cbor::from_slice(&[2])?;
+        assert_eq!(val, CRCType::CRC32([0; 4]));
+        Ok(())
+    }
+}
