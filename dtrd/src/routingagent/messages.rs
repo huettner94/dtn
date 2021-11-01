@@ -8,6 +8,15 @@ pub enum RouteType {
 }
 
 #[derive(Debug)]
+pub struct RouteStatus {
+    pub target: Endpoint,
+    pub next_hop: Endpoint,
+    pub route_type: RouteType,
+    pub preferred: bool,
+    pub available: bool,
+}
+
+#[derive(Debug)]
 pub enum RoutingAgentRequest {
     AddRoute {
         target: Endpoint,
@@ -22,5 +31,8 @@ pub enum RoutingAgentRequest {
     GetNextHop {
         target: Endpoint,
         responder: oneshot::Sender<Option<Endpoint>>,
+    },
+    ListRoutes {
+        responder: oneshot::Sender<Vec<RouteStatus>>,
     },
 }

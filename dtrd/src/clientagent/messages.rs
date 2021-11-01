@@ -2,7 +2,7 @@ use bp7::endpoint::Endpoint;
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
-use crate::nodeagent::messages::Node;
+use crate::{nodeagent::messages::Node, routingagent::messages::RouteStatus};
 
 #[derive(Debug)]
 pub struct ListenBundlesResponse {
@@ -31,6 +31,17 @@ pub enum ClientAgentRequest {
     },
     ClientRemoveNode {
         url: String,
+    },
+    ClientListRoutes {
+        responder: oneshot::Sender<Vec<RouteStatus>>,
+    },
+    ClientAddRoute {
+        target: Endpoint,
+        next_hop: Endpoint,
+    },
+    ClientRemoveRoute {
+        target: Endpoint,
+        next_hop: Endpoint,
     },
     AgentGetClient {
         destination: Endpoint,

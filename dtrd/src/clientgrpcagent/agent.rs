@@ -8,7 +8,11 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 use tonic::{transport::Server, Response, Status};
 
-use crate::{clientagent::messages::{ClientAgentRequest, ListenBundlesResponse}, common::settings::Settings};
+use crate::{
+    clientagent::messages::{ClientAgentRequest, ListenBundlesResponse},
+    common::settings::Settings,
+    routingagent::messages::RouteType,
+};
 use bp7::endpoint::Endpoint;
 
 mod bundleservice {
@@ -176,6 +180,94 @@ impl BundleService for MyBundleService {
             .await
             .map_err(|e| tonic::Status::unknown(e.to_string()))?;
         Ok(Response::new(bundleservice::RemoveNodeResponse {}))
+    }
+
+    async fn list_routes(
+        &self,
+        _: tonic::Request<bundleservice::ListRoutesRequest>,
+    ) -> Result<tonic::Response<bundleservice::ListRoutesResponse>, tonic::Status> {
+        let (list_routes_sender, list_routes_receiver) = oneshot::channel();
+        let msg = ClientAgentRequest::ClientListRoutes {
+            responder: list_routes_sender,
+        };
+
+        self.client_agent_sender
+            .send(msg)
+            .await
+            .map_err(|e| tonic::Status::unknown(e.to_string()))?;
+
+        match list_routes_receiver.await {
+            Ok(route_list) => {
+                let routes = route_list
+                    .iter()
+                    .map(|route| {
+                        let route_type = match route.route_type {
+                            RouteType::Connected => 0,
+                            RouteType::Static => 1,
+                        };
+                        bundleservice::RouteStatus {
+                            route: Some(bundleservice::Route {
+                                target: route.target.to_string(),
+                                next_hop: route.next_hop.to_string(),
+                            }),
+                            r#type: route_type,
+                            preferred: route.preferred,
+                            available: route.available,
+                        }
+                    })
+                    .collect();
+                return Ok(Response::new(bundleservice::ListRoutesResponse { routes }));
+            }
+            Err(_) => return Err(Status::internal("Error communicating with route agent")),
+        }
+    }
+
+    async fn add_route(
+        &self,
+        request: tonic::Request<bundleservice::AddRouteRequest>,
+    ) -> Result<tonic::Response<bundleservice::AddRouteResponse>, tonic::Status> {
+        let req = request.into_inner();
+
+        let route = req
+            .route
+            .ok_or_else(|| tonic::Status::invalid_argument("Route must be set"))?;
+
+        let target = Endpoint::new(&route.target)
+            .ok_or_else(|| tonic::Status::invalid_argument("target invalid"))?;
+        let next_hop = Endpoint::new(&route.next_hop)
+            .ok_or_else(|| tonic::Status::invalid_argument("next_hop invalid"))?;
+
+        let msg = ClientAgentRequest::ClientAddRoute { target, next_hop };
+
+        self.client_agent_sender
+            .send(msg)
+            .await
+            .map_err(|e| tonic::Status::unknown(e.to_string()))?;
+        Ok(Response::new(bundleservice::AddRouteResponse {}))
+    }
+
+    async fn remove_route(
+        &self,
+        request: tonic::Request<bundleservice::RemoveRouteRequest>,
+    ) -> Result<tonic::Response<bundleservice::RemoveRouteResponse>, tonic::Status> {
+        let req = request.into_inner();
+
+        let route = req
+            .route
+            .ok_or_else(|| tonic::Status::invalid_argument("Route must be set"))?;
+
+        let target = Endpoint::new(&route.target)
+            .ok_or_else(|| tonic::Status::invalid_argument("target invalid"))?;
+        let next_hop = Endpoint::new(&route.next_hop)
+            .ok_or_else(|| tonic::Status::invalid_argument("next_hop invalid"))?;
+
+        let msg = ClientAgentRequest::ClientRemoveRoute { target, next_hop };
+
+        self.client_agent_sender
+            .send(msg)
+            .await
+            .map_err(|e| tonic::Status::unknown(e.to_string()))?;
+        Ok(Response::new(bundleservice::RemoveRouteResponse {}))
     }
 }
 

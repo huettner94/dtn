@@ -10,6 +10,7 @@ use crate::{
     bundleprotocolagent::messages::BPARequest,
     common::settings::Settings,
     nodeagent::messages::{Node, NodeAgentRequest},
+    routingagent::messages::{RouteStatus, RouteType, RoutingAgentRequest},
 };
 
 use super::messages::{ClientAgentRequest, ListenBundlesResponse};
@@ -19,6 +20,7 @@ pub struct Daemon {
     channel_receiver: Option<mpsc::Receiver<ClientAgentRequest>>,
     bpa_sender: Option<mpsc::Sender<BPARequest>>,
     node_agent_sender: Option<mpsc::Sender<NodeAgentRequest>>,
+    routing_agent_sender: Option<mpsc::Sender<RoutingAgentRequest>>,
 }
 
 #[async_trait]
@@ -31,6 +33,7 @@ impl crate::common::agent::Daemon for Daemon {
             channel_receiver: None,
             bpa_sender: None,
             node_agent_sender: None,
+            routing_agent_sender: None,
         }
     }
 
@@ -78,6 +81,15 @@ impl crate::common::agent::Daemon for Daemon {
             ClientAgentRequest::ClientRemoveNode { url } => {
                 self.message_client_remove_node(url).await;
             }
+            ClientAgentRequest::ClientListRoutes { responder } => {
+                self.message_client_list_routes(responder).await;
+            }
+            ClientAgentRequest::ClientAddRoute { target, next_hop } => {
+                self.message_client_add_route(target, next_hop).await;
+            }
+            ClientAgentRequest::ClientRemoveRoute { target, next_hop } => {
+                self.message_client_remove_route(target, next_hop).await;
+            }
             ClientAgentRequest::AgentGetClient {
                 destination,
                 responder,
@@ -93,9 +105,11 @@ impl Daemon {
         &mut self,
         bpa_sender: tokio::sync::mpsc::Sender<BPARequest>,
         node_agent_sender: mpsc::Sender<NodeAgentRequest>,
+        routing_agent_sender: mpsc::Sender<RoutingAgentRequest>,
     ) -> mpsc::Sender<ClientAgentRequest> {
         self.bpa_sender = Some(bpa_sender);
         self.node_agent_sender = Some(node_agent_sender);
+        self.routing_agent_sender = Some(routing_agent_sender);
         let (channel_sender, channel_receiver) = mpsc::channel::<ClientAgentRequest>(1);
         self.channel_receiver = Some(channel_receiver);
         return channel_sender;
@@ -211,6 +225,50 @@ impl Daemon {
             .await
         {
             error!("Error sending request to node agent {:?}", e);
+        }
+    }
+
+    async fn message_client_list_routes(&self, responder: oneshot::Sender<Vec<RouteStatus>>) {
+        if let Err(e) = self
+            .routing_agent_sender
+            .as_ref()
+            .unwrap()
+            .send(RoutingAgentRequest::ListRoutes { responder })
+            .await
+        {
+            error!("Error sending request to route agent {:?}", e);
+        }
+    }
+
+    async fn message_client_add_route(&self, target: Endpoint, next_hop: Endpoint) {
+        if let Err(e) = self
+            .routing_agent_sender
+            .as_ref()
+            .unwrap()
+            .send(RoutingAgentRequest::AddRoute {
+                target,
+                next_hop,
+                route_type: RouteType::Static,
+            })
+            .await
+        {
+            error!("Error sending request to route agent {:?}", e);
+        }
+    }
+
+    async fn message_client_remove_route(&self, target: Endpoint, next_hop: Endpoint) {
+        if let Err(e) = self
+            .routing_agent_sender
+            .as_ref()
+            .unwrap()
+            .send(RoutingAgentRequest::RemoveRoute {
+                target,
+                next_hop,
+                route_type: RouteType::Static,
+            })
+            .await
+        {
+            error!("Error sending request to route agent {:?}", e);
         }
     }
 

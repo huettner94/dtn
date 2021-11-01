@@ -7,7 +7,7 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::{bundleprotocolagent::messages::BPARequest, common::settings::Settings};
 
-use super::messages::{RouteType, RoutingAgentRequest};
+use super::messages::{RouteStatus, RouteType, RoutingAgentRequest};
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 struct RouteEntry {
@@ -64,6 +64,9 @@ impl crate::common::agent::Daemon for Daemon {
             }
             RoutingAgentRequest::GetNextHop { target, responder } => {
                 self.message_get_next_hop(target, responder).await
+            }
+            RoutingAgentRequest::ListRoutes { responder } => {
+                self.message_list_routes(responder).await
             }
         }
     }
@@ -168,21 +171,42 @@ impl Daemon {
         }
     }
 
-    fn get_available_routes(&self) -> HashSet<Endpoint> {
-        let mut connected_routes: HashSet<Endpoint> = self
+    async fn message_list_routes(&self, responder: oneshot::Sender<Vec<RouteStatus>>) {
+        let connected_routes = self.get_connected_routes();
+
+        let routes: Vec<RouteStatus> = self
             .routes
             .iter()
-            .filter_map(|(target, routes)| {
-                if routes
+            .map(|(target, routes)| {
+                let mut routes: Vec<RouteStatus> = routes
                     .into_iter()
-                    .any(|r| r.route_type == RouteType::Connected)
-                {
-                    Some(target.clone())
-                } else {
-                    None
+                    .map(|r| {
+                        let available = r.route_type == RouteType::Connected
+                            || connected_routes.contains(&r.next_hop);
+                        RouteStatus {
+                            target: target.clone(),
+                            next_hop: r.next_hop.clone(),
+                            available,
+                            preferred: false,
+                            route_type: r.route_type,
+                        }
+                    })
+                    .collect();
+                routes.sort_unstable_by_key(|e| e.route_type);
+                if routes.len() != 0 && routes[0].available {
+                    routes[0].preferred = true;
                 }
+                routes
             })
+            .flatten()
             .collect();
+        if let Err(e) = responder.send(routes) {
+            error!("Error sending response for listing routes: {:?}", e);
+        }
+    }
+
+    fn get_available_routes(&self) -> HashSet<Endpoint> {
+        let mut connected_routes = self.get_connected_routes();
 
         let other_routes: HashSet<Endpoint> = self
             .routes
@@ -199,5 +223,21 @@ impl Daemon {
             .collect();
         connected_routes.extend(other_routes);
         connected_routes
+    }
+
+    fn get_connected_routes(&self) -> HashSet<Endpoint> {
+        self.routes
+            .iter()
+            .filter_map(|(target, routes)| {
+                if routes
+                    .into_iter()
+                    .any(|r| r.route_type == RouteType::Connected)
+                {
+                    Some(target.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 }

@@ -76,8 +76,11 @@ async fn runserver(ctrl_c: impl Future) -> Result<(), Box<dyn std::error::Error>
     routing_agent.set_senders(bpa_sender.clone());
 
     let mut client_agent = clientagent::agent::Daemon::new(&settings);
-    let client_agent_sender =
-        client_agent.init_channels(bpa_sender.clone(), node_agent_sender.clone());
+    let client_agent_sender = client_agent.init_channels(
+        bpa_sender.clone(),
+        node_agent_sender.clone(),
+        routing_agent_sender.clone(),
+    );
 
     bundle_protocol_agent.set_agents(
         client_agent_sender.clone(),
