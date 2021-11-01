@@ -9,8 +9,10 @@ use tokio::{
 };
 
 use crate::{
-    common::settings::Settings, common::shutdown::Shutdown,
+    common::settings::Settings,
+    common::shutdown::Shutdown,
     converganceagent::messages::ConverganceAgentRequest,
+    routingagent::messages::{RouteType, RoutingAgentRequest},
 };
 
 use super::messages::{Node, NodeAgentRequest, NodeConnectionStatus};
@@ -19,6 +21,7 @@ pub struct Daemon {
     nodes: Vec<Node>,
     channel_receiver: Option<mpsc::Receiver<NodeAgentRequest>>,
     convergance_agent_sender: Option<mpsc::Sender<ConverganceAgentRequest>>,
+    routing_agent_sender: Option<mpsc::Sender<RoutingAgentRequest>>,
 }
 
 #[async_trait]
@@ -30,6 +33,7 @@ impl crate::common::agent::Daemon for Daemon {
             nodes: Vec::new(),
             channel_receiver: None,
             convergance_agent_sender: None,
+            routing_agent_sender: None,
         }
     }
 
@@ -89,8 +93,10 @@ impl Daemon {
     pub fn init_channels(
         &mut self,
         convergance_agent_sender: mpsc::Sender<ConverganceAgentRequest>,
+        routing_agent_sender: mpsc::Sender<RoutingAgentRequest>,
     ) -> mpsc::Sender<NodeAgentRequest> {
         self.convergance_agent_sender = Some(convergance_agent_sender);
+        self.routing_agent_sender = Some(routing_agent_sender);
         let (channel_sender, channel_receiver) = mpsc::channel::<NodeAgentRequest>(1);
         self.channel_receiver = Some(channel_receiver);
         return channel_sender;
@@ -161,16 +167,32 @@ impl Daemon {
             Some(pos) => {
                 let node = &mut self.nodes[pos];
                 node.connection_status = NodeConnectionStatus::Connected;
-                node.remote_endpoint = Some(endpoint);
+                node.remote_endpoint = Some(endpoint.clone());
             }
             None => {
                 self.nodes.push(Node {
                     url,
                     connection_status: NodeConnectionStatus::Connected,
-                    remote_endpoint: Some(endpoint),
+                    remote_endpoint: Some(endpoint.clone()),
                     temporary: true,
                 });
             }
+        }
+        if let Err(e) = self
+            .routing_agent_sender
+            .as_ref()
+            .unwrap()
+            .send(RoutingAgentRequest::AddRoute {
+                target: endpoint.clone(),
+                route_type: RouteType::Connected,
+                next_hop: endpoint,
+            })
+            .await
+        {
+            error!(
+                "Error sending node add notification to routing agent: {:?}",
+                e
+            );
         }
     }
 
@@ -178,6 +200,26 @@ impl Daemon {
         match self.nodes.iter().position(|n| n.url == url) {
             Some(pos) => {
                 let node = &mut self.nodes[pos];
+
+                if node.remote_endpoint.is_some() {
+                    if let Err(e) = self
+                        .routing_agent_sender
+                        .as_ref()
+                        .unwrap()
+                        .send(RoutingAgentRequest::RemoveRoute {
+                            target: node.remote_endpoint.clone().unwrap(),
+                            route_type: RouteType::Connected,
+                            next_hop: node.remote_endpoint.clone().unwrap(),
+                        })
+                        .await
+                    {
+                        error!(
+                            "Error sending node remove notification to routing agent: {:?}",
+                            e
+                        );
+                    }
+                }
+
                 if node.temporary {
                     self.nodes.remove(pos);
                 } else {

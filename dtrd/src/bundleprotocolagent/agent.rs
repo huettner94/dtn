@@ -18,6 +18,7 @@ use crate::{
     clientagent::messages::{ClientAgentRequest, ListenBundlesResponse},
     common::settings::Settings,
     converganceagent::messages::{AgentForwardBundle, ConverganceAgentRequest},
+    routingagent::{self, messages::RoutingAgentRequest},
 };
 
 use super::messages::BPARequest;
@@ -28,6 +29,7 @@ pub struct Daemon {
     bsa_sender: Option<mpsc::Sender<BSARequest>>,
     client_agent_sender: Option<mpsc::Sender<ClientAgentRequest>>,
     convergance_agent_sender: Option<mpsc::Sender<ConverganceAgentRequest>>,
+    routing_agent_sender: Option<mpsc::Sender<RoutingAgentRequest>>,
 }
 
 #[async_trait]
@@ -41,6 +43,7 @@ impl crate::common::agent::Daemon for Daemon {
             bsa_sender: None,
             client_agent_sender: None,
             convergance_agent_sender: None,
+            routing_agent_sender: None,
         }
     }
 
@@ -90,8 +93,10 @@ impl Daemon {
     pub fn init_channels(
         &mut self,
         bsa_sender: tokio::sync::mpsc::Sender<BSARequest>,
+        routing_agent_sender: mpsc::Sender<RoutingAgentRequest>,
     ) -> mpsc::Sender<BPARequest> {
         self.bsa_sender = Some(bsa_sender);
+        self.routing_agent_sender = Some(routing_agent_sender);
         let (channel_sender, channel_receiver) = mpsc::channel::<BPARequest>(1);
         self.channel_receiver = Some(channel_receiver);
         return channel_sender;
@@ -249,29 +254,39 @@ impl Daemon {
     async fn forward_bundle(&self, bundle: Bundle) -> Result<(), Bundle> {
         debug!("forwarding bundle {:?}", &bundle);
 
-        if let Some(sender) = self
-            .get_connected_node(bundle.primary_block.destination_endpoint.clone())
-            .await
+        match routingagent::client::get_next_hop(
+            self.routing_agent_sender.as_ref().unwrap(),
+            bundle.primary_block.destination_endpoint.clone(),
+        )
+        .await
         {
-            let result = sender
-                .send(AgentForwardBundle {
-                    bundle: bundle.clone(),
-                })
-                .await;
-            match result {
-                Ok(_) => {
-                    //TODO: send status report if reqeusted
-                    debug!("Bundle forwarded to remote node");
-                    return Ok(());
-                }
-                Err(_) => {
-                    info!("Remote node not available. Bundle queued.");
+            Some(next_hop) => {
+                if let Some(sender) = self.get_connected_node(next_hop).await {
+                    let result = sender
+                        .send(AgentForwardBundle {
+                            bundle: bundle.clone(),
+                        })
+                        .await;
+                    match result {
+                        Ok(_) => {
+                            //TODO: send status report if reqeusted
+                            debug!("Bundle forwarded to remote node");
+                            return Ok(());
+                        }
+                        Err(_) => {
+                            info!("Remote node not available. Bundle queued.");
+                            return Err(bundle);
+                        }
+                    }
+                } else {
+                    info!("No remote node registered for endpoint. Bundle queued.");
                     return Err(bundle);
                 }
             }
-        } else {
-            info!("No remote node registered for endpoint. Bundle queued.");
-            return Err(bundle);
+            None => {
+                info!("No next hop found. Bundle queued.");
+                return Err(bundle);
+            }
         }
     }
 

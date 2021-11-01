@@ -9,6 +9,7 @@ mod clientgrpcagent;
 mod common;
 mod converganceagent;
 mod nodeagent;
+mod routingagent;
 mod tcpclconverganceagent;
 
 use crate::common::{agent::Daemon, settings::Settings};
@@ -31,8 +32,12 @@ async fn runserver(ctrl_c: impl Future) -> Result<(), Box<dyn std::error::Error>
     let mut bundle_storage_agent = bundlestorageagent::agent::Daemon::new(&settings);
     let bsa_sender = bundle_storage_agent.init_channels();
 
+    let mut routing_agent = routingagent::agent::Daemon::new(&settings);
+    let routing_agent_sender = routing_agent.init_channels();
+
     let mut bundle_protocol_agent = bundleprotocolagent::agent::Daemon::new(&settings);
-    let bpa_sender = bundle_protocol_agent.init_channels(bsa_sender.clone());
+    let bpa_sender =
+        bundle_protocol_agent.init_channels(bsa_sender.clone(), routing_agent_sender.clone());
 
     let mut convergance_agent = converganceagent::agent::Daemon::new(&settings);
     let convergance_agent_sender = convergance_agent.init_channels(bpa_sender.clone());
@@ -41,7 +46,10 @@ async fn runserver(ctrl_c: impl Future) -> Result<(), Box<dyn std::error::Error>
     let tcpcl_agent_sender = tcpcl_agent.init_channels(convergance_agent_sender.clone());
 
     let mut node_agent = nodeagent::agent::Daemon::new(&settings);
-    let node_agent_sender = node_agent.init_channels(convergance_agent_sender.clone());
+    let node_agent_sender = node_agent.init_channels(
+        convergance_agent_sender.clone(),
+        routing_agent_sender.clone(),
+    );
 
     convergance_agent.set_senders(node_agent_sender.clone(), tcpcl_agent_sender.clone());
 
@@ -61,6 +69,21 @@ async fn runserver(ctrl_c: impl Future) -> Result<(), Box<dyn std::error::Error>
             .run(
                 bpa_task_shutdown_notifier,
                 bpa_task_shutdown_complete_tx_task,
+            )
+            .await
+        {
+            Ok(_) => Ok(()),
+            Err(e) => Err(e.to_string()),
+        }
+    });
+
+    let routing_agent_task_shutdown_notifier = notify_shutdown.subscribe();
+    let routing_agent_task_shutdown_complete_tx_task = shutdown_complete_tx.clone();
+    let routing_agent_task = tokio::spawn(async move {
+        match routing_agent
+            .run(
+                routing_agent_task_shutdown_notifier,
+                routing_agent_task_shutdown_complete_tx_task,
             )
             .await
         {
@@ -196,6 +219,11 @@ async fn runserver(ctrl_c: impl Future) -> Result<(), Box<dyn std::error::Error>
         res = node_agent_task => {
             if let Ok(Err(e)) = res {
                 info!("something bad happened with the node agent {:?}. Aborting...", e);
+            }
+        }
+        res = routing_agent_task => {
+            if let Ok(Err(e)) = res {
+                info!("something bad happened with the routing agent {:?}. Aborting...", e);
             }
         }
         _ = ctrl_c => {
