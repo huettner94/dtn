@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use log::info;
 use tokio::sync::{broadcast, mpsc};
 
-use crate::shutdown::Shutdown;
+use super::shutdown::Shutdown;
 
 use super::settings::Settings;
 

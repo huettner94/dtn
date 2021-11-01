@@ -10,7 +10,6 @@ mod clientgrpcagent;
 mod common;
 mod converganceagent;
 mod nodeagent;
-mod shutdown;
 mod tcpclconverganceagent;
 
 use crate::common::{agent::Daemon, settings::Settings};

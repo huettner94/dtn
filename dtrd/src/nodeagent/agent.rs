@@ -9,8 +9,8 @@ use tokio::{
 };
 
 use crate::{
-    common::settings::Settings, converganceagent::messages::ConverganceAgentRequest,
-    shutdown::Shutdown,
+    common::settings::Settings, common::shutdown::Shutdown,
+    converganceagent::messages::ConverganceAgentRequest,
 };
 
 use super::messages::{Node, NodeAgentRequest, NodeConnectionStatus};
