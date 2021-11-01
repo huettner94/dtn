@@ -1,6 +1,5 @@
 use futures_util::Future;
 use log::info;
-use std::env;
 use tokio::sync::{broadcast, mpsc};
 
 mod bundleprotocolagent;
@@ -23,11 +22,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn runserver(ctrl_c: impl Future) -> Result<(), Box<dyn std::error::Error>> {
-    let settings: Settings = Settings {
-        my_node_id: env::var("NODE_ID").unwrap_or("dtn://defaultnodeid".into()),
-        tcpcl_listen_address: env::var("TCPCL_LISTEN_ADDRESS").unwrap_or("[::1]:4556".into()),
-        grpc_clientapi_address: env::var("GRPC_CLIENTAPI_ADDRESS").unwrap_or("[::1]:50051".into()),
-    };
+    let settings: Settings = Settings::from_env();
     info!("Starting with settings: {:?}", settings);
 
     let (notify_shutdown, _) = broadcast::channel::<()>(1);
