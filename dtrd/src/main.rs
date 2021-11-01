@@ -63,7 +63,7 @@ async fn runserver(ctrl_c: impl Future) -> Result<(), Box<dyn std::error::Error>
     let mut convergance_agent = converganceagent::agent::Daemon::new(&settings);
     let convergance_agent_sender = convergance_agent.init_channels(bpa_sender.clone());
 
-    let mut tcpcl_agent = tcpclconverganceagent::agent::Daemon::new(settings.clone());
+    let mut tcpcl_agent = tcpclconverganceagent::agent::Daemon::new(&settings);
     let tcpcl_agent_sender = tcpcl_agent.init_channels(convergance_agent_sender.clone());
 
     let mut node_agent = nodeagent::agent::Daemon::new(&settings);
@@ -120,20 +120,7 @@ async fn runserver(ctrl_c: impl Future) -> Result<(), Box<dyn std::error::Error>
     let convergance_agent_task =
         spawn_task(convergance_agent, &notify_shutdown, &shutdown_complete_tx);
 
-    let tcpcl_agent_task_shutdown_notifier = notify_shutdown.subscribe();
-    let tcpcl_agent_task_shutdown_complete_tx_task = shutdown_complete_tx.clone();
-    let tcpcl_agent_task = tokio::spawn(async move {
-        match tcpcl_agent
-            .run(
-                tcpcl_agent_task_shutdown_notifier,
-                tcpcl_agent_task_shutdown_complete_tx_task,
-            )
-            .await
-        {
-            Ok(_) => Ok(()),
-            Err(e) => Err(e.to_string()),
-        }
-    });
+    let tcpcl_agent_task = spawn_task(tcpcl_agent, &notify_shutdown, &shutdown_complete_tx);
 
     let node_agent_task = spawn_task(node_agent, &notify_shutdown, &shutdown_complete_tx);
 

@@ -1,16 +1,18 @@
 use std::{collections::HashMap, net::SocketAddr};
 
+use async_trait::async_trait;
+
 use bp7::endpoint::Endpoint;
 use log::{error, info, warn};
 use tcpcl::session::TCPCLSession;
 use tokio::{
     net::{TcpListener, TcpStream},
-    sync::{broadcast, mpsc, oneshot},
+    sync::{mpsc, oneshot},
     task::JoinHandle,
 };
 
 use crate::{
-    common::settings::Settings,
+    common::{settings::Settings, shutdown::Shutdown},
     converganceagent::messages::{AgentForwardBundle, ConverganceAgentRequest},
 };
 
@@ -24,10 +26,13 @@ pub struct Daemon {
     close_channels: HashMap<SocketAddr, oneshot::Sender<()>>,
 }
 
-impl Daemon {
-    pub fn new(settings: Settings) -> Self {
+#[async_trait]
+impl crate::common::agent::Daemon for Daemon {
+    type MessageType = TCPCLAgentRequest;
+
+    fn new(settings: &Settings) -> Self {
         Daemon {
-            settings,
+            settings: settings.clone(),
             channel_receiver: None,
             convergance_agent_sender: None,
             tcpcl_sessions: Vec::new(),
@@ -35,32 +40,30 @@ impl Daemon {
         }
     }
 
-    pub fn init_channels(
-        &mut self,
-        convergance_agent_sender: mpsc::Sender<ConverganceAgentRequest>,
-    ) -> mpsc::Sender<TCPCLAgentRequest> {
-        self.convergance_agent_sender = Some(convergance_agent_sender);
-        let (channel_sender, channel_receiver) = mpsc::channel::<TCPCLAgentRequest>(1);
-        self.channel_receiver = Some(channel_receiver);
-        return channel_sender;
+    fn get_agent_name(&self) -> &'static str {
+        "TCPCL Agent"
     }
 
-    pub async fn run(
-        mut self,
-        mut shutdown: broadcast::Receiver<()>,
-        _sender: mpsc::Sender<()>,
+    fn get_channel_receiver(&mut self) -> Option<mpsc::Receiver<Self::MessageType>> {
+        self.channel_receiver.take()
+    }
+
+    async fn main_loop(
+        &mut self,
+        shutdown: &mut Shutdown,
+        receiver: &mut mpsc::Receiver<Self::MessageType>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let socket: SocketAddr = self.settings.tcpcl_listen_address.parse().unwrap();
-        let mut receiver = self.channel_receiver.take().unwrap();
 
         info!("Server listening on {}", socket);
 
         let listener = TcpListener::bind(&socket).await?;
         info!("Socket open, waiting for connection");
-        loop {
+        while !shutdown.is_shutdown() {
             tokio::select! {
                 res = listener.accept() => {
                     if self.handle_accept(res).await {
+                        warn!("we are unable to process more incoming connections. stopping tcpcl agent.");
                         break;
                     }
                 }
@@ -74,15 +77,20 @@ impl Daemon {
                 }
                 _ = shutdown.recv() => {
                     info!("TCPCL agent received shutdown");
-                    break;
+                    receiver.close();
+                    info!("{} will not allow more requests to be sent", self.get_agent_name());
                 }
             }
         }
 
-        // We are explicitly not handling the message receiver here as we cant use it anymore anyway.
-
         info!("Closing the incoming tcp listener");
         drop(listener);
+
+        Ok(())
+    }
+
+    async fn on_shutdown(&mut self) {
+        // We are explicitly not handling the message receiver here as we cant use it anymore anyway.
 
         info!("Closing all tcpcl sessions");
         for close_channel in self.close_channels.drain() {
@@ -98,19 +106,27 @@ impl Daemon {
                 }
             }
         }
-
-        info!("TCPCL Server has shutdown. See you");
-        // _sender is explicitly dropped here
-        Ok(())
     }
 
-    async fn handle_message(&mut self, message: TCPCLAgentRequest) {
-        match message {
+    async fn handle_message(&mut self, msg: TCPCLAgentRequest) {
+        match msg {
             TCPCLAgentRequest::ConnectRemote { socket } => {
                 self.connect_remote(socket).await;
             }
             TCPCLAgentRequest::DisonnectRemote { socket } => self.disconnect_remote(socket).await,
         }
+    }
+}
+
+impl Daemon {
+    pub fn init_channels(
+        &mut self,
+        convergance_agent_sender: mpsc::Sender<ConverganceAgentRequest>,
+    ) -> mpsc::Sender<TCPCLAgentRequest> {
+        self.convergance_agent_sender = Some(convergance_agent_sender);
+        let (channel_sender, channel_receiver) = mpsc::channel::<TCPCLAgentRequest>(1);
+        self.channel_receiver = Some(channel_receiver);
+        return channel_sender;
     }
 
     async fn connect_remote(&mut self, socket: SocketAddr) {
