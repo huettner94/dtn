@@ -1,6 +1,9 @@
 use futures_util::Future;
 use log::info;
-use tokio::sync::{broadcast, mpsc};
+use tokio::{
+    sync::{broadcast, mpsc},
+    task::JoinHandle,
+};
 
 mod bundleprotocolagent;
 mod bundlestorageagent;
@@ -13,6 +16,24 @@ mod routingagent;
 mod tcpclconverganceagent;
 
 use crate::common::{agent::Daemon, settings::Settings};
+
+fn spawn_task(
+    mut daemon: impl Daemon + Send + 'static,
+    notify_shutdown: &broadcast::Sender<()>,
+    shutdown_complete: &mpsc::Sender<()>,
+) -> JoinHandle<Result<(), String>> {
+    let shutdown_notifier = notify_shutdown.subscribe();
+    let shutdown_complete_tx_task = shutdown_complete.clone();
+    tokio::spawn(async move {
+        match daemon
+            .run(shutdown_notifier, shutdown_complete_tx_task)
+            .await
+        {
+            Ok(_) => Ok(()),
+            Err(e) => Err(e.to_string()),
+        }
+    })
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -62,65 +83,21 @@ async fn runserver(ctrl_c: impl Future) -> Result<(), Box<dyn std::error::Error>
         convergance_agent_sender.clone(),
     );
 
-    let bpa_task_shutdown_notifier = notify_shutdown.subscribe();
-    let bpa_task_shutdown_complete_tx_task = shutdown_complete_tx.clone();
-    let bpa_task = tokio::spawn(async move {
-        match bundle_protocol_agent
-            .run(
-                bpa_task_shutdown_notifier,
-                bpa_task_shutdown_complete_tx_task,
-            )
-            .await
-        {
-            Ok(_) => Ok(()),
-            Err(e) => Err(e.to_string()),
-        }
-    });
+    let bpa_task = spawn_task(
+        bundle_protocol_agent,
+        &notify_shutdown,
+        &shutdown_complete_tx,
+    );
 
-    let routing_agent_task_shutdown_notifier = notify_shutdown.subscribe();
-    let routing_agent_task_shutdown_complete_tx_task = shutdown_complete_tx.clone();
-    let routing_agent_task = tokio::spawn(async move {
-        match routing_agent
-            .run(
-                routing_agent_task_shutdown_notifier,
-                routing_agent_task_shutdown_complete_tx_task,
-            )
-            .await
-        {
-            Ok(_) => Ok(()),
-            Err(e) => Err(e.to_string()),
-        }
-    });
+    let routing_agent_task = spawn_task(routing_agent, &notify_shutdown, &shutdown_complete_tx);
 
-    let bsa_task_shutdown_notifier = notify_shutdown.subscribe();
-    let bsa_task_shutdown_complete_tx_task = shutdown_complete_tx.clone();
-    let bsa_task = tokio::spawn(async move {
-        match bundle_storage_agent
-            .run(
-                bsa_task_shutdown_notifier,
-                bsa_task_shutdown_complete_tx_task,
-            )
-            .await
-        {
-            Ok(_) => Ok(()),
-            Err(e) => Err(e.to_string()),
-        }
-    });
+    let bsa_task = spawn_task(
+        bundle_storage_agent,
+        &notify_shutdown,
+        &shutdown_complete_tx,
+    );
 
-    let client_agent_task_shutdown_notifier = notify_shutdown.subscribe();
-    let client_agent_task_shutdown_complete_tx_task = shutdown_complete_tx.clone();
-    let client_agent_task = tokio::spawn(async move {
-        match client_agent
-            .run(
-                client_agent_task_shutdown_notifier,
-                client_agent_task_shutdown_complete_tx_task,
-            )
-            .await
-        {
-            Ok(_) => Ok(()),
-            Err(e) => Err(e.to_string()),
-        }
-    });
+    let client_agent_task = spawn_task(client_agent, &notify_shutdown, &shutdown_complete_tx);
 
     let api_agent_task_shutdown_notifier = notify_shutdown.subscribe();
     let api_agent_task_shutdown_complete_tx_task = shutdown_complete_tx.clone();
@@ -140,20 +117,8 @@ async fn runserver(ctrl_c: impl Future) -> Result<(), Box<dyn std::error::Error>
         }
     });
 
-    let convergance_agent_task_shutdown_notifier = notify_shutdown.subscribe();
-    let convergance_agent_task_shutdown_complete_tx_task = shutdown_complete_tx.clone();
-    let convergance_agent_task = tokio::spawn(async move {
-        match convergance_agent
-            .run(
-                convergance_agent_task_shutdown_notifier,
-                convergance_agent_task_shutdown_complete_tx_task,
-            )
-            .await
-        {
-            Ok(_) => Ok(()),
-            Err(e) => Err(e.to_string()),
-        }
-    });
+    let convergance_agent_task =
+        spawn_task(convergance_agent, &notify_shutdown, &shutdown_complete_tx);
 
     let tcpcl_agent_task_shutdown_notifier = notify_shutdown.subscribe();
     let tcpcl_agent_task_shutdown_complete_tx_task = shutdown_complete_tx.clone();
@@ -170,20 +135,7 @@ async fn runserver(ctrl_c: impl Future) -> Result<(), Box<dyn std::error::Error>
         }
     });
 
-    let node_agent_task_shutdown_notifier = notify_shutdown.subscribe();
-    let node_agent_task_shutdown_complete_tx_task = shutdown_complete_tx.clone();
-    let node_agent_task = tokio::spawn(async move {
-        match node_agent
-            .run(
-                node_agent_task_shutdown_notifier,
-                node_agent_task_shutdown_complete_tx_task,
-            )
-            .await
-        {
-            Ok(_) => Ok(()),
-            Err(e) => Err(e.to_string()),
-        }
-    });
+    let node_agent_task = spawn_task(node_agent, &notify_shutdown, &shutdown_complete_tx);
 
     tokio::select! {
         res = api_agent_task => {
