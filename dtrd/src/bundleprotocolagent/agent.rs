@@ -79,8 +79,8 @@ impl crate::common::agent::Daemon for Daemon {
             BPARequest::NewClientConnected { destination } => {
                 self.message_new_client_connected(destination).await;
             }
-            BPARequest::NewNodeConnected { destination } => {
-                self.message_new_node_connected(destination).await;
+            BPARequest::NewRoutesAvailable { destinations } => {
+                self.message_new_routes_available(destinations).await;
             }
             BPARequest::ReceiveBundle { bundle } => {
                 self.message_receive_bundle(bundle).await;
@@ -151,32 +151,34 @@ impl Daemon {
         }
     }
 
-    async fn message_new_node_connected(&self, destination: Endpoint) {
-        let (response_sender, response_receiver) = oneshot::channel();
-        if let Err(e) = self
-            .bsa_sender
-            .as_ref()
-            .unwrap()
-            .send(BSARequest::GetBundleForNode {
-                destination,
-                bundles: response_sender,
-            })
-            .await
-        {
-            error!("Error sending request to bsa {:?}", e);
-        };
+    async fn message_new_routes_available(&self, destinations: Vec<Endpoint>) {
+        for destination in destinations {
+            let (response_sender, response_receiver) = oneshot::channel();
+            if let Err(e) = self
+                .bsa_sender
+                .as_ref()
+                .unwrap()
+                .send(BSARequest::GetBundleForNode {
+                    destination,
+                    bundles: response_sender,
+                })
+                .await
+            {
+                error!("Error sending request to bsa {:?}", e);
+            };
 
-        match response_receiver.await {
-            Ok(Ok(bundles)) => {
-                for bundle in bundles {
-                    self.dispatch_bundle(bundle).await;
+            match response_receiver.await {
+                Ok(Ok(bundles)) => {
+                    for bundle in bundles {
+                        self.dispatch_bundle(bundle).await;
+                    }
                 }
-            }
-            Ok(Err(e)) => {
-                error!("Error receiving response from bsa {:?}", e);
-            }
-            Err(e) => {
-                error!("Error receiving response from bsa {:?}", e);
+                Ok(Err(e)) => {
+                    error!("Error receiving response from bsa {:?}", e);
+                }
+                Err(e) => {
+                    error!("Error receiving response from bsa {:?}", e);
+                }
             }
         }
     }

@@ -73,6 +73,7 @@ async fn runserver(ctrl_c: impl Future) -> Result<(), Box<dyn std::error::Error>
     );
 
     convergance_agent.set_senders(node_agent_sender.clone(), tcpcl_agent_sender.clone());
+    routing_agent.set_senders(bpa_sender.clone());
 
     let mut client_agent = clientagent::agent::Daemon::new(&settings);
     let client_agent_sender =

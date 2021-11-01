@@ -207,18 +207,6 @@ impl Daemon {
                 e
             );
         }
-        if let Err(e) = self
-            .bpa_sender
-            .as_ref()
-            .unwrap()
-            .send(BPARequest::NewNodeConnected { destination: node })
-            .await
-        {
-            warn!(
-                "Error sending node connected notification to nodeagent: {:?}",
-                e
-            );
-        }
     }
 
     async fn message_cl_unregister_node(&mut self, url: String, node: Option<Endpoint>) {

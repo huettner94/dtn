@@ -15,8 +15,8 @@ pub enum BPARequest {
     NewClientConnected {
         destination: Endpoint,
     },
-    NewNodeConnected {
-        destination: Endpoint,
+    NewRoutesAvailable {
+        destinations: Vec<Endpoint>,
     },
     ReceiveBundle {
         bundle: Bundle,

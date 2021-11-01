@@ -5,7 +5,7 @@ use bp7::endpoint::Endpoint;
 use log::error;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::common::settings::Settings;
+use crate::{bundleprotocolagent::messages::BPARequest, common::settings::Settings};
 
 use super::messages::{RouteType, RoutingAgentRequest};
 
@@ -18,6 +18,7 @@ struct RouteEntry {
 pub struct Daemon {
     routes: HashMap<Endpoint, HashSet<RouteEntry>>,
     channel_receiver: Option<mpsc::Receiver<RoutingAgentRequest>>,
+    bpa_sender: Option<mpsc::Sender<BPARequest>>,
 }
 
 #[async_trait]
@@ -28,6 +29,7 @@ impl crate::common::agent::Daemon for Daemon {
         Daemon {
             routes: HashMap::new(),
             channel_receiver: None,
+            bpa_sender: None,
         }
     }
 
@@ -39,20 +41,29 @@ impl crate::common::agent::Daemon for Daemon {
         self.channel_receiver.take()
     }
 
+    fn validate(&self) {
+        if self.bpa_sender.is_none() {
+            panic!("Must call set_senders before calling run (also run may only be called once)");
+        }
+    }
+
     async fn handle_message(&mut self, msg: RoutingAgentRequest) {
         match msg {
             RoutingAgentRequest::AddRoute {
                 target,
                 route_type,
                 next_hop,
-            } => self.message_add_route(target, route_type, next_hop),
+            } => self.message_add_route(target, route_type, next_hop).await,
             RoutingAgentRequest::RemoveRoute {
                 target,
                 route_type,
                 next_hop,
-            } => self.message_remove_route(target, route_type, next_hop),
+            } => {
+                self.message_remove_route(target, route_type, next_hop)
+                    .await
+            }
             RoutingAgentRequest::GetNextHop { target, responder } => {
-                self.message_get_next_hop(target, responder)
+                self.message_get_next_hop(target, responder).await
             }
         }
     }
@@ -65,17 +76,40 @@ impl Daemon {
         return channel_sender;
     }
 
-    fn message_add_route(&mut self, target: Endpoint, route_type: RouteType, next_hop: Endpoint) {
-        self.routes
-            .entry(target)
+    pub fn set_senders(&mut self, bpa_sender: mpsc::Sender<BPARequest>) {
+        self.bpa_sender = Some(bpa_sender);
+    }
+
+    async fn message_add_route(
+        &mut self,
+        target: Endpoint,
+        route_type: RouteType,
+        next_hop: Endpoint,
+    ) {
+        if self
+            .routes
+            .entry(target.clone())
             .or_insert_with(|| HashSet::new())
             .insert(RouteEntry {
                 route_type,
                 next_hop,
-            });
+            })
+        {
+            if let Err(e) = self
+                .bpa_sender
+                .as_ref()
+                .unwrap()
+                .send(BPARequest::NewRoutesAvailable {
+                    destinations: vec![target],
+                })
+                .await
+            {
+                error!("Error sending new route notification to bpa: {:?}", e);
+            }
+        }
     }
 
-    fn message_remove_route(
+    async fn message_remove_route(
         &mut self,
         target: Endpoint,
         route_type: RouteType,
@@ -90,7 +124,7 @@ impl Daemon {
             });
     }
 
-    fn message_get_next_hop(
+    async fn message_get_next_hop(
         &mut self,
         target: Endpoint,
         responder: oneshot::Sender<Option<Endpoint>>,
