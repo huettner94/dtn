@@ -86,6 +86,7 @@ impl Daemon {
         route_type: RouteType,
         next_hop: Endpoint,
     ) {
+        let prev_routes = self.get_available_routes();
         if self
             .routes
             .entry(target.clone())
@@ -95,16 +96,23 @@ impl Daemon {
                 next_hop,
             })
         {
-            if let Err(e) = self
-                .bpa_sender
-                .as_ref()
-                .unwrap()
-                .send(BPARequest::NewRoutesAvailable {
-                    destinations: vec![target],
-                })
-                .await
-            {
-                error!("Error sending new route notification to bpa: {:?}", e);
+            let available_routes = self.get_available_routes();
+            let new_routes: Vec<Endpoint> = available_routes
+                .difference(&prev_routes)
+                .map(|e| e.clone())
+                .collect();
+            if !new_routes.is_empty() {
+                if let Err(e) = self
+                    .bpa_sender
+                    .as_ref()
+                    .unwrap()
+                    .send(BPARequest::NewRoutesAvailable {
+                        destinations: new_routes,
+                    })
+                    .await
+                {
+                    error!("Error sending new route notification to bpa: {:?}", e);
+                }
             }
         }
     }
@@ -125,7 +133,7 @@ impl Daemon {
     }
 
     async fn message_get_next_hop(
-        &mut self,
+        &self,
         target: Endpoint,
         responder: oneshot::Sender<Option<Endpoint>>,
     ) {
@@ -141,5 +149,38 @@ impl Daemon {
         if let Err(e) = responder.send(response) {
             error!("Error sending response for getting next hop: {:?}", e);
         }
+    }
+
+    fn get_available_routes(&self) -> HashSet<Endpoint> {
+        let mut connected_routes: HashSet<Endpoint> = self
+            .routes
+            .iter()
+            .filter_map(|(target, routes)| {
+                if routes
+                    .into_iter()
+                    .any(|r| r.route_type == RouteType::Connected)
+                {
+                    Some(target.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let other_routes: HashSet<Endpoint> = self
+            .routes
+            .iter()
+            .filter_map(|(target, routes)| {
+                if routes.into_iter().any(|r| {
+                    r.route_type != RouteType::Connected && connected_routes.contains(&r.next_hop)
+                }) {
+                    Some(target.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        connected_routes.extend(other_routes);
+        connected_routes
     }
 }
