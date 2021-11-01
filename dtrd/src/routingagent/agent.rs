@@ -138,7 +138,24 @@ impl Daemon {
         responder: oneshot::Sender<Option<Endpoint>>,
     ) {
         let response = self.routes.get(&target.get_node_endpoint()).and_then(|s| {
-            let mut v = s.into_iter().collect::<Vec<&RouteEntry>>();
+            let mut v = s
+                .into_iter()
+                .filter(|r| {
+                    if r.route_type == RouteType::Connected {
+                        true
+                    } else {
+                        self.routes
+                            .get(&r.next_hop)
+                            .and_then(|s| {
+                                Some(
+                                    s.into_iter()
+                                        .any(|re| re.route_type == RouteType::Connected),
+                                )
+                            })
+                            .unwrap_or(false)
+                    }
+                })
+                .collect::<Vec<&RouteEntry>>();
             v.sort_unstable_by_key(|e| e.route_type);
             if v.len() == 0 {
                 None
