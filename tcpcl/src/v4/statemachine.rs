@@ -304,7 +304,10 @@ impl StateMachine {
                     self.state = States::SendXferSegments(tt);
                 }
             }
-            States::SendSessTerm(_) => {
+            States::SendSessTerm(_) if self.terminating == true => {
+                self.state = States::ConnectionClose;
+            }
+            States::SendSessTerm(_) if self.terminating == false => {
                 self.terminating = true;
                 self.state = States::WaitSessTerm
             }

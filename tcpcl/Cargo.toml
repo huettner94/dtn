@@ -11,11 +11,3 @@ tokio = { version = "1.10.0", features = ["full"] }
 log = "0.4"
 env_logger = "0.8.4"
 num_enum = "0.5.4"
-
-[[bin]]
-name="server"
-path = "bin/server.rs"
-
-[[bin]]
-name="client"
-path = "bin/client.rs"
