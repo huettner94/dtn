@@ -1,10 +1,14 @@
-use std::net::SocketAddr;
+use std::{
+    net::SocketAddr,
+    time::{Duration, Instant},
+};
 
 use log::{debug, info, warn};
 use tokio::{
     io::{self, AsyncWriteExt, Interest, Ready},
     net::TcpStream,
     sync::{mpsc, oneshot},
+    time::Interval,
 };
 
 use crate::{
@@ -17,6 +21,8 @@ use crate::{
         statemachine::StateMachine,
     },
 };
+
+const STARTUP_IDLE_INTERVAL: u16 = 60;
 
 #[derive(Debug)]
 pub struct TCPCLSession {
@@ -33,6 +39,7 @@ pub struct TCPCLSession {
     close_channel: (Option<oneshot::Sender<()>>, Option<oneshot::Receiver<()>>),
     receive_channel: (mpsc::Sender<Transfer>, Option<mpsc::Receiver<Transfer>>),
     send_channel: (mpsc::Sender<Vec<u8>>, Option<mpsc::Receiver<Vec<u8>>>),
+    last_received_keepalive: Instant,
 }
 
 impl TCPCLSession {
@@ -56,6 +63,7 @@ impl TCPCLSession {
             close_channel: (Some(close_channel.0), Some(close_channel.1)),
             receive_channel: (receive_channel.0, Some(receive_channel.1)),
             send_channel: (send_channel.0, Some(send_channel.1)),
+            last_received_keepalive: Instant::now(),
         })
     }
 
@@ -82,6 +90,7 @@ impl TCPCLSession {
             close_channel: (Some(close_channel.0), Some(close_channel.1)),
             receive_channel: (receive_channel.0, Some(receive_channel.1)),
             send_channel: (send_channel.0, Some(send_channel.1)),
+            last_received_keepalive: Instant::now(),
         })
     }
 
@@ -118,6 +127,8 @@ impl TCPCLSession {
     }
 
     pub async fn manage_connection(&mut self) {
+        self.last_received_keepalive = Instant::now();
+
         let mut close_channel = self
             .close_channel
             .1
@@ -151,6 +162,11 @@ impl TCPCLSession {
         scr: &mut mpsc::Receiver<Vec<u8>>,
     ) -> Result<(), ErrorType> {
         let mut send_channel_receiver = Some(scr);
+        let mut keepalive_timer: Option<Interval> = Some(tokio::time::interval(
+            Duration::from_secs(STARTUP_IDLE_INTERVAL.into()),
+        ));
+        let mut set_keepalive = false;
+
         loop {
             debug!("We are now at statemachine state {:?}", self.statemachine);
             if self.statemachine.is_established() && self.established_channel.0.is_some() {
@@ -167,13 +183,33 @@ impl TCPCLSession {
                 };
             }
 
+            if self.statemachine.is_established() && !set_keepalive {
+                match self.statemachine.get_keepalive_interval() {
+                    Some(interval) => {
+                        keepalive_timer =
+                            Some(tokio::time::interval(Duration::from_secs(interval.into())));
+                        keepalive_timer
+                            .as_mut()
+                            .unwrap()
+                            .set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                    }
+                    None => {
+                        keepalive_timer = None;
+                    }
+                }
+                set_keepalive = true;
+            }
+
             if self.statemachine.should_close() {
                 info!("We are done. Closing connection");
                 self.stream.shutdown().await?;
                 return Ok(());
             }
 
-            let stream_interest = self.statemachine.get_interests();
+            let mut stream_interest = self.statemachine.get_interests();
+            if !self.writer.is_empty() {
+                stream_interest |= Interest::WRITABLE;
+            }
             if stream_interest == Interest::READABLE && self.reader.left() > 0 {
                 match self.read_message().await {
                     Ok(_) => continue,
@@ -181,7 +217,6 @@ impl TCPCLSession {
                     Err(e) => return Err(e),
                 }
             }
-
             tokio::select! {
                 ready = self.stream.ready(stream_interest) => {
                     match self.handle_socket_ready(ready?).await {
@@ -190,13 +225,22 @@ impl TCPCLSession {
                         Err(e) => {return Err(e);},
                     };
                 }
-                transfer = send_channel_receiver.as_mut().unwrap().recv(), if send_channel_receiver.is_some() && self.statemachine.could_send_transfer() => {
+                transfer = async { send_channel_receiver.as_mut().unwrap().recv().await }, if send_channel_receiver.is_some() && self.statemachine.could_send_transfer() => {
                     match transfer {
                         Some(t) => {
                             self.statemachine.send_transfer(t);
                         },
                         None => {send_channel_receiver = None;}
                     }
+                }
+                _ = async { keepalive_timer.as_mut().unwrap().tick().await }, if keepalive_timer.is_some() => {
+                    if self.statemachine.is_established() {
+                        if self.last_received_keepalive.elapsed() >
+                                Duration::from_secs(self.statemachine.get_keepalive_interval().or(Some(STARTUP_IDLE_INTERVAL)).unwrap().into()) * 2 {
+                            self.statemachine.close_connection(Some(ReasonCode::IdleTimeout));
+                        }
+                    }
+                    self.statemachine.send_keepalive();
                 }
             }
         }
@@ -258,7 +302,8 @@ impl TCPCLSession {
                 info!("Got sessterm: {:?}", s);
             }
             Ok(Messages::Keepalive(_)) => {
-                info!("Got keepalive");
+                debug!("Got keepalive");
+                self.last_received_keepalive = Instant::now();
             }
             Ok(Messages::XferSegment(x)) => {
                 info!("Got xfer segment {:?}", x);

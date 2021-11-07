@@ -5,6 +5,8 @@ use crate::{
 
 use bitflags::bitflags;
 
+const KEEPALIVE_DEFAULT_INTERVAL: u16 = 60;
+
 bitflags! {
     struct SessionExtensionFlags: u8 {
         const CRITICAL = 0x01;
@@ -64,7 +66,7 @@ pub struct SessInit {
 impl SessInit {
     pub fn new(node_id: String) -> Self {
         SessInit {
-            keepalive_interval: 0,
+            keepalive_interval: KEEPALIVE_DEFAULT_INTERVAL,
             segment_mru: (crate::v4::reader::READER_BUFFER_SIZE - 1024) as u64, // Hopefully 1024 is enough for all future headers
             transfer_mru: 100000,
             node_id,

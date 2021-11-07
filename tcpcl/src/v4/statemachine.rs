@@ -8,6 +8,7 @@ use crate::{errors::Errors, transfer::Transfer};
 use super::{
     messages::{
         contact_header::ContactHeader,
+        keepalive::Keepalive,
         sess_init::SessInit,
         sess_term::{ReasonCode, SessTerm},
         xfer_ack::XferAck,
@@ -47,6 +48,8 @@ enum States {
     SendXferSegments(TransferTracker),
     // Data Transfer (both),
     SendXferSegmentsAndAck(TransferTracker, XferAck),
+    // Keepalive
+    SendKeepalive(Box<States>),
     // Session Termination
     SendSessTerm(Option<ReasonCode>),
     WaitSessTerm,
@@ -140,6 +143,10 @@ impl StateMachine {
                 xfer_seg.write(writer);
                 tt.pos = end_pos;
             }
+            States::SendKeepalive(_) => {
+                writer.push(MessageType::Keepalive.into());
+                Keepalive::new().write(writer);
+            }
             _ => {
                 panic!(
                     "Tried to send a message while we should be receiving. State: {:?}",
@@ -176,7 +183,8 @@ impl StateMachine {
             | States::WaitSessTerm
             | States::SessionEstablished
             | States::SendXferSegments(_)
-            | States::SendXferSegmentsAndAck(_, _) => {
+            | States::SendXferSegmentsAndAck(_, _)
+            | States::SendKeepalive(_) => {
                 if reader.left() < 1 {
                     return Err(Errors::MessageTooShort);
                 }
@@ -211,6 +219,10 @@ impl StateMachine {
                     MessageType::XferSegment if self.state == States::SessionEstablished => {
                         let xs = XferSegment::read(reader)?;
                         Ok(Messages::XferSegment(xs))
+                    }
+                    MessageType::Keepalive => {
+                        let k = Keepalive::read(reader)?;
+                        Ok(Messages::Keepalive(k))
                     }
                     MessageType::XferAck => {
                         let xa = XferAck::read(reader)?;
@@ -260,7 +272,8 @@ impl StateMachine {
             | States::PassiveSendSessInit
             | States::SendXferAck(_)
             | States::SendSessTerm(_)
-            | States::SendXferSegmentsAndAck(_, _) => Interest::WRITABLE,
+            | States::SendXferSegmentsAndAck(_, _)
+            | States::SendKeepalive(_) => Interest::WRITABLE,
             States::PassiveWaitContactHeader
             | States::ActiveWaitContactHeader
             | States::ActiveWaitSessInit
@@ -304,6 +317,9 @@ impl StateMachine {
                     self.state = States::SendXferSegments(tt);
                 }
             }
+            States::SendKeepalive(s) => {
+                self.state = *s;
+            }
             States::SendSessTerm(_) if self.terminating == true => {
                 self.state = States::ConnectionClose;
             }
@@ -312,7 +328,7 @@ impl StateMachine {
                 self.state = States::WaitSessTerm
             }
             _ => {
-                panic!("{:?} is not a valid state to complete sending", self.state);
+                panic!("{:?} is not a valid state to complete sending", state);
             }
         }
     }
@@ -348,6 +364,11 @@ impl StateMachine {
         }
     }
 
+    pub fn send_keepalive(&mut self) {
+        let state = mem::replace(&mut self.state, States::ShouldNeverExist);
+        self.state = States::SendKeepalive(Box::new(state));
+    }
+
     pub fn close_connection(&mut self, reason: Option<ReasonCode>) {
         if !self.is_established() {
             panic!("Attempted to close a non-established connection");
@@ -367,6 +388,19 @@ impl StateMachine {
             panic!("Attempted to get the peer node-id on a non-established connection");
         }
         self.peer_sess_init.as_ref().unwrap().node_id.clone()
+    }
+
+    pub fn get_keepalive_interval(&self) -> Option<u16> {
+        if !self.is_established() {
+            panic!("Attempted to get the keepalive interval on a non-established connection");
+        }
+        let my_keepalive = self.my_sess_init.as_ref().unwrap().keepalive_interval;
+        let peer_keepalive = self.peer_sess_init.as_ref().unwrap().keepalive_interval;
+        let keepalive = min(my_keepalive, peer_keepalive);
+        match keepalive {
+            0 => None,
+            x => Some(x),
+        }
     }
 
     pub fn is_established(&self) -> bool {
