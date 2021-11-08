@@ -7,6 +7,7 @@ pub enum Errors {
     UnkownCriticalTransferExtension(u16),
     UnkownMessageType,
     MessageTypeInappropriate,
+    RemoteRejected,
 }
 
 #[derive(Debug)]

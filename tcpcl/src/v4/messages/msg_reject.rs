@@ -7,8 +7,6 @@ use crate::errors::Errors;
 use crate::v4::reader::Reader;
 use crate::v4::transform::Transform;
 
-use super::MessageType;
-
 #[derive(Debug, Eq, PartialEq, Clone, Copy, TryFromPrimitive, IntoPrimitive)]
 #[repr(u8)]
 pub enum ReasonCode {
@@ -21,11 +19,11 @@ pub enum ReasonCode {
 #[derive(Debug)]
 pub struct MsgReject {
     pub reason: ReasonCode,
-    message_header: MessageType,
+    message_header: u8,
 }
 
 impl MsgReject {
-    pub fn new(reason: ReasonCode, message_header: MessageType) -> Self {
+    pub fn new(reason: ReasonCode, message_header: u8) -> Self {
         MsgReject {
             reason,
             message_header,
@@ -46,15 +44,13 @@ impl Transform for MsgReject {
 
         Ok(MsgReject {
             reason: reason.try_into().or(Ok(ReasonCode::Unkown))?,
-            message_header: message_header
-                .try_into()
-                .or(Err(Errors::UnkownMessageType))?,
+            message_header,
         })
     }
 
     fn write(&self, target: &mut Vec<u8>) {
         target.reserve(2);
         target.push(self.reason.into());
-        target.push(self.message_header.into());
+        target.push(self.message_header);
     }
 }

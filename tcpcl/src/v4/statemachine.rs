@@ -9,6 +9,7 @@ use super::{
     messages::{
         contact_header::ContactHeader,
         keepalive::Keepalive,
+        msg_reject::{self, MsgReject},
         sess_init::SessInit,
         sess_term::{ReasonCode, SessTerm},
         xfer_ack::XferAck,
@@ -53,6 +54,8 @@ enum States {
     // Session Termination
     SendSessTerm(Option<ReasonCode>),
     WaitSessTerm,
+    // Rejects (peer errors)
+    SendMsgReject(msg_reject::ReasonCode, u8),
     // Final
     ConnectionClose,
 
@@ -147,6 +150,10 @@ impl StateMachine {
                 writer.push(MessageType::Keepalive.into());
                 Keepalive::new().write(writer);
             }
+            States::SendMsgReject(r, t) => {
+                writer.push(MessageType::MsgReject.into());
+                MsgReject::new(*r, *t).write(writer);
+            }
             _ => {
                 panic!(
                     "Tried to send a message while we should be receiving. State: {:?}",
@@ -188,10 +195,14 @@ impl StateMachine {
                 if reader.left() < 1 {
                     return Err(Errors::MessageTooShort);
                 }
-                let message_type: MessageType = reader
-                    .read_u8()
-                    .try_into()
-                    .map_err(|_| Errors::UnkownMessageType)?;
+                let message_type_num = reader.read_u8();
+                let message_type: MessageType = message_type_num.try_into().map_err(|_| {
+                    self.state = States::SendMsgReject(
+                        msg_reject::ReasonCode::MessageTypeUnkown,
+                        message_type_num,
+                    );
+                    Errors::UnkownMessageType
+                })?;
                 match message_type {
                     MessageType::SessInit if self.state == States::ActiveWaitSessInit => {
                         let si = SessInit::read(reader)?;
@@ -244,15 +255,31 @@ impl StateMachine {
                                         States::SendXferSegmentsAndAck(_, ack) => {
                                             self.state = States::SendXferAck(ack);
                                         }
-                                        _ => return Err(Errors::MessageTypeInappropriate),
+                                        _ => panic!("Invalid state {:?}", state),
                                     }
                                 }
                                 Ok(Messages::XferAck(xa))
                             }
-                            _ => Err(Errors::MessageTypeInappropriate),
+                            _ => {
+                                self.state = States::SendMsgReject(
+                                    msg_reject::ReasonCode::MessageUnexpected,
+                                    MessageType::XferAck.into(),
+                                );
+                                Err(Errors::MessageTypeInappropriate)
+                            }
                         }
                     }
-                    _ => Err(Errors::MessageTypeInappropriate),
+                    MessageType::MsgReject => {
+                        let rej = MsgReject::read(reader)?;
+                        Ok(Messages::MsgReject(rej))
+                    }
+                    _ => {
+                        self.state = States::SendMsgReject(
+                            msg_reject::ReasonCode::MessageUnexpected,
+                            message_type.into(),
+                        );
+                        Err(Errors::MessageTypeInappropriate)
+                    }
                 }
             }
             _ => {
@@ -273,7 +300,8 @@ impl StateMachine {
             | States::SendXferAck(_)
             | States::SendSessTerm(_)
             | States::SendXferSegmentsAndAck(_, _)
-            | States::SendKeepalive(_) => Interest::WRITABLE,
+            | States::SendKeepalive(_)
+            | States::SendMsgReject(_, _) => Interest::WRITABLE,
             States::PassiveWaitContactHeader
             | States::ActiveWaitContactHeader
             | States::ActiveWaitSessInit
@@ -326,6 +354,10 @@ impl StateMachine {
             States::SendSessTerm(_) if self.terminating == false => {
                 self.terminating = true;
                 self.state = States::WaitSessTerm
+            }
+            States::SendMsgReject(_, _) => {
+                self.terminating = true;
+                self.state = States::ConnectionClose;
             }
             _ => {
                 panic!("{:?} is not a valid state to complete sending", state);

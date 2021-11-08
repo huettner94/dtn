@@ -25,6 +25,7 @@ pub const SESS_INIT_CLIENT: [u8; 37] = [
     0x00, 0x00, 0x00, 0x00, // session extension length
 ];
 
+#[allow(dead_code)]
 pub const SESS_INIT_CLIENT_KEEPALIVE_1S: [u8; 37] = [
     0x07, // message type
     0x00, 0x01, // keepalive_interval
@@ -71,15 +72,15 @@ where
     let addr = listener.local_addr()?;
     let jh = tokio::spawn(async move {
         let mut client = TcpStream::connect(&addr).await.unwrap();
-        client.write(&CONTACT_HEADER_NO_TLS).await.unwrap();
+        client.write_all(&CONTACT_HEADER_NO_TLS).await.unwrap();
 
         let mut buf: [u8; 6] = [0; 6];
-        client.read(&mut buf).await.unwrap();
+        client.read_exact(&mut buf).await.unwrap();
 
-        client.write(&sessinit).await.unwrap();
+        client.write_all(&sessinit).await.unwrap();
 
         let mut buf: [u8; 37] = [0; 37];
-        client.read(&mut buf).await.unwrap();
+        client.read_exact(&mut buf).await.unwrap();
 
         do_test(client).await;
     });

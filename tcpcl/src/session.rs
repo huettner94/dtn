@@ -148,6 +148,9 @@ impl TCPCLSession {
                     } else {
                         info!("Connection has completed");
                     }
+                    if let Err(e) = self.stream.shutdown().await {
+                        warn!("error shuting down the socket: {:?}", e);
+                    }
                     break;
                 }
                 _ = (&mut close_channel), if !self.statemachine.connection_closing() => {
@@ -241,11 +244,11 @@ impl TCPCLSession {
                         }
                     }
                     if set_keepalive {
-                    self.statemachine.send_keepalive();
+                        self.statemachine.send_keepalive();
+                    }
                 }
             }
         }
-    }
     }
 
     async fn handle_socket_ready(&mut self, ready: Ready) -> Result<bool, ErrorType> {
@@ -371,7 +374,8 @@ impl TCPCLSession {
                 info!("Got xfer refuse, no idea what to do now: {:?}", x);
             }
             Ok(Messages::MsgReject(m)) => {
-                info!("Got msg reject, no idea what to do now: {:?}", m);
+                info!("Got msg reject: {:?}. Will close the connection now", m);
+                return Err(Errors::RemoteRejected.into());
             }
             Err(Errors::MessageTooShort) => {
                 debug!("Message was too short, retrying later");
@@ -398,13 +402,14 @@ impl TCPCLSession {
                 );
                 return Err(Errors::UnkownCriticalTransferExtension(ext).into());
             }
-            e @ Err(Errors::UnkownMessageType) => {
+            Err(Errors::UnkownMessageType) => {
                 warn!("Received a unkown message type");
-                return Err(e.unwrap_err().into());
             }
-            e @ Err(Errors::MessageTypeInappropriate) => {
+            Err(Errors::MessageTypeInappropriate) => {
                 warn!("Remote send message type currently not applicable");
-                return Err(e.unwrap_err().into());
+            }
+            Err(Errors::RemoteRejected) => {
+                warn!("In the remote rejected state");
             }
         }
         Ok(())

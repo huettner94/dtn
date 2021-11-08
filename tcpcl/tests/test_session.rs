@@ -418,3 +418,27 @@ async fn test_sends_keepalive() -> Result<(), ErrorType> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_closes_on_msg_reject() -> Result<(), ErrorType> {
+    let (jh, mut session) = setup_conn(|mut client| async move {
+        client
+            .write(&[
+                0x06, // message type
+                0x01, // reason code
+                0xFF, // wrong message type
+            ])
+            .await
+            .unwrap();
+
+        let mut buf: [u8; 100] = [0; 100];
+        let len = client.read(&mut buf).await.unwrap();
+        assert_eq!(len, 0);
+    })
+    .await?;
+
+    session.manage_connection().await;
+    jh.await.unwrap();
+
+    Ok(())
+}
