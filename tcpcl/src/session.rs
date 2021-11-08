@@ -240,10 +240,12 @@ impl TCPCLSession {
                             self.statemachine.close_connection(Some(ReasonCode::IdleTimeout));
                         }
                     }
+                    if set_keepalive {
                     self.statemachine.send_keepalive();
                 }
             }
         }
+    }
     }
 
     async fn handle_socket_ready(&mut self, ready: Ready) -> Result<bool, ErrorType> {
