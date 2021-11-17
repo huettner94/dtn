@@ -79,39 +79,12 @@ impl Stream {
             )
         }
     }
-}
-impl AsyncWrite for Stream {
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<Result<usize, std::io::Error>> {
-        if self.tcp_write.is_some() {
-            Pin::new(self.tcp_write.as_mut().unwrap()).poll_write(cx, buf)
-        } else {
-            Pin::new(self.tls_write.as_mut().unwrap()).poll_write(cx, buf)
-        }
-    }
 
-    fn poll_flush(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Result<(), std::io::Error>> {
+    async fn shutdown(&mut self) -> Result<(), std::io::Error> {
         if self.tcp_write.is_some() {
-            Pin::new(self.tcp_write.as_mut().unwrap()).poll_flush(cx)
+            self.tcp_write.as_mut().unwrap().shutdown().await
         } else {
-            Pin::new(self.tls_write.as_mut().unwrap()).poll_flush(cx)
-        }
-    }
-
-    fn poll_shutdown(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Result<(), std::io::Error>> {
-        if self.tcp_write.is_some() {
-            Pin::new(self.tcp_write.as_mut().unwrap()).poll_shutdown(cx)
-        } else {
-            Pin::new(self.tls_write.as_mut().unwrap()).poll_shutdown(cx)
+            self.tls_write.as_mut().unwrap().shutdown().await
         }
     }
 }
