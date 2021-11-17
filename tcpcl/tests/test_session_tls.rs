@@ -6,8 +6,8 @@ use openssl::{
     nid::Nid,
     pkey::{PKey, Private},
     rsa::Rsa,
-    ssl::{Ssl, SslAcceptor, SslContext, SslMethod},
-    x509::{X509Name, X509},
+    ssl::{Ssl, SslAcceptor, SslContext, SslMethod, SslVerifyMode},
+    x509::{extension::SubjectAlternativeName, X509Name, X509},
 };
 use tcpcl::{errors::ErrorType, session::TCPCLSession};
 use tokio::{
@@ -20,12 +20,12 @@ use crate::common::*;
 
 mod common;
 
-async fn get_server_certs() -> (PKey<Private>, X509) {
+fn get_cert_with_san(sanname: &str) -> (PKey<Private>, X509) {
     let cert_rsa = Rsa::generate(1024).unwrap();
     let pkey = PKey::from_rsa(cert_rsa).unwrap();
 
     let mut name = X509Name::builder().unwrap();
-    name.append_entry_by_nid(Nid::COMMONNAME, "example")
+    name.append_entry_by_nid(Nid::COMMONNAME, "nobody_cares")
         .unwrap();
     let name = name.build();
 
@@ -33,6 +33,13 @@ async fn get_server_certs() -> (PKey<Private>, X509) {
     builder.set_version(2).unwrap();
     builder.set_subject_name(&name).unwrap();
     builder.set_issuer_name(&name).unwrap();
+
+    let subject_alternative_name = SubjectAlternativeName::new()
+        .uri(sanname)
+        .build(&builder.x509v3_context(None, None))
+        .unwrap();
+    builder.append_extension(subject_alternative_name).unwrap();
+
     builder
         .set_not_before(&Asn1Time::days_from_now(0).unwrap())
         .unwrap();
@@ -46,9 +53,13 @@ async fn get_server_certs() -> (PKey<Private>, X509) {
     (pkey, x509)
 }
 
+fn get_server_cert() -> (PKey<Private>, X509) {
+    get_cert_with_san("dtn://server")
+}
+
 #[tokio::test]
 async fn test_tls_connection_setup_client() -> Result<(), ErrorType> {
-    let (key, cert) = get_server_certs().await;
+    let (key, cert) = get_server_cert();
     let listener = TcpListener::bind(SocketAddrV4::from_str("127.0.0.1:0").unwrap()).await?;
     let addr = listener.local_addr()?;
     let jh = tokio::spawn(async move {
@@ -65,6 +76,7 @@ async fn test_tls_connection_setup_client() -> Result<(), ErrorType> {
         ssl_acceptor.set_private_key(&key).unwrap();
         ssl_acceptor.set_certificate(&cert).unwrap();
         ssl_acceptor.check_private_key().unwrap();
+        ssl_acceptor.set_verify(SslVerifyMode::PEER);
         let ssl_context = ssl_acceptor.build().into_context();
         let ssl = Ssl::new(&ssl_context).unwrap();
         let mut socket = SslStream::new(ssl, socket).unwrap();
@@ -93,7 +105,8 @@ async fn test_tls_connection_setup_client() -> Result<(), ErrorType> {
 
 #[tokio::test]
 async fn test_tls_connection_setup_server() -> Result<(), ErrorType> {
-    let (key, cert) = get_server_certs().await;
+    let (server_key, server_cert) = get_server_cert();
+
     let listener = TcpListener::bind(SocketAddrV4::from_str("127.0.0.1:0").unwrap()).await?;
     let addr = listener.local_addr()?;
     let jh = tokio::spawn(async move {
@@ -120,8 +133,8 @@ async fn test_tls_connection_setup_server() -> Result<(), ErrorType> {
         assert_eq!(buf[0..37], SESS_INIT_SERVER);
     });
     let mut ssl_acceptor = SslAcceptor::mozilla_modern_v5(SslMethod::tls_server()).unwrap();
-    ssl_acceptor.set_private_key(&key).unwrap();
-    ssl_acceptor.set_certificate(&cert).unwrap();
+    ssl_acceptor.set_private_key(&server_key).unwrap();
+    ssl_acceptor.set_certificate(&server_cert).unwrap();
     ssl_acceptor.check_private_key().unwrap();
     let ssl_context = ssl_acceptor.build().into_context();
 

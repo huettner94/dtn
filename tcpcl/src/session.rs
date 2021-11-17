@@ -6,7 +6,10 @@ use std::{
 };
 
 use log::{debug, info, warn};
-use openssl::ssl::{Ssl, SslContext};
+use openssl::{
+    ssl::{Ssl, SslContext},
+    x509::X509,
+};
 use tokio::{
     io::{self, AsyncRead, AsyncWrite, AsyncWriteExt, Interest},
     net::TcpStream,
@@ -59,6 +62,26 @@ impl Stream {
             panic!("Cant get tcp stream if we dont have one");
         }
         self.tcp_read.unwrap().unsplit(self.tcp_write.unwrap())
+    }
+
+    fn get_peer_certificate(&mut self) -> Option<X509> {
+        if self.tls_read.is_none() {
+            panic!("Cant get tcp stream if we dont have one");
+        }
+
+        // Need to do this dance here as we cant get the ssl details otherwise
+        let tls = self
+            .tls_read
+            .take()
+            .unwrap()
+            .unsplit(self.tls_write.take().unwrap());
+        let x509 = tls.ssl().peer_certificate();
+
+        let (tls_read, tls_write) = tokio::io::split(tls);
+        self.tls_read = Some(tls_read);
+        self.tls_write = Some(tls_write);
+
+        x509
     }
 
     fn as_split(
@@ -393,6 +416,13 @@ impl TCPCLSession {
             }
             Ok(Messages::SessInit(s)) => {
                 info!("Got sessinit: {:?}", s);
+                if self.statemachine.should_use_tls() {
+                    let peer_node_id = s.node_id;
+                    let x509 = self.stream.as_mut().unwrap().get_peer_certificate();
+                    if !validate_peer_certificate(peer_node_id.clone(), x509) {
+                        return Err(Errors::TLSNameMissmatch(peer_node_id).into());
+                    }
+                }
             }
             Ok(Messages::SessTerm(s)) => {
                 info!("Got sessterm: {:?}", s);
@@ -502,7 +532,37 @@ impl TCPCLSession {
             Err(Errors::RemoteRejected) => {
                 warn!("In the remote rejected state");
             }
+            Err(Errors::TLSNameMissmatch(_)) => {
+                warn!("In the tls name missmatch state");
+            }
         }
         Ok(())
     }
+}
+
+fn validate_peer_certificate(peer_node_id: String, x509: Option<X509>) -> bool {
+    match x509 {
+        Some(cert) => {
+            match cert.subject_alt_names() {
+                Some(sans) => {
+                    for san in sans {
+                        if let Some(uri) = san.uri() {
+                            if uri == peer_node_id {
+                                return true;
+                            }
+                        }
+                    }
+                }
+                None => {
+                    warn!("peer certificate does not contain SAN. Continuing anyway...");
+                    return true;
+                }
+            };
+        }
+        None => {
+            warn!("We did get a peer certificate for the tls session. Continuing anyway...");
+            return true;
+        }
+    }
+    return false;
 }

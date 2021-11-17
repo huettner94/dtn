@@ -8,6 +8,7 @@ pub enum Errors {
     UnkownMessageType,
     MessageTypeInappropriate,
     RemoteRejected,
+    TLSNameMissmatch(String),
 }
 
 #[derive(Debug)]
