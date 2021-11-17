@@ -21,12 +21,20 @@ pub struct ContactHeader {
 }
 
 impl ContactHeader {
-    pub fn new() -> Self {
+    pub fn new(can_tls: bool) -> Self {
+        let mut flags = ContactHeaderFields::empty();
+        if can_tls {
+            flags |= ContactHeaderFields::CAN_TLS;
+        }
         ContactHeader {
             magic: DTN_MAGIC_BYTES,
             version: 4,
-            flags: ContactHeaderFields::empty(),
+            flags,
         }
+    }
+
+    pub fn can_tls(&self) -> bool {
+        self.flags.contains(ContactHeaderFields::CAN_TLS)
     }
 }
 

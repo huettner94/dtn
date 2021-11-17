@@ -1,9 +1,6 @@
 use std::string::FromUtf8Error;
 
-use tokio::{
-    io::{self},
-    net::TcpStream,
-};
+use tokio::io::{self, AsyncRead, AsyncReadExt};
 
 pub const READER_BUFFER_SIZE: usize = 10240;
 
@@ -23,8 +20,8 @@ impl Reader {
         }
     }
 
-    pub async fn read(&mut self, reader: &mut TcpStream) -> io::Result<usize> {
-        let read = reader.try_read(&mut self.data[self.used..])?;
+    pub async fn read(&mut self, reader: &mut (impl AsyncRead + Unpin)) -> io::Result<usize> {
+        let read = reader.read(&mut self.data[self.used..]).await?;
         self.used += read;
 
         Ok(read)

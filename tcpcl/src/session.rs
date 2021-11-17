@@ -1,15 +1,19 @@
 use std::{
     net::SocketAddr,
+    pin::Pin,
+    task::{Context, Poll},
     time::{Duration, Instant},
 };
 
 use log::{debug, info, warn};
+use openssl::ssl::{Ssl, SslContext};
 use tokio::{
-    io::{self, AsyncWriteExt, Interest, Ready},
+    io::{self, AsyncRead, AsyncWrite, AsyncWriteExt, Interest},
     net::TcpStream,
     sync::{mpsc, oneshot},
     time::Interval,
 };
+use tokio_openssl::SslStream;
 
 use crate::{
     connection_info::ConnectionInfo,
@@ -22,11 +26,102 @@ use crate::{
     },
 };
 
+struct Stream {
+    tcp_read: Option<tokio::io::ReadHalf<TcpStream>>,
+    tcp_write: Option<tokio::io::WriteHalf<TcpStream>>,
+    tls_read: Option<tokio::io::ReadHalf<SslStream<TcpStream>>>,
+    tls_write: Option<tokio::io::WriteHalf<SslStream<TcpStream>>>,
+}
+
+impl Stream {
+    fn from_tcp_stream(ts: TcpStream) -> Self {
+        let (tcp_read, tcp_write) = tokio::io::split(ts);
+        Stream {
+            tcp_read: Some(tcp_read),
+            tcp_write: Some(tcp_write),
+            tls_read: None,
+            tls_write: None,
+        }
+    }
+
+    fn from_tls_stream(ssl_stream: SslStream<TcpStream>) -> Self {
+        let (tls_read, tls_write) = tokio::io::split(ssl_stream);
+        Stream {
+            tcp_read: None,
+            tcp_write: None,
+            tls_read: Some(tls_read),
+            tls_write: Some(tls_write),
+        }
+    }
+
+    fn get_tcp_stream(self) -> TcpStream {
+        if self.tcp_read.is_none() {
+            panic!("Cant get tcp stream if we dont have one");
+        }
+        self.tcp_read.unwrap().unsplit(self.tcp_write.unwrap())
+    }
+
+    fn as_split(
+        &mut self,
+    ) -> (
+        Box<dyn AsyncRead + Unpin + Send + '_>,
+        Box<dyn AsyncWrite + Unpin + Send + '_>,
+    ) {
+        if self.tcp_write.is_some() {
+            (
+                Box::new(self.tcp_read.as_mut().unwrap()),
+                Box::new(self.tcp_write.as_mut().unwrap()),
+            )
+        } else {
+            (
+                Box::new(self.tls_read.as_mut().unwrap()),
+                Box::new(self.tls_write.as_mut().unwrap()),
+            )
+        }
+    }
+}
+impl AsyncWrite for Stream {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<Result<usize, std::io::Error>> {
+        if self.tcp_write.is_some() {
+            Pin::new(self.tcp_write.as_mut().unwrap()).poll_write(cx, buf)
+        } else {
+            Pin::new(self.tls_write.as_mut().unwrap()).poll_write(cx, buf)
+        }
+    }
+
+    fn poll_flush(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), std::io::Error>> {
+        if self.tcp_write.is_some() {
+            Pin::new(self.tcp_write.as_mut().unwrap()).poll_flush(cx)
+        } else {
+            Pin::new(self.tls_write.as_mut().unwrap()).poll_flush(cx)
+        }
+    }
+
+    fn poll_shutdown(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), std::io::Error>> {
+        if self.tcp_write.is_some() {
+            Pin::new(self.tcp_write.as_mut().unwrap()).poll_shutdown(cx)
+        } else {
+            Pin::new(self.tls_write.as_mut().unwrap()).poll_shutdown(cx)
+        }
+    }
+}
+
 const STARTUP_IDLE_INTERVAL: u16 = 60;
 
-#[derive(Debug)]
 pub struct TCPCLSession {
-    stream: TcpStream,
+    is_server: bool,
+    stream: Option<Stream>,
+    ssl_context: Option<SslContext>,
     reader: Reader,
     writer: Vec<u8>,
     statemachine: StateMachine,
@@ -43,17 +138,24 @@ pub struct TCPCLSession {
 }
 
 impl TCPCLSession {
-    pub fn new(stream: TcpStream, node_id: String) -> Result<Self, std::io::Error> {
+    pub fn new(
+        stream: TcpStream,
+        node_id: String,
+        ssl_context: Option<SslContext>,
+    ) -> Result<Self, std::io::Error> {
         let peer_addr = stream.peer_addr()?;
+        let can_tls = ssl_context.is_some();
         let established_channel = oneshot::channel();
         let close_channel = oneshot::channel();
         let receive_channel = mpsc::channel(10);
         let send_channel = mpsc::channel(10);
         Ok(TCPCLSession {
-            stream,
+            is_server: true,
+            stream: Some(Stream::from_tcp_stream(stream)),
+            ssl_context,
             reader: Reader::new(),
             writer: Vec::new(),
-            statemachine: StateMachine::new_passive(node_id),
+            statemachine: StateMachine::new_passive(node_id, can_tls),
             receiving_transfer: None,
             connection_info: ConnectionInfo {
                 peer_endpoint: None,
@@ -67,20 +169,27 @@ impl TCPCLSession {
         })
     }
 
-    pub async fn connect(socket: SocketAddr, node_id: String) -> Result<Self, ErrorType> {
+    pub async fn connect(
+        socket: SocketAddr,
+        node_id: String,
+        ssl_context: Option<SslContext>,
+    ) -> Result<Self, ErrorType> {
         let stream = TcpStream::connect(&socket)
             .await
             .map_err::<ErrorType, _>(|e| e.into())?;
         debug!("Connected to peer at {}", socket);
+        let can_tls = ssl_context.is_some();
         let established_channel = oneshot::channel();
         let close_channel = oneshot::channel();
         let receive_channel = mpsc::channel(10);
         let send_channel = mpsc::channel(10);
         Ok(TCPCLSession {
-            stream,
+            is_server: false,
+            stream: Some(Stream::from_tcp_stream(stream)),
+            ssl_context,
             reader: Reader::new(),
             writer: Vec::new(),
-            statemachine: StateMachine::new_active(node_id),
+            statemachine: StateMachine::new_active(node_id, can_tls),
             receiving_transfer: None,
             connection_info: ConnectionInfo {
                 peer_endpoint: None,
@@ -148,7 +257,7 @@ impl TCPCLSession {
                     } else {
                         info!("Connection has completed");
                     }
-                    if let Err(e) = self.stream.shutdown().await {
+                    if let Err(e) = self.stream.as_mut().unwrap().shutdown().await {
                         warn!("error shuting down the socket: {:?}", e);
                     }
                     break;
@@ -168,10 +277,26 @@ impl TCPCLSession {
         let mut keepalive_timer: Option<Interval> = Some(tokio::time::interval(
             Duration::from_secs(STARTUP_IDLE_INTERVAL.into()),
         ));
-        let mut set_keepalive = false;
+        let mut initialized_keepalive = false;
+        let mut initialized_tls = false;
 
         loop {
             debug!("We are now at statemachine state {:?}", self.statemachine);
+            if !initialized_tls && self.statemachine.contact_header_done() {
+                if self.statemachine.should_use_tls() {
+                    let stream = self.stream.take().unwrap().get_tcp_stream();
+                    let ssl = Ssl::new(self.ssl_context.as_ref().unwrap()).unwrap();
+                    let mut ssl_stream = SslStream::new(ssl, stream).unwrap();
+                    if self.is_server {
+                        Pin::new(&mut ssl_stream).accept().await.unwrap();
+                    } else {
+                        Pin::new(&mut ssl_stream).connect().await.unwrap();
+                    }
+                    self.stream = Some(Stream::from_tls_stream(ssl_stream));
+                }
+                initialized_tls = true;
+            }
+
             if self.statemachine.is_established() && self.established_channel.0.is_some() {
                 self.connection_info.peer_endpoint = Some(self.statemachine.get_peer_node_id());
 
@@ -186,7 +311,7 @@ impl TCPCLSession {
                 };
             }
 
-            if self.statemachine.is_established() && !set_keepalive {
+            if self.statemachine.is_established() && !initialized_keepalive {
                 match self.statemachine.get_keepalive_interval() {
                     Some(interval) => {
                         keepalive_timer =
@@ -200,12 +325,12 @@ impl TCPCLSession {
                         keepalive_timer = None;
                     }
                 }
-                set_keepalive = true;
+                initialized_keepalive = true;
             }
 
             if self.statemachine.should_close() {
                 info!("We are done. Closing connection");
-                self.stream.shutdown().await?;
+                self.stream.as_mut().unwrap().shutdown().await?;
                 return Ok(());
             }
 
@@ -220,13 +345,49 @@ impl TCPCLSession {
                     Err(e) => return Err(e),
                 }
             }
+
+            if self.writer.is_empty() && stream_interest.is_writable() {
+                self.statemachine.send_message(&mut self.writer);
+            }
+
+            let stream = self.stream.as_mut().unwrap();
+            let (mut read_stream, mut write_stream) = stream.as_split();
+
             tokio::select! {
-                ready = self.stream.ready(stream_interest) => {
-                    match self.handle_socket_ready(ready?).await {
-                        Ok(true) => {return Ok(())},
-                        Ok(false) => {},
-                        Err(e) => {return Err(e);},
-                    };
+                read_out = async { self.reader.read(&mut read_stream).await }, if stream_interest.is_readable() => {
+                    match read_out {
+                        Ok(0) => {
+                            info!("Connection closed by peer");
+                            return Ok(());
+                        }
+                        Ok(_) => {
+                            drop(read_stream);
+                            drop(write_stream);
+                            self.read_message().await?;
+                        }
+                        Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
+                        Err(e) => {
+                            return Err(e.into());
+                        }
+                    }
+                }
+                write_out = async { write_stream.write(&self.writer).await }, if stream_interest.is_writable() => {
+                    match write_out {
+                        Ok(0) => {
+                            info!("Connection closed");
+                            return Ok(());
+                        }
+                        Ok(n) => {
+                            if self.writer.len() == n {
+                                self.writer.clear();
+                                self.statemachine.send_complete();
+                            } else {
+                                self.writer.drain(0..n);
+                                debug!("write incomplete. Trying again");
+                            }
+                        }
+                        Err(_) => {}
+                    }
                 }
                 transfer = async { send_channel_receiver.as_mut().unwrap().recv().await }, if send_channel_receiver.is_some() && self.statemachine.could_send_transfer() => {
                     match transfer {
@@ -243,55 +404,12 @@ impl TCPCLSession {
                             self.statemachine.close_connection(Some(ReasonCode::IdleTimeout));
                         }
                     }
-                    if set_keepalive {
+                    if initialized_keepalive {
                         self.statemachine.send_keepalive();
                     }
                 }
             }
         }
-    }
-
-    async fn handle_socket_ready(&mut self, ready: Ready) -> Result<bool, ErrorType> {
-        if ready.is_readable() {
-            match self.reader.read(&mut self.stream).await {
-                Ok(0) => {
-                    info!("Connection closed by peer");
-                    return Ok(true);
-                }
-                Ok(_) => {
-                    self.read_message().await?;
-                    // We return here as we need to think about our states again
-                    return Ok(false);
-                }
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
-                Err(e) => {
-                    return Err(e.into());
-                }
-            }
-        }
-
-        if ready.is_writable() {
-            if self.writer.is_empty() {
-                self.statemachine.send_message(&mut self.writer);
-            }
-            match self.stream.write(&self.writer).await {
-                Ok(0) => {
-                    info!("Connection closed");
-                    return Ok(true);
-                }
-                Ok(n) => {
-                    if self.writer.len() == n {
-                        self.writer.clear();
-                        self.statemachine.send_complete();
-                    } else {
-                        self.writer.drain(0..n);
-                        debug!("write incomplete. Trying again");
-                    }
-                }
-                Err(_) => {}
-            }
-        }
-        Ok(false)
     }
 
     async fn read_message(&mut self) -> Result<(), ErrorType> {

@@ -130,7 +130,7 @@ impl Daemon {
     }
 
     async fn connect_remote(&mut self, socket: SocketAddr) {
-        match TCPCLSession::connect(socket, self.settings.my_node_id.clone()).await {
+        match TCPCLSession::connect(socket, self.settings.my_node_id.clone(), None).await {
             Ok(sess) => self.process_socket(sess).await,
             Err(e) => {
                 error!("Error connecting to requested remote {}: {:?}", socket, e);
@@ -168,7 +168,7 @@ impl Daemon {
         match accept {
             Ok((stream, peer_addr)) => {
                 info!("New connection from {}", peer_addr);
-                match TCPCLSession::new(stream, self.settings.my_node_id.clone()) {
+                match TCPCLSession::new(stream, self.settings.my_node_id.clone(), None) {
                     Ok(sess) => {
                         self.process_socket(sess).await;
                     }

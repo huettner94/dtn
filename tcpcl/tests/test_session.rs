@@ -31,7 +31,7 @@ async fn test_connection_setup_client() -> Result<(), ErrorType> {
 
         socket.write(&SESS_INIT_SERVER).await.unwrap();
     });
-    let mut session = TCPCLSession::connect(addr, "dtn://client".into()).await?;
+    let mut session = TCPCLSession::connect(addr, "dtn://client".into(), None).await?;
     let established = session.get_established_channel();
     session.manage_connection().await;
     jh.await.unwrap();
@@ -64,7 +64,7 @@ async fn test_connection_setup_server() -> Result<(), ErrorType> {
     });
 
     let (socket, _) = listener.accept().await?;
-    let mut session = TCPCLSession::new(socket, "dtn://server".into())?;
+    let mut session = TCPCLSession::new(socket, "dtn://server".into(), None)?;
     let established = session.get_established_channel();
     session.manage_connection().await;
     jh.await.unwrap();

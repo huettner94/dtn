@@ -66,6 +66,7 @@ enum States {
 #[derive(Debug)]
 pub struct StateMachine {
     state: States,
+    can_tls: bool,
     my_node_id: String,
     last_used_transfer_id: u64,
     my_contact_header: Option<ContactHeader>,
@@ -76,9 +77,10 @@ pub struct StateMachine {
 }
 
 impl StateMachine {
-    pub fn new_active(node_id: String) -> Self {
+    pub fn new_active(node_id: String, can_tls: bool) -> Self {
         StateMachine {
             state: States::ActiveSendContactHeader,
+            can_tls,
             my_node_id: node_id,
             last_used_transfer_id: 0,
             my_contact_header: None,
@@ -88,9 +90,10 @@ impl StateMachine {
             terminating: false,
         }
     }
-    pub fn new_passive(node_id: String) -> Self {
+    pub fn new_passive(node_id: String, can_tls: bool) -> Self {
         StateMachine {
             state: States::PassiveWaitContactHeader,
+            can_tls,
             my_node_id: node_id,
             last_used_transfer_id: 0,
             my_contact_header: None,
@@ -104,7 +107,7 @@ impl StateMachine {
     pub fn send_message(&mut self, writer: &mut Vec<u8>) {
         match &mut self.state {
             States::ActiveSendContactHeader | States::PassiveSendContactHeader => {
-                let ch = ContactHeader::new();
+                let ch = ContactHeader::new(self.can_tls);
                 self.my_contact_header = Some(ch.clone());
                 ch.write(writer);
             }
@@ -433,6 +436,24 @@ impl StateMachine {
             0 => None,
             x => Some(x),
         }
+    }
+
+    pub fn contact_header_done(&self) -> bool {
+        match self.state {
+            States::ActiveSendContactHeader
+            | States::ActiveWaitContactHeader
+            | States::PassiveSendContactHeader
+            | States::PassiveWaitContactHeader => false,
+            _ => true,
+        }
+    }
+
+    pub fn should_use_tls(&self) -> bool {
+        if self.my_contact_header.is_none() || self.peer_contact_header.is_none() {
+            panic!("May not access tls info if we don't have a contact header yet");
+        }
+        self.my_contact_header.as_ref().unwrap().can_tls()
+            && self.peer_contact_header.as_ref().unwrap().can_tls()
     }
 
     pub fn is_established(&self) -> bool {

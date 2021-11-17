@@ -7,7 +7,9 @@ edition = "2021"
 
 [dependencies]
 bitflags = "1.2.1"
-tokio = { version = "1.10.0", features = ["io-util", "net", "macros", "sync", "time"] }
+tokio = { version = "1.10.0", features = ["fs", "io-util", "net", "macros", "sync", "rt", "time"] }
+tokio-openssl = "0.6.3"
+openssl = "0.10.38"
 log = "0.4"
 env_logger = "0.8.4"
 num_enum = "0.5.4"

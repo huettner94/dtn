@@ -7,10 +7,18 @@ use tokio::{
     task::JoinHandle,
 };
 
+#[allow(dead_code)]
 pub const CONTACT_HEADER_NO_TLS: [u8; 6] = [
     0x64, 0x74, 0x6E, 0x21, // magic "dtn!"
     0x04, // version 4
     0x00, // flags
+];
+
+#[allow(dead_code)]
+pub const CONTACT_HEADER_TLS: [u8; 6] = [
+    0x64, 0x74, 0x6E, 0x21, // magic "dtn!"
+    0x04, // version 4
+    0x01, // flags
 ];
 
 #[allow(dead_code)]
@@ -86,7 +94,7 @@ where
     });
 
     let (socket, _) = listener.accept().await?;
-    let session = TCPCLSession::new(socket, "dtn://server".into())?;
+    let session = TCPCLSession::new(socket, "dtn://server".into(), None)?;
 
     Ok((jh, session))
 }
