@@ -554,14 +554,12 @@ fn validate_peer_certificate(peer_node_id: String, x509: Option<X509>) -> bool {
                     }
                 }
                 None => {
-                    warn!("peer certificate does not contain SAN. Continuing anyway...");
-                    return true;
+                    warn!("peer certificate does not contain SAN.");
                 }
             };
         }
         None => {
-            warn!("We did get a peer certificate for the tls session. Continuing anyway...");
-            return true;
+            warn!("We did get a peer certificate for the tls session.");
         }
     }
     return false;

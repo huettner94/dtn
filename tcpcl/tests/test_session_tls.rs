@@ -7,7 +7,10 @@ use openssl::{
     pkey::{PKey, Private},
     rsa::Rsa,
     ssl::{Ssl, SslAcceptor, SslContext, SslMethod, SslVerifyMode},
-    x509::{extension::SubjectAlternativeName, X509Name, X509},
+    x509::{
+        extension::SubjectAlternativeName, store::X509StoreBuilder, X509Name, X509StoreContextRef,
+        X509,
+    },
 };
 use tcpcl::{errors::ErrorType, session::TCPCLSession};
 use tokio::{
@@ -55,6 +58,10 @@ fn get_cert_with_san(sanname: &str) -> (PKey<Private>, X509) {
 
 fn get_server_cert() -> (PKey<Private>, X509) {
     get_cert_with_san("dtn://server")
+}
+
+fn get_client_cert() -> (PKey<Private>, X509) {
+    get_cert_with_san("dtn://client")
 }
 
 #[tokio::test]
@@ -106,6 +113,8 @@ async fn test_tls_connection_setup_client() -> Result<(), ErrorType> {
 #[tokio::test]
 async fn test_tls_connection_setup_server() -> Result<(), ErrorType> {
     let (server_key, server_cert) = get_server_cert();
+    let (client_key, client_cert) = get_client_cert();
+    let local_client_cert = client_cert.clone();
 
     let listener = TcpListener::bind(SocketAddrV4::from_str("127.0.0.1:0").unwrap()).await?;
     let addr = listener.local_addr()?;
@@ -118,9 +127,11 @@ async fn test_tls_connection_setup_server() -> Result<(), ErrorType> {
         assert_eq!(len, 6);
         assert_eq!(buf[0..6], CONTACT_HEADER_TLS);
 
-        let ssl_context = SslContext::builder(SslMethod::tls_client())
-            .unwrap()
-            .build();
+        let mut ssl_context_builder = SslContext::builder(SslMethod::tls_client()).unwrap();
+        ssl_context_builder.set_private_key(&client_key).unwrap();
+        ssl_context_builder.set_certificate(&client_cert).unwrap();
+        ssl_context_builder.check_private_key().unwrap();
+        let ssl_context = ssl_context_builder.build();
         let ssl = Ssl::new(&ssl_context).unwrap();
         let mut client = SslStream::new(ssl, client).unwrap();
         Pin::new(&mut client).connect().await.unwrap();
@@ -132,7 +143,10 @@ async fn test_tls_connection_setup_server() -> Result<(), ErrorType> {
         assert_eq!(len, 37);
         assert_eq!(buf[0..37], SESS_INIT_SERVER);
     });
+    let mut x509_store_builder = X509StoreBuilder::new().unwrap();
+    x509_store_builder.add_cert(local_client_cert).unwrap();
     let mut ssl_acceptor = SslAcceptor::mozilla_modern_v5(SslMethod::tls_server()).unwrap();
+    ssl_acceptor.set_cert_store(x509_store_builder.build());
     ssl_acceptor.set_private_key(&server_key).unwrap();
     ssl_acceptor.set_certificate(&server_cert).unwrap();
     ssl_acceptor.check_private_key().unwrap();
