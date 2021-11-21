@@ -7,12 +7,9 @@ use openssl::{
     pkey::{PKey, Private},
     rsa::Rsa,
     ssl::{Ssl, SslAcceptor, SslContext, SslMethod, SslVerifyMode},
-    x509::{
-        extension::SubjectAlternativeName, store::X509StoreBuilder, X509Name, X509StoreContextRef,
-        X509,
-    },
+    x509::{extension::SubjectAlternativeName, store::X509StoreBuilder, X509Name, X509},
 };
-use tcpcl::{errors::ErrorType, session::TCPCLSession};
+use tcpcl::{errors::ErrorType, session::TCPCLSession, TLSSettings};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
@@ -66,7 +63,11 @@ fn get_client_cert() -> (PKey<Private>, X509) {
 
 #[tokio::test]
 async fn test_tls_connection_setup_client() -> Result<(), ErrorType> {
-    let (key, cert) = get_server_cert();
+    let (server_key, server_cert) = get_server_cert();
+    let (client_key, client_cert) = get_client_cert();
+    let ca_server_cert = server_cert.clone();
+    let ca_client_cert = client_cert.clone();
+
     let listener = TcpListener::bind(SocketAddrV4::from_str("127.0.0.1:0").unwrap()).await?;
     let addr = listener.local_addr()?;
     let jh = tokio::spawn(async move {
@@ -79,11 +80,14 @@ async fn test_tls_connection_setup_client() -> Result<(), ErrorType> {
 
         socket.write(&CONTACT_HEADER_TLS).await.unwrap();
 
+        let mut x509_store_builder = X509StoreBuilder::new().unwrap();
+        x509_store_builder.add_cert(ca_client_cert).unwrap();
         let mut ssl_acceptor = SslAcceptor::mozilla_modern_v5(SslMethod::tls_server()).unwrap();
-        ssl_acceptor.set_private_key(&key).unwrap();
-        ssl_acceptor.set_certificate(&cert).unwrap();
+        ssl_acceptor.set_cert_store(x509_store_builder.build());
+        ssl_acceptor.set_private_key(&server_key).unwrap();
+        ssl_acceptor.set_certificate(&server_cert).unwrap();
         ssl_acceptor.check_private_key().unwrap();
-        ssl_acceptor.set_verify(SslVerifyMode::PEER);
+        ssl_acceptor.set_verify(SslVerifyMode::PEER | SslVerifyMode::FAIL_IF_NO_PEER_CERT);
         let ssl_context = ssl_acceptor.build().into_context();
         let ssl = Ssl::new(&ssl_context).unwrap();
         let mut socket = SslStream::new(ssl, socket).unwrap();
@@ -96,10 +100,17 @@ async fn test_tls_connection_setup_client() -> Result<(), ErrorType> {
 
         socket.write(&SESS_INIT_SERVER).await.unwrap();
     });
-    let ssl_context = SslContext::builder(SslMethod::tls_client())
-        .unwrap()
-        .build();
-    let mut session = TCPCLSession::connect(addr, "dtn://client".into(), Some(ssl_context)).await?;
+
+    let mut session = TCPCLSession::connect(
+        addr,
+        "dtn://client".into(),
+        Some(TLSSettings::new(
+            client_key,
+            client_cert,
+            vec![ca_server_cert],
+        )),
+    )
+    .await?;
     let established = session.get_established_channel();
     session.manage_connection().await;
     jh.await.unwrap();
@@ -114,7 +125,7 @@ async fn test_tls_connection_setup_client() -> Result<(), ErrorType> {
 async fn test_tls_connection_setup_server() -> Result<(), ErrorType> {
     let (server_key, server_cert) = get_server_cert();
     let (client_key, client_cert) = get_client_cert();
-    let local_client_cert = client_cert.clone();
+    let ca_cert = client_cert.clone();
 
     let listener = TcpListener::bind(SocketAddrV4::from_str("127.0.0.1:0").unwrap()).await?;
     let addr = listener.local_addr()?;
@@ -143,17 +154,13 @@ async fn test_tls_connection_setup_server() -> Result<(), ErrorType> {
         assert_eq!(len, 37);
         assert_eq!(buf[0..37], SESS_INIT_SERVER);
     });
-    let mut x509_store_builder = X509StoreBuilder::new().unwrap();
-    x509_store_builder.add_cert(local_client_cert).unwrap();
-    let mut ssl_acceptor = SslAcceptor::mozilla_modern_v5(SslMethod::tls_server()).unwrap();
-    ssl_acceptor.set_cert_store(x509_store_builder.build());
-    ssl_acceptor.set_private_key(&server_key).unwrap();
-    ssl_acceptor.set_certificate(&server_cert).unwrap();
-    ssl_acceptor.check_private_key().unwrap();
-    let ssl_context = ssl_acceptor.build().into_context();
 
     let (socket, _) = listener.accept().await?;
-    let mut session = TCPCLSession::new(socket, "dtn://server".into(), Some(ssl_context))?;
+    let mut session = TCPCLSession::new(
+        socket,
+        "dtn://server".into(),
+        Some(TLSSettings::new(server_key, server_cert, vec![ca_cert])),
+    )?;
     let established = session.get_established_channel();
     session.manage_connection().await;
     jh.await.unwrap();

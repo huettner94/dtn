@@ -1,14 +1,13 @@
 use std::{
     net::SocketAddr,
     pin::Pin,
-    task::{Context, Poll},
     time::{Duration, Instant},
 };
 
 use log::{debug, info, warn};
 use openssl::{
-    ssl::{Ssl, SslContext},
-    x509::X509,
+    ssl::{Ssl, SslAcceptor, SslContext, SslMethod, SslVerifyMode},
+    x509::{store::X509StoreBuilder, X509},
 };
 use tokio::{
     io::{self, AsyncRead, AsyncWrite, AsyncWriteExt, Interest},
@@ -27,6 +26,7 @@ use crate::{
         reader::Reader,
         statemachine::StateMachine,
     },
+    TLSSettings,
 };
 
 struct Stream {
@@ -134,17 +134,41 @@ pub struct TCPCLSession {
 }
 
 impl TCPCLSession {
+    fn make_ssl_context(tls_settings: TLSSettings) -> SslContext {
+        let mut x509_store_builder = X509StoreBuilder::new().unwrap();
+        for ca_cert in tls_settings.trusted_certs {
+            x509_store_builder.add_cert(ca_cert).unwrap();
+        }
+        let mut ssl_context_builder = SslAcceptor::mozilla_modern_v5(SslMethod::tls()).unwrap();
+        ssl_context_builder.set_cert_store(x509_store_builder.build());
+        ssl_context_builder
+            .set_private_key(&tls_settings.private_key)
+            .unwrap();
+        ssl_context_builder
+            .set_certificate(&tls_settings.certificate)
+            .unwrap();
+        ssl_context_builder.check_private_key().unwrap();
+        ssl_context_builder.set_verify(SslVerifyMode::PEER | SslVerifyMode::FAIL_IF_NO_PEER_CERT);
+        ssl_context_builder.build().into_context()
+    }
+
     pub fn new(
         stream: TcpStream,
         node_id: String,
-        ssl_context: Option<SslContext>,
+        tls_settings: Option<TLSSettings>,
     ) -> Result<Self, std::io::Error> {
         let peer_addr = stream.peer_addr()?;
-        let can_tls = ssl_context.is_some();
+        let can_tls = tls_settings.is_some();
         let established_channel = oneshot::channel();
         let close_channel = oneshot::channel();
         let receive_channel = mpsc::channel(10);
         let send_channel = mpsc::channel(10);
+
+        let ssl_context = match tls_settings {
+            Some(s) => Some(TCPCLSession::make_ssl_context(s)),
+            None => None,
+        };
+
         Ok(TCPCLSession {
             is_server: true,
             stream: Some(Stream::from_tcp_stream(stream)),
@@ -168,17 +192,23 @@ impl TCPCLSession {
     pub async fn connect(
         socket: SocketAddr,
         node_id: String,
-        ssl_context: Option<SslContext>,
+        tls_settings: Option<TLSSettings>,
     ) -> Result<Self, ErrorType> {
         let stream = TcpStream::connect(&socket)
             .await
             .map_err::<ErrorType, _>(|e| e.into())?;
         debug!("Connected to peer at {}", socket);
-        let can_tls = ssl_context.is_some();
+        let can_tls = tls_settings.is_some();
         let established_channel = oneshot::channel();
         let close_channel = oneshot::channel();
         let receive_channel = mpsc::channel(10);
         let send_channel = mpsc::channel(10);
+
+        let ssl_context = match tls_settings {
+            Some(s) => Some(TCPCLSession::make_ssl_context(s)),
+            None => None,
+        };
+
         Ok(TCPCLSession {
             is_server: false,
             stream: Some(Stream::from_tcp_stream(stream)),
