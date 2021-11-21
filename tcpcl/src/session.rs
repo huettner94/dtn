@@ -6,6 +6,7 @@ use std::{
 
 use log::{debug, info, warn};
 use openssl::{
+    error::ErrorStack,
     ssl::{Ssl, SslAcceptor, SslContext, SslMethod, SslVerifyMode},
     x509::{store::X509StoreBuilder, X509},
 };
@@ -134,22 +135,18 @@ pub struct TCPCLSession {
 }
 
 impl TCPCLSession {
-    fn make_ssl_context(tls_settings: TLSSettings) -> SslContext {
-        let mut x509_store_builder = X509StoreBuilder::new().unwrap();
+    fn make_ssl_context(tls_settings: TLSSettings) -> Result<SslContext, ErrorStack> {
+        let mut x509_store_builder = X509StoreBuilder::new()?;
         for ca_cert in tls_settings.trusted_certs {
-            x509_store_builder.add_cert(ca_cert).unwrap();
+            x509_store_builder.add_cert(ca_cert)?;
         }
-        let mut ssl_context_builder = SslAcceptor::mozilla_modern_v5(SslMethod::tls()).unwrap();
+        let mut ssl_context_builder = SslAcceptor::mozilla_modern_v5(SslMethod::tls())?;
         ssl_context_builder.set_cert_store(x509_store_builder.build());
-        ssl_context_builder
-            .set_private_key(&tls_settings.private_key)
-            .unwrap();
-        ssl_context_builder
-            .set_certificate(&tls_settings.certificate)
-            .unwrap();
-        ssl_context_builder.check_private_key().unwrap();
+        ssl_context_builder.set_private_key(&tls_settings.private_key)?;
+        ssl_context_builder.set_certificate(&tls_settings.certificate)?;
+        ssl_context_builder.check_private_key()?;
         ssl_context_builder.set_verify(SslVerifyMode::PEER | SslVerifyMode::FAIL_IF_NO_PEER_CERT);
-        ssl_context_builder.build().into_context()
+        Ok(ssl_context_builder.build().into_context())
     }
 
     pub fn new(
@@ -165,7 +162,7 @@ impl TCPCLSession {
         let send_channel = mpsc::channel(10);
 
         let ssl_context = match tls_settings {
-            Some(s) => Some(TCPCLSession::make_ssl_context(s)),
+            Some(s) => Some(TCPCLSession::make_ssl_context(s)?),
             None => None,
         };
 
@@ -205,7 +202,7 @@ impl TCPCLSession {
         let send_channel = mpsc::channel(10);
 
         let ssl_context = match tls_settings {
-            Some(s) => Some(TCPCLSession::make_ssl_context(s)),
+            Some(s) => Some(TCPCLSession::make_ssl_context(s)?),
             None => None,
         };
 
@@ -311,12 +308,12 @@ impl TCPCLSession {
             if !initialized_tls && self.statemachine.contact_header_done() {
                 if self.statemachine.should_use_tls() {
                     let stream = self.stream.take().unwrap().get_tcp_stream();
-                    let ssl = Ssl::new(self.ssl_context.as_ref().unwrap()).unwrap();
-                    let mut ssl_stream = SslStream::new(ssl, stream).unwrap();
+                    let ssl = Ssl::new(self.ssl_context.as_ref().unwrap())?;
+                    let mut ssl_stream = SslStream::new(ssl, stream)?;
                     if self.is_server {
-                        Pin::new(&mut ssl_stream).accept().await.unwrap();
+                        Pin::new(&mut ssl_stream).accept().await?;
                     } else {
-                        Pin::new(&mut ssl_stream).connect().await.unwrap();
+                        Pin::new(&mut ssl_stream).connect().await?;
                     }
                     self.stream = Some(Stream::from_tls_stream(ssl_stream));
                 }

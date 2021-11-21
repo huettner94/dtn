@@ -1,3 +1,5 @@
+use openssl::error::ErrorStack;
+
 #[derive(Debug)]
 pub enum Errors {
     MessageTooShort,
@@ -14,12 +16,25 @@ pub enum Errors {
 #[derive(Debug)]
 pub enum ErrorType {
     IOError(std::io::Error),
+    SSLError(openssl::ssl::Error),
     TCPCLError(Errors),
 }
 
 impl From<std::io::Error> for ErrorType {
     fn from(e: std::io::Error) -> Self {
         ErrorType::IOError(e)
+    }
+}
+
+impl From<ErrorStack> for ErrorType {
+    fn from(e: ErrorStack) -> Self {
+        ErrorType::SSLError(e.into())
+    }
+}
+
+impl From<openssl::ssl::Error> for ErrorType {
+    fn from(e: openssl::ssl::Error) -> Self {
+        ErrorType::SSLError(e)
     }
 }
 
