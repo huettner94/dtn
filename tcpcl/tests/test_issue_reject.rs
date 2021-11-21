@@ -33,7 +33,7 @@ async fn test_unkown_message_type() -> Result<(), ErrorType> {
     })
     .await?;
 
-    session.manage_connection().await;
+    session.manage_connection().await.unwrap();
     jh.await.unwrap();
 
     Ok(())

@@ -1,6 +1,9 @@
 use std::{net::SocketAddrV4, str::FromStr};
 
-use tcpcl::{errors::ErrorType, session::TCPCLSession};
+use tcpcl::{
+    errors::{ErrorType, Errors},
+    session::TCPCLSession,
+};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
@@ -33,7 +36,7 @@ async fn test_connection_setup_client() -> Result<(), ErrorType> {
     });
     let mut session = TCPCLSession::connect(addr, "dtn://client".into(), None).await?;
     let established = session.get_established_channel();
-    session.manage_connection().await;
+    session.manage_connection().await.unwrap();
     jh.await.unwrap();
 
     let conn_info = established.await.unwrap();
@@ -55,7 +58,10 @@ async fn test_connection_setup_server() -> Result<(), ErrorType> {
         assert_eq!(len, 6);
         assert_eq!(buf[0..6], CONTACT_HEADER_NO_TLS);
 
-        client.write(&SESS_INIT_CLIENT).await.unwrap();
+        client
+            .write(&SESS_INIT_CLIENT_KEEPALIVE_NONE)
+            .await
+            .unwrap();
 
         let mut buf: [u8; 100] = [0; 100];
         let len = client.read(&mut buf).await.unwrap();
@@ -66,7 +72,7 @@ async fn test_connection_setup_server() -> Result<(), ErrorType> {
     let (socket, _) = listener.accept().await?;
     let mut session = TCPCLSession::new(socket, "dtn://server".into(), None)?;
     let established = session.get_established_channel();
-    session.manage_connection().await;
+    session.manage_connection().await.unwrap();
     jh.await.unwrap();
 
     let conn_info = established.await.unwrap();
@@ -105,7 +111,7 @@ async fn test_session_termination_receive() -> Result<(), ErrorType> {
     })
     .await?;
 
-    session.manage_connection().await;
+    session.manage_connection().await.unwrap();
     jh.await.unwrap();
 
     Ok(())
@@ -149,7 +155,7 @@ async fn test_session_termination_send() -> Result<(), ErrorType> {
         close_channel.send(()).unwrap();
     });
 
-    session.manage_connection().await;
+    session.manage_connection().await.unwrap();
     jh.await.unwrap();
 
     Ok(())
@@ -187,7 +193,7 @@ async fn test_xfer_single_segment_receive() -> Result<(), ErrorType> {
 
     let mut receive_channel = session.get_receive_channel();
 
-    session.manage_connection().await;
+    session.manage_connection().await.unwrap();
     jh.await.unwrap();
 
     let received = receive_channel.recv().await.unwrap();
@@ -253,7 +259,7 @@ async fn test_xfer_single_multi_receive() -> Result<(), ErrorType> {
 
     let mut receive_channel = session.get_receive_channel();
 
-    session.manage_connection().await;
+    session.manage_connection().await.unwrap();
     jh.await.unwrap();
 
     let received = receive_channel.recv().await.unwrap();
@@ -301,7 +307,7 @@ async fn test_xfer_single_segment_send() -> Result<(), ErrorType> {
         send_channel.send([0x55, 0xAA].into()).await.unwrap();
     });
 
-    session.manage_connection().await;
+    session.manage_connection().await.unwrap();
     jh.await.unwrap();
 
     Ok(())
@@ -372,7 +378,7 @@ async fn test_xfer_multi_segment_send() -> Result<(), ErrorType> {
             .unwrap();
     });
 
-    session.manage_connection().await;
+    session.manage_connection().await.unwrap();
     jh.await.unwrap();
 
     Ok(())
@@ -413,7 +419,7 @@ async fn test_sends_keepalive() -> Result<(), ErrorType> {
     )
     .await?;
 
-    session.manage_connection().await;
+    session.manage_connection().await.unwrap();
     jh.await.unwrap();
 
     Ok(())
@@ -437,7 +443,12 @@ async fn test_closes_on_msg_reject() -> Result<(), ErrorType> {
     })
     .await?;
 
-    session.manage_connection().await;
+    let ret = session.manage_connection().await;
+    if let Err(ErrorType::TCPCLError(Errors::RemoteRejected)) = ret {
+        assert!(true);
+    } else {
+        assert!(false);
+    }
     jh.await.unwrap();
 
     Ok(())

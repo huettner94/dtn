@@ -4,7 +4,11 @@ use openssl::{
     ssl::{Ssl, SslAcceptor, SslContext, SslMethod, SslVerifyMode},
     x509::store::X509StoreBuilder,
 };
-use tcpcl::{errors::ErrorType, session::TCPCLSession, TLSSettings};
+use tcpcl::{
+    errors::{ErrorType, Errors},
+    session::TCPCLSession,
+    TLSSettings,
+};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
@@ -16,7 +20,7 @@ use crate::common::*;
 mod common;
 
 #[tokio::test]
-async fn test_tls_connection_setup_client() -> Result<(), ErrorType> {
+async fn test_tls_issue_connection_setup_client_wrong_name() -> Result<(), ErrorType> {
     let (server_key, server_cert) = tls::get_server_cert();
     let (client_key, client_cert) = tls::get_client_cert();
     let ca_server_cert = server_cert.clone();
@@ -52,7 +56,11 @@ async fn test_tls_connection_setup_client() -> Result<(), ErrorType> {
         assert_eq!(len, 37);
         assert_eq!(buf[0..37], SESS_INIT_CLIENT);
 
-        socket.write(&SESS_INIT_SERVER).await.unwrap();
+        socket.write(&SESS_INIT_SERVER_NAME_2).await.unwrap();
+
+        let mut buf: [u8; 100] = [0; 100];
+        let len = socket.read(&mut buf).await.unwrap();
+        assert_eq!(len, 0);
     });
 
     let mut session = TCPCLSession::connect(
@@ -65,18 +73,20 @@ async fn test_tls_connection_setup_client() -> Result<(), ErrorType> {
         )),
     )
     .await?;
-    let established = session.get_established_channel();
-    session.manage_connection().await.unwrap_err();
-    jh.await.unwrap();
+    let ret = session.manage_connection().await;
 
-    let conn_info = established.await.unwrap();
-    assert_eq!(conn_info.peer_endpoint.unwrap(), "dtn://server");
+    if let Err(ErrorType::TCPCLError(Errors::TLSNameMissmatch(node_id))) = ret {
+        assert_eq!(node_id, "dtn://server2".to_string());
+    } else {
+        assert!(false);
+    }
+    jh.await.unwrap();
 
     Ok(())
 }
 
 #[tokio::test]
-async fn test_tls_connection_setup_server() -> Result<(), ErrorType> {
+async fn test_tls_issue_connection_setup_server_wrong_name() -> Result<(), ErrorType> {
     let (server_key, server_cert) = tls::get_server_cert();
     let (client_key, client_cert) = tls::get_client_cert();
     let ca_cert = client_cert.clone();
@@ -101,15 +111,11 @@ async fn test_tls_connection_setup_server() -> Result<(), ErrorType> {
         let mut client = SslStream::new(ssl, client).unwrap();
         Pin::new(&mut client).connect().await.unwrap();
 
-        client
-            .write(&SESS_INIT_CLIENT_KEEPALIVE_NONE)
-            .await
-            .unwrap();
+        client.write(&SESS_INIT_CLIENT_NAME_2).await.unwrap();
 
         let mut buf: [u8; 100] = [0; 100];
         let len = client.read(&mut buf).await.unwrap();
-        assert_eq!(len, 37);
-        assert_eq!(buf[0..37], SESS_INIT_SERVER);
+        assert_eq!(len, 0);
     });
 
     let (socket, _) = listener.accept().await?;
@@ -118,12 +124,14 @@ async fn test_tls_connection_setup_server() -> Result<(), ErrorType> {
         "dtn://server".into(),
         Some(TLSSettings::new(server_key, server_cert, vec![ca_cert])),
     )?;
-    let established = session.get_established_channel();
-    session.manage_connection().await.unwrap_err();
-    jh.await.unwrap();
+    let ret = session.manage_connection().await;
 
-    let conn_info = established.await.unwrap();
-    assert_eq!(conn_info.peer_endpoint.unwrap(), "dtn://client");
+    if let Err(ErrorType::TCPCLError(Errors::TLSNameMissmatch(node_id))) = ret {
+        assert_eq!(node_id, "dtn://client2".to_string());
+    } else {
+        assert!(false);
+    }
+    jh.await.unwrap();
 
     Ok(())
 }

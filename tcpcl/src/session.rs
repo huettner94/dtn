@@ -258,7 +258,7 @@ impl TCPCLSession {
         self.connection_info.clone()
     }
 
-    pub async fn manage_connection(&mut self) {
+    pub async fn manage_connection(&mut self) -> Result<(), ErrorType> {
         self.last_received_keepalive = Instant::now();
 
         let mut close_channel = self
@@ -275,15 +275,18 @@ impl TCPCLSession {
         loop {
             tokio::select! {
                 out = self.drive_statemachine(&mut send_channel_receiver) => {
+                    if let Err(e) = self.stream.as_mut().unwrap().shutdown().await {
+                        warn!("error shuting down the socket: {:?}", e);
+                        return Err(e.into());
+                    }
                     if out.is_err() {
-                        warn!("Connection completed with error {:?}", out.unwrap_err());
+                        let e = out.unwrap_err();
+                        warn!("Connection completed with error {:?}", e);
+                        return Err(e);
                     } else {
                         info!("Connection has completed");
                     }
-                    if let Err(e) = self.stream.as_mut().unwrap().shutdown().await {
-                        warn!("error shuting down the socket: {:?}", e);
-                    }
-                    break;
+                    return Ok(());
                 }
                 _ = (&mut close_channel), if !self.statemachine.connection_closing() => {
                     self.statemachine.close_connection(Some(ReasonCode::ResourceExhaustion));

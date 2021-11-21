@@ -46,7 +46,7 @@ async fn test_closes_on_missed_keepalive() -> Result<(), ErrorType> {
     )
     .await?;
 
-    session.manage_connection().await;
+    session.manage_connection().await.unwrap();
     jh.await.unwrap();
 
     Ok(())
