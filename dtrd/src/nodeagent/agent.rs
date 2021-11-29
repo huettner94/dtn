@@ -28,7 +28,7 @@ pub struct Daemon {
 impl crate::common::agent::Daemon for Daemon {
     type MessageType = NodeAgentRequest;
 
-    fn new(_: &Settings) -> Self {
+    async fn new(_: &Settings) -> Self {
         Daemon {
             nodes: Vec::new(),
             channel_receiver: None,

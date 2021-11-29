@@ -25,7 +25,7 @@ pub struct Daemon {
 impl crate::common::agent::Daemon for Daemon {
     type MessageType = RoutingAgentRequest;
 
-    fn new(_: &Settings) -> Self {
+    async fn new(_: &Settings) -> Self {
         Daemon {
             routes: HashMap::new(),
             channel_receiver: None,

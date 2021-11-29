@@ -30,7 +30,7 @@ pub struct Daemon {
 impl crate::common::agent::Daemon for Daemon {
     type MessageType = TCPCLAgentRequest;
 
-    fn new(settings: &Settings) -> Self {
+    async fn new(settings: &Settings) -> Self {
         Daemon {
             settings: settings.clone(),
             channel_receiver: None,

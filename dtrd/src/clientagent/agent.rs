@@ -27,7 +27,7 @@ pub struct Daemon {
 impl crate::common::agent::Daemon for Daemon {
     type MessageType = ClientAgentRequest;
 
-    fn new(_: &Settings) -> Self {
+    async fn new(_: &Settings) -> Self {
         Daemon {
             clients: HashMap::new(),
             channel_receiver: None,

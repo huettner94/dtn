@@ -5,6 +5,9 @@ pub struct Settings {
     pub my_node_id: String,
     pub tcpcl_listen_address: String,
     pub grpc_clientapi_address: String,
+    pub tcpcl_certificate_path: Option<String>,
+    pub tcpcl_key_path: Option<String>,
+    pub tcpcl_trusted_certs_path: Option<String>,
 }
 
 impl Default for Settings {
@@ -13,6 +16,9 @@ impl Default for Settings {
             my_node_id: "dtn://defaultnodeid".into(),
             tcpcl_listen_address: "[::1]:4556".into(),
             grpc_clientapi_address: "[::1]:50051".into(),
+            tcpcl_certificate_path: None,
+            tcpcl_key_path: None,
+            tcpcl_trusted_certs_path: None,
         }
     }
 }
@@ -28,6 +34,15 @@ impl Settings {
         };
         if let Ok(setting) = env::var("GRPC_CLIENTAPI_ADDRESS") {
             settings.grpc_clientapi_address = setting;
+        };
+        if let Ok(setting) = env::var("TCPCL_CERTIFICATE_PATH") {
+            settings.tcpcl_certificate_path = Some(setting);
+        };
+        if let Ok(setting) = env::var("TCPCL_KEY_PATH") {
+            settings.tcpcl_key_path = Some(setting);
+        };
+        if let Ok(setting) = env::var("TCPCL_TRUSTED_CERTS_PATH") {
+            settings.tcpcl_trusted_certs_path = Some(setting);
         };
         settings
     }

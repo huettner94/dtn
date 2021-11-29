@@ -36,7 +36,7 @@ pub struct Daemon {
 impl crate::common::agent::Daemon for Daemon {
     type MessageType = BPARequest;
 
-    fn new(settings: &Settings) -> Self {
+    async fn new(settings: &Settings) -> Self {
         Daemon {
             endpoint: Endpoint::new(&settings.my_node_id).unwrap(),
             channel_receiver: None,

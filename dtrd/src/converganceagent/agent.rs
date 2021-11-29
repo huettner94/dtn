@@ -24,7 +24,7 @@ pub struct Daemon {
 impl crate::common::agent::Daemon for Daemon {
     type MessageType = ConverganceAgentRequest;
 
-    fn new(_: &Settings) -> Self {
+    async fn new(_: &Settings) -> Self {
         Daemon {
             connected_nodes: HashMap::new(),
             channel_receiver: None,

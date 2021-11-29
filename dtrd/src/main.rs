@@ -50,23 +50,23 @@ async fn runserver(ctrl_c: impl Future) -> Result<(), Box<dyn std::error::Error>
     let (notify_shutdown, _) = broadcast::channel::<()>(1);
     let (shutdown_complete_tx, mut shutdown_complete_rx) = mpsc::channel::<()>(1);
 
-    let mut bundle_storage_agent = bundlestorageagent::agent::Daemon::new(&settings);
+    let mut bundle_storage_agent = bundlestorageagent::agent::Daemon::new(&settings).await;
     let bsa_sender = bundle_storage_agent.init_channels();
 
-    let mut routing_agent = routingagent::agent::Daemon::new(&settings);
+    let mut routing_agent = routingagent::agent::Daemon::new(&settings).await;
     let routing_agent_sender = routing_agent.init_channels();
 
-    let mut bundle_protocol_agent = bundleprotocolagent::agent::Daemon::new(&settings);
+    let mut bundle_protocol_agent = bundleprotocolagent::agent::Daemon::new(&settings).await;
     let bpa_sender =
         bundle_protocol_agent.init_channels(bsa_sender.clone(), routing_agent_sender.clone());
 
-    let mut convergance_agent = converganceagent::agent::Daemon::new(&settings);
+    let mut convergance_agent = converganceagent::agent::Daemon::new(&settings).await;
     let convergance_agent_sender = convergance_agent.init_channels(bpa_sender.clone());
 
-    let mut tcpcl_agent = tcpclconverganceagent::agent::Daemon::new(&settings);
+    let mut tcpcl_agent = tcpclconverganceagent::agent::Daemon::new(&settings).await;
     let tcpcl_agent_sender = tcpcl_agent.init_channels(convergance_agent_sender.clone());
 
-    let mut node_agent = nodeagent::agent::Daemon::new(&settings);
+    let mut node_agent = nodeagent::agent::Daemon::new(&settings).await;
     let node_agent_sender = node_agent.init_channels(
         convergance_agent_sender.clone(),
         routing_agent_sender.clone(),
@@ -75,7 +75,7 @@ async fn runserver(ctrl_c: impl Future) -> Result<(), Box<dyn std::error::Error>
     convergance_agent.set_senders(node_agent_sender.clone(), tcpcl_agent_sender.clone());
     routing_agent.set_senders(bpa_sender.clone());
 
-    let mut client_agent = clientagent::agent::Daemon::new(&settings);
+    let mut client_agent = clientagent::agent::Daemon::new(&settings).await;
     let client_agent_sender = client_agent.init_channels(
         bpa_sender.clone(),
         node_agent_sender.clone(),

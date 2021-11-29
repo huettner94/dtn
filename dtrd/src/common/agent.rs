@@ -10,7 +10,7 @@ use super::settings::Settings;
 pub trait Daemon {
     type MessageType: Send;
 
-    fn new(settings: &Settings) -> Self;
+    async fn new(settings: &Settings) -> Self;
 
     fn get_agent_name(&self) -> &'static str;
 
