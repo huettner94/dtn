@@ -137,6 +137,9 @@ pub struct TCPCLSession {
     receive_channel: (mpsc::Sender<Transfer>, Option<mpsc::Receiver<Transfer>>),
     send_channel: (mpsc::Sender<Vec<u8>>, Option<mpsc::Receiver<Vec<u8>>>),
     last_received_keepalive: Instant,
+
+    initialized_keepalive: bool,
+    initialized_tls: bool,
 }
 
 impl TCPCLSession {
@@ -188,6 +191,8 @@ impl TCPCLSession {
             receive_channel: (receive_channel.0, Some(receive_channel.1)),
             send_channel: (send_channel.0, Some(send_channel.1)),
             last_received_keepalive: Instant::now(),
+            initialized_keepalive: false,
+            initialized_tls: false,
         })
     }
 
@@ -228,6 +233,8 @@ impl TCPCLSession {
             receive_channel: (receive_channel.0, Some(receive_channel.1)),
             send_channel: (send_channel.0, Some(send_channel.1)),
             last_received_keepalive: Instant::now(),
+            initialized_keepalive: false,
+            initialized_tls: false,
         })
     }
 
@@ -308,12 +315,10 @@ impl TCPCLSession {
         let mut keepalive_timer: Option<Interval> = Some(tokio::time::interval(
             Duration::from_secs(STARTUP_IDLE_INTERVAL.into()),
         ));
-        let mut initialized_keepalive = false;
-        let mut initialized_tls = false;
 
         loop {
             debug!("We are now at statemachine state {:?}", self.statemachine);
-            if !initialized_tls && self.statemachine.contact_header_done() {
+            if !self.initialized_tls && self.statemachine.contact_header_done() {
                 if self.statemachine.should_use_tls() {
                     let stream = self.stream.take().unwrap().get_tcp_stream();
                     let ssl = Ssl::new(self.ssl_context.as_ref().unwrap())?;
@@ -325,7 +330,7 @@ impl TCPCLSession {
                     }
                     self.stream = Some(Stream::from_tls_stream(ssl_stream));
                 }
-                initialized_tls = true;
+                self.initialized_tls = true;
             }
 
             if self.statemachine.is_established() && self.established_channel.0.is_some() {
@@ -342,7 +347,7 @@ impl TCPCLSession {
                 };
             }
 
-            if self.statemachine.is_established() && !initialized_keepalive {
+            if !self.initialized_keepalive && self.statemachine.is_established() {
                 match self.statemachine.get_keepalive_interval() {
                     Some(interval) => {
                         keepalive_timer =
@@ -356,7 +361,7 @@ impl TCPCLSession {
                         keepalive_timer = None;
                     }
                 }
-                initialized_keepalive = true;
+                self.initialized_keepalive = true;
             }
 
             if self.statemachine.should_close() {
@@ -435,7 +440,7 @@ impl TCPCLSession {
                             self.statemachine.close_connection(Some(ReasonCode::IdleTimeout));
                         }
                     }
-                    if initialized_keepalive {
+                    if self.initialized_keepalive {
                         self.statemachine.send_keepalive();
                     }
                 }
