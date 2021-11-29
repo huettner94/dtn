@@ -22,7 +22,7 @@ fn get_cert_with_san(sanname: &str) -> (PKey<Private>, X509) {
     builder.set_issuer_name(&name).unwrap();
 
     let subject_alternative_name = SubjectAlternativeName::new()
-        .uri(sanname)
+        .other_name(&format!("1.3.6.1.5.5.7.8.11;IA5STRING:{}", sanname))
         .build(&builder.x509v3_context(None, None))
         .unwrap();
     builder.append_extension(subject_alternative_name).unwrap();

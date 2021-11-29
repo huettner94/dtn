@@ -17,6 +17,11 @@ use tokio::{
     time::Interval,
 };
 use tokio_openssl::SslStream;
+use x509_parser::{
+    extensions::{GeneralName, ParsedExtension},
+    prelude::X509Certificate,
+    traits::FromDer,
+};
 
 use crate::{
     connection_info::ConnectionInfo,
@@ -449,7 +454,7 @@ impl TCPCLSession {
                 if self.statemachine.should_use_tls() {
                     let peer_node_id = s.node_id;
                     let x509 = self.stream.as_mut().unwrap().get_peer_certificate();
-                    if !validate_peer_certificate(peer_node_id.clone(), x509) {
+                    if validate_peer_certificate(peer_node_id.clone(), x509).is_err() {
                         return Err(Errors::TLSNameMissmatch(peer_node_id).into());
                     }
                 }
@@ -570,27 +575,35 @@ impl TCPCLSession {
     }
 }
 
-fn validate_peer_certificate(peer_node_id: String, x509: Option<X509>) -> bool {
+fn validate_peer_certificate(peer_node_id: String, x509: Option<X509>) -> Result<(), ()> {
     match x509 {
         Some(cert) => {
-            match cert.subject_alt_names() {
-                Some(sans) => {
-                    for san in sans {
-                        if let Some(uri) = san.uri() {
-                            if uri == peer_node_id {
-                                return true;
+            let cert_bytes = cert.to_der().map_err(|_| ())?;
+            let (_, c) = X509Certificate::from_der(&cert_bytes).map_err(|_| ())?;
+            for extension in c.extensions() {
+                match extension.parsed_extension() {
+                    ParsedExtension::SubjectAlternativeName(sans) => {
+                        for san in &sans.general_names {
+                            match san {
+                                GeneralName::OtherName(oid, value) => {
+                                    if oid.to_id_string() == "1.3.6.1.5.5.7.8.11"
+                                        && &value[4..] == peer_node_id.as_bytes()
+                                    // we strip of the first 4 bytes as they are the ASN.1 header for a list of one string
+                                    {
+                                        return Ok(());
+                                    }
+                                }
+                                _ => {}
                             }
                         }
                     }
+                    _ => {}
                 }
-                None => {
-                    warn!("peer certificate does not contain SAN.");
-                }
-            };
+            }
         }
         None => {
             warn!("We did get a peer certificate for the tls session.");
         }
     }
-    return false;
+    return Err(());
 }
