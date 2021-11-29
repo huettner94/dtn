@@ -9,6 +9,7 @@ pub mod session;
 pub mod transfer;
 mod v4;
 
+#[derive(Clone)]
 pub struct TLSSettings {
     private_key: PKey<Private>,
     certificate: X509,

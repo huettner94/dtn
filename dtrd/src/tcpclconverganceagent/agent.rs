@@ -4,8 +4,11 @@ use async_trait::async_trait;
 
 use bp7::endpoint::Endpoint;
 use log::{error, info, warn};
-use tcpcl::session::TCPCLSession;
+use openssl::{pkey::PKey, x509::X509};
+use tcpcl::{session::TCPCLSession, TLSSettings};
 use tokio::{
+    fs::File,
+    io::AsyncReadExt,
     net::{TcpListener, TcpStream},
     sync::{mpsc, oneshot},
     task::JoinHandle,
@@ -20,6 +23,7 @@ use super::messages::TCPCLAgentRequest;
 
 pub struct Daemon {
     settings: Settings,
+    tls_settings: Option<TLSSettings>,
     channel_receiver: Option<mpsc::Receiver<TCPCLAgentRequest>>,
     convergance_agent_sender: Option<mpsc::Sender<ConverganceAgentRequest>>,
     tcpcl_sessions: Vec<JoinHandle<()>>,
@@ -31,8 +35,20 @@ impl crate::common::agent::Daemon for Daemon {
     type MessageType = TCPCLAgentRequest;
 
     async fn new(settings: &Settings) -> Self {
+        let tls_settings = match Daemon::load_tls_settings(settings).await {
+            Ok(tls) => tls,
+            Err(e) => {
+                error!(
+                    "Error loading tls settings: {:?}. Continuing without tls support",
+                    e
+                );
+                None
+            }
+        };
+
         Daemon {
             settings: settings.clone(),
+            tls_settings,
             channel_receiver: None,
             convergance_agent_sender: None,
             tcpcl_sessions: Vec::new(),
@@ -119,6 +135,34 @@ impl crate::common::agent::Daemon for Daemon {
 }
 
 impl Daemon {
+    async fn load_tls_settings(settings: &Settings) -> Result<Option<TLSSettings>, std::io::Error> {
+        if settings.tcpcl_certificate_path.is_some()
+            && settings.tcpcl_key_path.is_some()
+            && settings.tcpcl_trusted_certs_path.is_some()
+        {
+            let mut certificate_file =
+                File::open(settings.tcpcl_certificate_path.as_ref().unwrap()).await?;
+            let mut certificate_data = Vec::new();
+            certificate_file.read_to_end(&mut certificate_data).await?;
+            let certificate = X509::from_der(&certificate_data)?;
+
+            let mut key_file = File::open(settings.tcpcl_key_path.as_ref().unwrap()).await?;
+            let mut key_data = Vec::new();
+            key_file.read_to_end(&mut key_data).await?;
+            let key = PKey::private_key_from_der(&key_data)?;
+
+            let mut trusted_file =
+                File::open(settings.tcpcl_trusted_certs_path.as_ref().unwrap()).await?;
+            let mut trusted_data = Vec::new();
+            trusted_file.read_to_end(&mut trusted_data).await?;
+            let trusted = X509::from_der(&trusted_data)?;
+            info!("Starting TCPCL agent with TLS Support");
+            return Ok(Some(TLSSettings::new(key, certificate, vec![trusted])));
+        }
+        info!("Starting TCPCL agent without TLS Support");
+        Ok(None)
+    }
+
     pub fn init_channels(
         &mut self,
         convergance_agent_sender: mpsc::Sender<ConverganceAgentRequest>,
@@ -130,7 +174,13 @@ impl Daemon {
     }
 
     async fn connect_remote(&mut self, socket: SocketAddr) {
-        match TCPCLSession::connect(socket, self.settings.my_node_id.clone(), None).await {
+        match TCPCLSession::connect(
+            socket,
+            self.settings.my_node_id.clone(),
+            self.tls_settings.clone(),
+        )
+        .await
+        {
             Ok(sess) => self.process_socket(sess).await,
             Err(e) => {
                 error!("Error connecting to requested remote {}: {:?}", socket, e);
@@ -168,7 +218,11 @@ impl Daemon {
         match accept {
             Ok((stream, peer_addr)) => {
                 info!("New connection from {}", peer_addr);
-                match TCPCLSession::new(stream, self.settings.my_node_id.clone(), None) {
+                match TCPCLSession::new(
+                    stream,
+                    self.settings.my_node_id.clone(),
+                    self.tls_settings.clone(),
+                ) {
                     Ok(sess) => {
                         self.process_socket(sess).await;
                     }
