@@ -287,11 +287,11 @@ impl TCPCLSession {
         loop {
             tokio::select! {
                 out = self.drive_statemachine(&mut send_channel_receiver) => {
-                    if let Err(e) = self.stream.as_mut().unwrap().shutdown().await {
-                        warn!("error shuting down the socket: {:?}", e);
-                        return Err(e.into());
-                    }
                     if out.is_err() {
+                        if let Err(e) = self.stream.as_mut().unwrap().shutdown().await {
+                            warn!("error shuting down the socket: {:?} during handling of error {:?}", e, out.unwrap_err());
+                            return Err(e.into());
+                        }
                         let e = out.unwrap_err();
                         warn!("Connection completed with error {:?}", e);
                         return Err(e);
