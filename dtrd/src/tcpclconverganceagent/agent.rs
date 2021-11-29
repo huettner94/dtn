@@ -261,7 +261,9 @@ impl Daemon {
         let finished_convergane_agent_sender =
             self.convergance_agent_sender.as_ref().unwrap().clone();
         let jh = tokio::spawn(async move {
-            sess.manage_connection().await;
+            if let Err(e) = sess.manage_connection().await {
+                warn!("Connection closed with error: {:?}", e);
+            }
             let ci = sess.get_connection_info();
             let node = match ci.peer_endpoint {
                 Some(endpoint) => Endpoint::new(&endpoint),
