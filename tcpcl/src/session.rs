@@ -607,7 +607,7 @@ fn validate_peer_certificate(peer_node_id: String, x509: Option<X509>) -> Result
             }
         }
         None => {
-            warn!("We did get a peer certificate for the tls session.");
+            warn!("We did not get a peer certificate for the tls session.");
         }
     }
     return Err(());
