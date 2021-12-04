@@ -66,7 +66,7 @@ async fn test_tls_connection_setup_client() -> Result<(), ErrorType> {
     )
     .await?;
     let established = session.get_established_channel();
-    session.manage_connection().await.unwrap_err();
+    session.manage_connection().await.unwrap();
     jh.await.unwrap();
 
     let conn_info = established.await.unwrap();
@@ -119,7 +119,7 @@ async fn test_tls_connection_setup_server() -> Result<(), ErrorType> {
         Some(TLSSettings::new(server_key, server_cert, vec![ca_cert])),
     )?;
     let established = session.get_established_channel();
-    session.manage_connection().await.unwrap_err();
+    session.manage_connection().await.unwrap();
     jh.await.unwrap();
 
     let conn_info = established.await.unwrap();

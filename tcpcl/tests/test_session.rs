@@ -7,6 +7,7 @@ use tcpcl::{
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
+    sync::oneshot,
 };
 
 use crate::common::*;
@@ -302,13 +303,19 @@ async fn test_xfer_single_segment_send() -> Result<(), ErrorType> {
     let established_channel = session.get_established_channel();
     let send_channel = session.get_send_channel();
 
+    let (transfer_result_sender, transfer_result_receiver) = oneshot::channel();
     tokio::spawn(async move {
         established_channel.await.unwrap();
-        send_channel.send([0x55, 0xAA].into()).await.unwrap();
+        send_channel
+            .send(([0x55, 0xAA].into(), transfer_result_sender))
+            .await
+            .unwrap();
     });
 
     session.manage_connection().await.unwrap();
     jh.await.unwrap();
+
+    transfer_result_receiver.await.unwrap().unwrap();
 
     Ok(())
 }
@@ -370,16 +377,19 @@ async fn test_xfer_multi_segment_send() -> Result<(), ErrorType> {
     let established_channel = session.get_established_channel();
     let send_channel = session.get_send_channel();
 
+    let (transfer_result_sender, transfer_result_receiver) = oneshot::channel();
     tokio::spawn(async move {
         established_channel.await.unwrap();
         send_channel
-            .send([0x55, 0xAA, 0xAA, 0x55].into())
+            .send(([0x55, 0xAA, 0xAA, 0x55].into(), transfer_result_sender))
             .await
             .unwrap();
     });
 
     session.manage_connection().await.unwrap();
     jh.await.unwrap();
+
+    transfer_result_receiver.await.unwrap().unwrap();
 
     Ok(())
 }

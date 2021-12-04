@@ -43,3 +43,8 @@ impl From<Errors> for ErrorType {
         ErrorType::TCPCLError(e)
     }
 }
+
+#[derive(Debug)]
+pub enum TransferSendErrors {
+    BundleTooLarge { max_size: u64 },
+}

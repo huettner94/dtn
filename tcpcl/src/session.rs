@@ -4,7 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use log::{debug, info, warn};
+use log::{debug, error, info, warn};
 use openssl::{
     error::ErrorStack,
     ssl::{Ssl, SslAcceptor, SslContext, SslMethod, SslVerifyMode},
@@ -25,7 +25,7 @@ use x509_parser::{
 
 use crate::{
     connection_info::ConnectionInfo,
-    errors::{ErrorType, Errors},
+    errors::{ErrorType, Errors, TransferSendErrors},
     transfer::Transfer,
     v4::{
         messages::{sess_term::ReasonCode, xfer_segment, Messages},
@@ -118,6 +118,8 @@ impl Stream {
     }
 }
 
+type TransferRequest = (Vec<u8>, oneshot::Sender<Result<(), TransferSendErrors>>);
+
 const STARTUP_IDLE_INTERVAL: u16 = 60;
 
 pub struct TCPCLSession {
@@ -135,11 +137,16 @@ pub struct TCPCLSession {
     ),
     close_channel: (Option<oneshot::Sender<()>>, Option<oneshot::Receiver<()>>),
     receive_channel: (mpsc::Sender<Transfer>, Option<mpsc::Receiver<Transfer>>),
-    send_channel: (mpsc::Sender<Vec<u8>>, Option<mpsc::Receiver<Vec<u8>>>),
+    send_channel: (
+        mpsc::Sender<TransferRequest>,
+        Option<mpsc::Receiver<TransferRequest>>,
+    ),
     last_received_keepalive: Instant,
 
     initialized_keepalive: bool,
     initialized_tls: bool,
+
+    transfer_result_sender: Option<oneshot::Sender<Result<(), TransferSendErrors>>>,
 }
 
 impl TCPCLSession {
@@ -193,6 +200,7 @@ impl TCPCLSession {
             last_received_keepalive: Instant::now(),
             initialized_keepalive: false,
             initialized_tls: false,
+            transfer_result_sender: None,
         })
     }
 
@@ -235,6 +243,7 @@ impl TCPCLSession {
             last_received_keepalive: Instant::now(),
             initialized_keepalive: false,
             initialized_tls: false,
+            transfer_result_sender: None,
         })
     }
 
@@ -262,7 +271,7 @@ impl TCPCLSession {
             .expect("May not get a receive channel > 1 time");
     }
 
-    pub fn get_send_channel(&mut self) -> mpsc::Sender<Vec<u8>> {
+    pub fn get_send_channel(&mut self) -> mpsc::Sender<TransferRequest> {
         return self.send_channel.0.clone();
     }
 
@@ -309,7 +318,7 @@ impl TCPCLSession {
 
     async fn drive_statemachine(
         &mut self,
-        scr: &mut mpsc::Receiver<Vec<u8>>,
+        scr: &mut mpsc::Receiver<TransferRequest>,
     ) -> Result<(), ErrorType> {
         let mut send_channel_receiver = Some(scr);
         let mut keepalive_timer: Option<Interval> = Some(tokio::time::interval(
@@ -362,6 +371,12 @@ impl TCPCLSession {
                     }
                 }
                 self.initialized_keepalive = true;
+            }
+
+            if self.statemachine.could_send_transfer() && self.transfer_result_sender.is_some() {
+                if let Err(e) = self.transfer_result_sender.take().unwrap().send(Ok(())) {
+                    error!("Error sending error to bundle sender {:?}", e);
+                }
             }
 
             if self.statemachine.should_close() {
@@ -427,8 +442,14 @@ impl TCPCLSession {
                 }
                 transfer = async { send_channel_receiver.as_mut().unwrap().recv().await }, if send_channel_receiver.is_some() && self.statemachine.could_send_transfer() => {
                     match transfer {
-                        Some(t) => {
-                            self.statemachine.send_transfer(t);
+                        Some((bundle_data, result_sender)) => {
+                            if let Err(transfer_err) = self.statemachine.send_transfer(bundle_data) {
+                                if let Err(e) = result_sender.send(Err(transfer_err)) {
+                                    error!("Error sending error to bundle sender {:?}", e);
+                                }
+                            } else {
+                                self.transfer_result_sender = Some(result_sender);
+                            }
                         },
                         None => {send_channel_receiver = None;}
                     }

@@ -3,7 +3,10 @@ use std::{cmp::min, convert::TryInto, mem};
 use log::{info, warn};
 use tokio::io::Interest;
 
-use crate::{errors::Errors, transfer::Transfer};
+use crate::{
+    errors::{Errors, TransferSendErrors},
+    transfer::Transfer,
+};
 
 use super::{
     messages::{
@@ -368,7 +371,12 @@ impl StateMachine {
         }
     }
 
-    pub fn send_transfer(&mut self, data: Vec<u8>) {
+    pub fn send_transfer(&mut self, data: Vec<u8>) -> Result<(), TransferSendErrors> {
+        if self.peer_sess_init.as_ref().unwrap().transfer_mru < data.len() as u64 {
+            return Err(TransferSendErrors::BundleTooLarge {
+                max_size: self.peer_sess_init.as_ref().unwrap().transfer_mru,
+            });
+        }
         let tracker = TransferTracker {
             transfer: Transfer {
                 id: self.last_used_transfer_id,
@@ -386,6 +394,7 @@ impl StateMachine {
                 panic!("Attempted to send a transfer on a non-established connection");
             }
         }
+        Ok(())
     }
 
     pub fn send_ack(&mut self, ack: XferAck) {

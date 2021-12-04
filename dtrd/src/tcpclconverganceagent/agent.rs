@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use bp7::endpoint::Endpoint;
 use log::{error, info, warn};
 use openssl::{pkey::PKey, x509::X509};
-use tcpcl::{session::TCPCLSession, TLSSettings};
+use tcpcl::{errors::TransferSendErrors, session::TCPCLSession, TLSSettings};
 use tokio::{
     fs::File,
     io::AsyncReadExt,
@@ -342,7 +342,7 @@ impl Daemon {
 }
 
 fn get_bundle_sender(
-    send_channel: mpsc::Sender<Vec<u8>>,
+    send_channel: mpsc::Sender<(Vec<u8>, oneshot::Sender<Result<(), TransferSendErrors>>)>,
 ) -> mpsc::Sender<crate::converganceagent::messages::AgentForwardBundle> {
     let (bundle_sender, mut bundle_receiver) = mpsc::channel::<AgentForwardBundle>(1);
 
@@ -351,12 +351,28 @@ fn get_bundle_sender(
             match bundle_receiver.recv().await {
                 Some(afb) => {
                     match afb.bundle.try_into() {
-                        Ok(bundle_data) => match send_channel.send(bundle_data).await {
-                            Ok(_) => {}
-                            Err(e) => {
-                                error!("Error sending bundle to tcpcl connection. Bundle will be dropped here: {}", e);
+                        Ok(bundle_data) => {
+                            let (status_sender, status_receiver) = oneshot::channel();
+                            match send_channel.send((bundle_data, status_sender)).await {
+                                Ok(_) => {}
+                                Err(e) => {
+                                    error!("Error sending bundle to tcpcl connection. Bundle will be dropped here: {}", e);
+                                }
                             }
-                        },
+                            match status_receiver.await {
+                                Ok(status) => match status {
+                                    Ok(_) => {
+                                        info!("Bundle successfully sent");
+                                    }
+                                    Err(e) => {
+                                        error!("Error sending bundle because of {:?}. Bundle will be dropped here", e);
+                                    }
+                                },
+                                Err(e) => {
+                                    error!("We could not receive a bundle status: {:?}", e);
+                                }
+                            }
+                        }
                         Err(e) => {
                             error!(
                                 "Error converting bundle to bytes. Bundle will be dropped here: {:?}",
