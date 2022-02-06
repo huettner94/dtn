@@ -14,6 +14,7 @@ pub struct RouteStatus {
     pub route_type: RouteType,
     pub preferred: bool,
     pub available: bool,
+    pub max_bundle_size: Option<u64>,
 }
 
 #[derive(Debug)]
@@ -22,6 +23,7 @@ pub enum RoutingAgentRequest {
         target: Endpoint,
         route_type: RouteType,
         next_hop: Endpoint,
+        max_bundle_size: Option<u64>,
     },
     RemoveRoute {
         target: Endpoint,

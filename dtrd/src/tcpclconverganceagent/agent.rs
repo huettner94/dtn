@@ -258,6 +258,9 @@ impl Daemon {
                             .send(ConverganceAgentRequest::CLRegisterNode {
                                 url: format!("tcpcl://{}", ci.peer_address),
                                 node,
+                                max_bundle_size: ci
+                                    .max_bundle_size
+                                    .expect("We must have a bundle size if we are connected"),
                                 sender: bundle_sender,
                             })
                             .await

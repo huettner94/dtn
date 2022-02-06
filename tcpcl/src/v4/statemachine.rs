@@ -434,6 +434,13 @@ impl StateMachine {
         self.peer_sess_init.as_ref().unwrap().node_id.clone()
     }
 
+    pub fn get_peer_mru(&self) -> u64 {
+        if !self.is_established() {
+            panic!("Attempted to get the peer mru on a non-established connection");
+        }
+        self.peer_sess_init.as_ref().unwrap().transfer_mru
+    }
+
     pub fn get_keepalive_interval(&self) -> Option<u16> {
         if !self.is_established() {
             panic!("Attempted to get the keepalive interval on a non-established connection");

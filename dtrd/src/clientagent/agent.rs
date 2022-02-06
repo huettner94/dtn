@@ -249,6 +249,7 @@ impl Daemon {
                 target,
                 next_hop,
                 route_type: RouteType::Static,
+                max_bundle_size: None,
             })
             .await
         {

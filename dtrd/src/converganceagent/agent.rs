@@ -64,8 +64,14 @@ impl crate::common::agent::Daemon for Daemon {
             ConverganceAgentRequest::AgentDisconnectNode { connection_string } => {
                 self.message_agent_disconnect_node(connection_string).await;
             }
-            ConverganceAgentRequest::CLRegisterNode { url, node, sender } => {
-                self.message_cl_register_node(url, node, sender).await;
+            ConverganceAgentRequest::CLRegisterNode {
+                url,
+                node,
+                max_bundle_size,
+                sender,
+            } => {
+                self.message_cl_register_node(url, node, max_bundle_size, sender)
+                    .await;
             }
             ConverganceAgentRequest::CLUnregisterNode { url, node } => {
                 self.message_cl_unregister_node(url, node).await;
@@ -188,6 +194,7 @@ impl Daemon {
         &mut self,
         url: String,
         node: Endpoint,
+        max_bundle_size: u64,
         sender: mpsc::Sender<AgentForwardBundle>,
     ) {
         info!("Received a registration request for node {}", node);
@@ -199,6 +206,7 @@ impl Daemon {
             .send(NodeAgentRequest::NotifyNodeConnected {
                 url,
                 endpoint: node.clone(),
+                max_bundle_size,
             })
             .await
         {

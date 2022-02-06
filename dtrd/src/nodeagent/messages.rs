@@ -50,6 +50,7 @@ pub enum NodeAgentRequest {
     NotifyNodeConnected {
         url: String,
         endpoint: Endpoint,
+        max_bundle_size: u64,
     },
     NotifyNodeDisconnected {
         url: String,

@@ -192,6 +192,7 @@ impl TCPCLSession {
             connection_info: ConnectionInfo {
                 peer_endpoint: None,
                 peer_address: peer_addr,
+                max_bundle_size: None,
             },
             established_channel: (Some(established_channel.0), Some(established_channel.1)),
             close_channel: (Some(close_channel.0), Some(close_channel.1)),
@@ -235,6 +236,7 @@ impl TCPCLSession {
             connection_info: ConnectionInfo {
                 peer_endpoint: None,
                 peer_address: socket,
+                max_bundle_size: None,
             },
             established_channel: (Some(established_channel.0), Some(established_channel.1)),
             close_channel: (Some(close_channel.0), Some(close_channel.1)),
@@ -344,6 +346,7 @@ impl TCPCLSession {
 
             if self.statemachine.is_established() && self.established_channel.0.is_some() {
                 self.connection_info.peer_endpoint = Some(self.statemachine.get_peer_node_id());
+                self.connection_info.max_bundle_size = Some(self.statemachine.get_peer_mru());
 
                 if let Err(e) = self
                     .established_channel

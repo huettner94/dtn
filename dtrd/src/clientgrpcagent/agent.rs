@@ -213,6 +213,7 @@ impl BundleService for MyBundleService {
                             r#type: route_type,
                             preferred: route.preferred,
                             available: route.available,
+                            max_bundle_size: route.max_bundle_size.unwrap_or(0),
                         }
                     })
                     .collect();

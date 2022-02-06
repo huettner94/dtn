@@ -52,6 +52,8 @@ message RouteStatus {
 
   bool preferred = 3;
   bool available = 4;
+
+  uint64 max_bundle_size = 5;
 }
 
 message ListRoutesRequest {}

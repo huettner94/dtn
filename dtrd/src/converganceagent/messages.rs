@@ -21,6 +21,7 @@ pub enum ConverganceAgentRequest {
     CLRegisterNode {
         url: String,
         node: Endpoint,
+        max_bundle_size: u64,
         sender: mpsc::Sender<AgentForwardBundle>,
     },
     CLUnregisterNode {

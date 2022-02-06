@@ -79,8 +79,13 @@ impl crate::common::agent::Daemon for Daemon {
             NodeAgentRequest::ListNodes { responder } => self.message_list_nodes(responder).await,
             NodeAgentRequest::AddNode { url } => self.message_add_node(url).await,
             NodeAgentRequest::RemoveNode { url } => self.message_remove_node(url).await,
-            NodeAgentRequest::NotifyNodeConnected { url, endpoint } => {
-                self.message_notify_node_connected(url, endpoint).await
+            NodeAgentRequest::NotifyNodeConnected {
+                url,
+                endpoint,
+                max_bundle_size,
+            } => {
+                self.message_notify_node_connected(url, endpoint, max_bundle_size)
+                    .await
             }
             NodeAgentRequest::NotifyNodeDisconnected { url } => {
                 self.message_notify_node_disconnected(url).await
@@ -162,7 +167,12 @@ impl Daemon {
         }
     }
 
-    async fn message_notify_node_connected(&mut self, url: String, endpoint: Endpoint) {
+    async fn message_notify_node_connected(
+        &mut self,
+        url: String,
+        endpoint: Endpoint,
+        max_bundle_size: u64,
+    ) {
         match self.nodes.iter().position(|n| n.url == url) {
             Some(pos) => {
                 let node = &mut self.nodes[pos];
@@ -186,6 +196,7 @@ impl Daemon {
                 target: endpoint.clone(),
                 route_type: RouteType::Connected,
                 next_hop: endpoint,
+                max_bundle_size: Some(max_bundle_size),
             })
             .await
         {

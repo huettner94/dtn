@@ -9,11 +9,19 @@ use crate::{bundleprotocolagent::messages::BPARequest, common::settings::Setting
 
 use super::messages::{RouteStatus, RouteType, RoutingAgentRequest};
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, Hash)]
 struct RouteEntry {
     route_type: RouteType,
     next_hop: Endpoint,
+    max_bundle_size: Option<u64>,
 }
+
+impl PartialEq for RouteEntry {
+    fn eq(&self, other: &Self) -> bool {
+        self.route_type == other.route_type && self.next_hop == other.next_hop
+    }
+}
+impl Eq for RouteEntry {}
 
 pub struct Daemon {
     routes: HashMap<Endpoint, HashSet<RouteEntry>>,
@@ -53,7 +61,11 @@ impl crate::common::agent::Daemon for Daemon {
                 target,
                 route_type,
                 next_hop,
-            } => self.message_add_route(target, route_type, next_hop).await,
+                max_bundle_size,
+            } => {
+                self.message_add_route(target, route_type, next_hop, max_bundle_size)
+                    .await
+            }
             RoutingAgentRequest::RemoveRoute {
                 target,
                 route_type,
@@ -88,6 +100,7 @@ impl Daemon {
         target: Endpoint,
         route_type: RouteType,
         next_hop: Endpoint,
+        max_bundle_size: Option<u64>,
     ) {
         let prev_routes = self.get_available_routes();
         if self
@@ -97,6 +110,7 @@ impl Daemon {
             .insert(RouteEntry {
                 route_type,
                 next_hop,
+                max_bundle_size,
             })
         {
             let available_routes = self.get_available_routes();
@@ -132,6 +146,7 @@ impl Daemon {
             .remove(&RouteEntry {
                 route_type,
                 next_hop,
+                max_bundle_size: None, // irrelevant as this is not part of Eq
             });
     }
 
@@ -189,6 +204,7 @@ impl Daemon {
                             available,
                             preferred: false,
                             route_type: r.route_type,
+                            max_bundle_size: r.max_bundle_size,
                         }
                     })
                     .collect();
