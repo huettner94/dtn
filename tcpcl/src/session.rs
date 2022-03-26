@@ -307,7 +307,7 @@ impl TCPCLSession {
                         warn!("Connection completed with error {:?}", e);
                         return Err(e);
                     } else {
-                        info!("Connection has completed");
+                        debug!("Connection has completed");
                     }
                     return Ok(());
                 }
@@ -383,7 +383,7 @@ impl TCPCLSession {
             }
 
             if self.statemachine.should_close() {
-                info!("We are done. Closing connection");
+                debug!("We are done. Closing connection");
                 self.stream.as_mut().unwrap().shutdown().await?;
                 return Ok(());
             }
@@ -411,7 +411,7 @@ impl TCPCLSession {
                 read_out = async { self.reader.read(&mut read_stream).await }, if stream_interest.is_readable() => {
                     match read_out {
                         Ok(0) => {
-                            info!("Connection closed by peer");
+                            debug!("Connection closed by peer");
                             return Ok(());
                         }
                         Ok(_) => {
@@ -428,7 +428,7 @@ impl TCPCLSession {
                 write_out = async { write_stream.write(&self.writer).await }, if stream_interest.is_writable() => {
                     match write_out {
                         Ok(0) => {
-                            info!("Connection closed");
+                            debug!("Connection closed");
                             return Ok(());
                         }
                         Ok(n) => {
@@ -476,10 +476,10 @@ impl TCPCLSession {
         let msg = self.statemachine.decode_message(&mut self.reader);
         match msg {
             Ok(Messages::ContactHeader(h)) => {
-                info!("Got contact header: {:?}", h);
+                debug!("Got contact header: {:?}", h);
             }
             Ok(Messages::SessInit(s)) => {
-                info!("Got sessinit: {:?}", s);
+                debug!("Got sessinit: {:?}", s);
                 if self.statemachine.should_use_tls() {
                     let peer_node_id = s.node_id;
                     let x509 = self.stream.as_mut().unwrap().get_peer_certificate();
@@ -489,14 +489,14 @@ impl TCPCLSession {
                 }
             }
             Ok(Messages::SessTerm(s)) => {
-                info!("Got sessterm: {:?}", s);
+                debug!("Got sessterm: {:?}", s);
             }
             Ok(Messages::Keepalive(_)) => {
                 debug!("Got keepalive");
                 self.last_received_keepalive = Instant::now();
             }
             Ok(Messages::XferSegment(x)) => {
-                info!("Got xfer segment {:?}", x);
+                debug!("Got xfer segment {:?}", x);
                 if self.receiving_transfer.is_some()
                     && x.flags.contains(xfer_segment::MessageFlags::START)
                 {
@@ -536,7 +536,7 @@ impl TCPCLSession {
                 };
 
                 if x.flags.contains(xfer_segment::MessageFlags::END) {
-                    info!("Fully received transfer {}, passing it up", x.transfer_id);
+                    debug!("Fully received transfer {}, passing it up", x.transfer_id);
                     if let Err(e) = self
                         .receive_channel
                         .0
@@ -556,7 +556,7 @@ impl TCPCLSession {
                 );
             }
             Ok(Messages::XferRefuse(x)) => {
-                info!("Got xfer refuse, no idea what to do now: {:?}", x);
+                warn!("Got xfer refuse, no idea what to do now: {:?}", x);
             }
             Ok(Messages::MsgReject(m)) => {
                 info!("Got msg reject: {:?}. Will close the connection now", m);
