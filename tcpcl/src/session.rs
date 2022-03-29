@@ -599,6 +599,10 @@ impl TCPCLSession {
             Err(Errors::TLSNameMissmatch(_)) => {
                 warn!("In the tls name missmatch state");
             }
+            e @ Err(Errors::SegmentTooLong) => {
+                warn!("We received a segment longer than our Segment MRU");
+                return Err(e.unwrap_err().into());
+            }
         }
         Ok(())
     }

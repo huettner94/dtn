@@ -11,6 +11,7 @@ pub enum Errors {
     MessageTypeInappropriate,
     RemoteRejected,
     TLSNameMissmatch(String),
+    SegmentTooLong,
 }
 
 #[derive(Debug)]

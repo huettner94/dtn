@@ -114,6 +114,9 @@ impl Transform for XferSegment {
         }
 
         let data_length = reader.read_u64();
+        if data_length > super::sess_init::MAX_SEGMENT_MRU {
+            return Err(Errors::SegmentTooLong);
+        }
         if reader.left() < (data_length as usize) {
             return Err(Errors::MessageTooShort);
         }
