@@ -63,21 +63,29 @@ impl BundleService for MyBundleService {
     ) -> Result<tonic::Response<bundleservice::SubmitBundleRespone>, tonic::Status> {
         let req = request.into_inner();
 
+        let (send_result_sender, send_result_receiver) = oneshot::channel();
         let msg = ClientAgentRequest::ClientSendBundle {
             destination: Endpoint::new(&req.destination)
                 .ok_or_else(|| tonic::Status::invalid_argument("destination invalid"))?,
             payload: req.payload,
             lifetime: req.lifetime,
+            responder: send_result_sender,
         };
 
         self.client_agent_sender
             .send(msg)
             .await
             .map_err(|e| tonic::Status::unknown(e.to_string()))?;
-        Ok(Response::new(bundleservice::SubmitBundleRespone {
-            success: true,
-            message: String::new(),
-        }))
+
+        match send_result_receiver.await {
+            Ok(_) => Ok(Response::new(bundleservice::SubmitBundleRespone {
+                success: true,
+                message: String::new(),
+            })),
+            Err(_) => Err(tonic::Status::internal(
+                "something prevented the bundle from being accepted",
+            )),
+        }
     }
 
     type ListenBundlesStream = ListenBundleResponseTransformer;

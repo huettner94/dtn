@@ -1,9 +1,12 @@
 use bp7::{bundle::Bundle, endpoint::Endpoint};
 use tokio::sync::{mpsc, oneshot};
 
+use crate::bundlestorageagent::StoredBundle;
+
 #[derive(Debug)]
 pub struct AgentForwardBundle {
-    pub bundle: Bundle,
+    pub bundle: StoredBundle,
+    pub responder: oneshot::Sender<Result<(), ()>>,
 }
 
 #[derive(Debug)]
@@ -30,5 +33,6 @@ pub enum ConverganceAgentRequest {
     },
     CLForwardBundle {
         bundle: Bundle,
+        responder: oneshot::Sender<Result<(), ()>>
     },
 }

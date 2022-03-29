@@ -10,11 +10,11 @@ use bp7::{
     primaryblock::PrimaryBlock,
     time::{CreationTimestamp, DtnTime},
 };
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{
-    bundlestorageagent::messages::BSARequest,
+    bundlestorageagent::{self, messages::BSARequest, StoredBundle},
     clientagent::messages::{ClientAgentRequest, ListenBundlesResponse},
     common::settings::Settings,
     converganceagent::messages::{AgentForwardBundle, ConverganceAgentRequest},
@@ -69,8 +69,9 @@ impl crate::common::agent::Daemon for Daemon {
                 destination,
                 payload,
                 lifetime,
+                responder,
             } => {
-                self.message_send_bundle(destination, payload, lifetime)
+                self.message_send_bundle(destination, payload, lifetime, responder)
                     .await;
             }
             BPARequest::IsEndpointLocal { endpoint, sender } => {
@@ -82,8 +83,8 @@ impl crate::common::agent::Daemon for Daemon {
             BPARequest::NewRoutesAvailable { destinations } => {
                 self.message_new_routes_available(destinations).await;
             }
-            BPARequest::ReceiveBundle { bundle } => {
-                self.message_receive_bundle(bundle).await;
+            BPARequest::ReceiveBundle { bundle, responder } => {
+                self.message_receive_bundle(bundle, responder).await;
             }
         }
     }
@@ -111,8 +112,52 @@ impl Daemon {
         self.convergance_agent_sender = Some(convergance_agent_sender);
     }
 
-    async fn message_send_bundle(&self, destination: Endpoint, payload: Vec<u8>, lifetime: u64) {
-        self.transmit_bundle(destination, payload, lifetime).await;
+    async fn message_send_bundle(
+        &self,
+        destination: Endpoint,
+        payload: Vec<u8>,
+        lifetime: u64,
+        responder: oneshot::Sender<Result<(), ()>>,
+    ) {
+        let bundle = Bundle {
+            primary_block: PrimaryBlock {
+                version: 7,
+                bundle_processing_flags: BundleFlags::empty(),
+                crc: CRCType::NoCRC,
+                destination_endpoint: destination,
+                source_node: self.endpoint.clone(),
+                report_to: self.endpoint.clone(),
+                creation_timestamp: CreationTimestamp {
+                    creation_time: DtnTime::now(),
+                    sequence_number: 0, // TODO: Needs to increase for all of the same timestamp
+                },
+                lifetime,
+                fragment_offset: None,
+                total_data_length: None,
+            },
+            blocks: vec![CanonicalBlock {
+                block: Block::Payload(PayloadBlock { data: payload }),
+                block_flags: BlockFlags::empty(),
+                block_number: 1,
+                crc: CRCType::NoCRC,
+            }],
+        };
+        debug!("Dispatching new bundle {:?}", &bundle);
+        let res = match bundlestorageagent::client::store_bundle(
+            self.bsa_sender.as_ref().unwrap(),
+            bundle,
+        )
+        .await
+        {
+            Ok(sb) => {
+                self.dispatch_bundle(sb).await;
+                Ok(())
+            }
+            Err(_) => Err(()),
+        };
+        if let Err(_) = responder.send(res) {
+            error!("Error sending response of queued bundle");
+        };
     }
 
     async fn message_is_endpoint_local(&self, endpoint: Endpoint, sender: oneshot::Sender<bool>) {
@@ -183,138 +228,141 @@ impl Daemon {
         }
     }
 
-    async fn message_receive_bundle(&mut self, bundle: Bundle) {
-        self.receive_bundle(bundle).await;
-    }
-
-    async fn transmit_bundle(&self, destination: Endpoint, data: Vec<u8>, lifetime: u64) {
-        let bundle = Bundle {
-            primary_block: PrimaryBlock {
-                version: 7,
-                bundle_processing_flags: BundleFlags::empty(),
-                crc: CRCType::NoCRC,
-                destination_endpoint: destination,
-                source_node: self.endpoint.clone(),
-                report_to: self.endpoint.clone(),
-                creation_timestamp: CreationTimestamp {
-                    creation_time: DtnTime::now(),
-                    sequence_number: 0, // TODO: Needs to increase for all of the same timestamp
-                },
-                lifetime,
-                fragment_offset: None,
-                total_data_length: None,
-            },
-            blocks: vec![CanonicalBlock {
-                block: Block::Payload(PayloadBlock { data }),
-                block_flags: BlockFlags::empty(),
-                block_number: 1,
-                crc: CRCType::NoCRC,
-            }],
+    async fn message_receive_bundle(
+        &mut self,
+        bundle: Bundle,
+        responder: oneshot::Sender<Result<(), ()>>,
+    ) {
+        debug!("Recived bundle: {:?}", bundle);
+        let res = match bundlestorageagent::client::store_bundle(
+            self.bsa_sender.as_ref().unwrap(),
+            bundle,
+        )
+        .await
+        {
+            Ok(sb) => {
+                //TODO: send status report if reqeusted
+                //TODO: Check crc or drop otherwise
+                //TODO: CHeck extensions or do other stuff
+                self.dispatch_bundle(sb).await;
+                Ok(())
+            }
+            Err(_) => Err(()),
         };
-        debug!("Dispatching new bundle {:?}", &bundle);
-        self.dispatch_bundle(bundle).await;
+        if let Err(_) = responder.send(res) {
+            error!("Error sending response for received bundle");
+        };
     }
-
-    async fn dispatch_bundle(&self, bundle: Bundle) {
+    async fn dispatch_bundle(&self, bundle: StoredBundle) {
         if bundle
+            .get_bundle()
             .primary_block
             .destination_endpoint
             .matches_node(&self.endpoint)
         {
             match self.local_delivery(&bundle).await {
-                Ok(_) => {}
+                Ok(_) => {
+                    bundlestorageagent::client::delete_bundle(
+                        self.bsa_sender.as_ref().unwrap(),
+                        bundle,
+                    )
+                    .await
+                }
                 Err(_) => {
-                    info!("Some issue appeared during local delivery. Adding to todo list.");
-                    self.store_bundle(bundle).await;
+                    info!("Some issue appeared during local delivery.");
                 }
             };
         } else {
             info!(
                 "Bundle is not for me, but for {}. trying to forward",
-                bundle.primary_block.destination_endpoint
+                bundle.get_bundle().primary_block.destination_endpoint
             );
-            match self.forward_bundle(bundle).await {
-                Ok(_) => {}
-                Err(bundle) => {
-                    info!("Some issue appeared during local delivery. Adding to todo list.");
-                    self.store_bundle(bundle).await;
+            match self.forward_bundle(&bundle).await {
+                Ok(_) => {
+                    bundlestorageagent::client::delete_bundle(
+                        self.bsa_sender.as_ref().unwrap(),
+                        bundle,
+                    )
+                    .await
+                }
+                Err(_) => {
+                    info!("Some issue appeared during local delivery.");
                 }
             };
         }
     }
 
-    async fn store_bundle(&self, bundle: Bundle) {
-        let sender = self.bsa_sender.as_ref().unwrap();
-        if let Err(e) = sender.send(BSARequest::StoreBundle { bundle }).await {
-            error!(
-                "Error during sending the bundle to the BSA for storage {:?}",
-                e
-            );
-        };
-    }
-
-    async fn forward_bundle(&self, bundle: Bundle) -> Result<(), Bundle> {
-        debug!("forwarding bundle {:?}", &bundle);
+    async fn forward_bundle(&self, bundle: &StoredBundle) -> Result<(), ()> {
+        debug!("forwarding bundle {:?}", bundle);
 
         match routingagent::client::get_next_hop(
             self.routing_agent_sender.as_ref().unwrap(),
-            bundle.primary_block.destination_endpoint.clone(),
+            bundle
+                .get_bundle()
+                .primary_block
+                .destination_endpoint
+                .clone(),
         )
         .await
         {
             Some(next_hop) => {
                 if let Some(sender) = self.get_connected_node(next_hop).await {
+                    let (send_result_sender, send_result_receiver) = oneshot::channel();
                     let result = sender
                         .send(AgentForwardBundle {
                             bundle: bundle.clone(),
+                            responder: send_result_sender,
                         })
                         .await;
                     match result {
                         Ok(_) => {
-                            //TODO: send status report if reqeusted
-                            debug!("Bundle forwarded to remote node");
-                            return Ok(());
+                            match send_result_receiver.await {
+                                Ok(_) => {
+                                    //TODO: send status report if reqeusted
+                                    debug!("Bundle forwarded to remote node");
+                                    return Ok(());
+                                }
+                                Err(_) => {
+                                    warn!("Error during bundle forwarding");
+                                }
+                            }
                         }
                         Err(_) => {
                             info!("Remote node not available. Bundle queued.");
-                            return Err(bundle);
                         }
                     }
                 } else {
                     info!("No remote node registered for endpoint. Bundle queued.");
-                    return Err(bundle);
                 }
             }
             None => {
                 info!("No next hop found. Bundle queued.");
-                return Err(bundle);
             }
         }
+        return Err(());
     }
 
-    async fn receive_bundle(&mut self, bundle: Bundle) {
-        debug!("Recived bundle: {:?}", bundle);
-        //TODO: send status report if reqeusted
-        //TODO: Check crc or drop otherwise
-        //TODO: CHeck extensions or do other stuff
-        self.dispatch_bundle(bundle).await;
-    }
-
-    async fn local_delivery(&self, bundle: &Bundle) -> Result<(), ()> {
+    async fn local_delivery(&self, bundle: &StoredBundle) -> Result<(), ()> {
         debug!("locally delivering bundle {:?}", &bundle);
-        if bundle.primary_block.fragment_offset.is_some() {
+        if bundle.get_bundle().primary_block.fragment_offset.is_some() {
             panic!("Bundle is a fragment. No idea what to do");
             //TODO
         }
 
         if let Some(sender) = self
-            .get_connected_client(bundle.primary_block.destination_endpoint.clone())
+            .get_connected_client(
+                bundle
+                    .get_bundle()
+                    .primary_block
+                    .destination_endpoint
+                    .clone(),
+            )
             .await
         {
             let result = sender
                 .send(ListenBundlesResponse {
-                    data: bundle.payload_block().data,
-                    endpoint: bundle.primary_block.source_node.clone(),
+                    data: bundle.get_bundle().payload_block().data,
+                    endpoint: bundle.get_bundle().primary_block.source_node.clone(),
                 })
                 .await;
             match result {
@@ -331,7 +379,7 @@ impl Daemon {
         } else {
             info!(
                 "No local agent registered for endpoint {}. Bundle queued.",
-                bundle.primary_block.destination_endpoint
+                bundle.get_bundle().primary_block.destination_endpoint
             );
             Err(())
         }

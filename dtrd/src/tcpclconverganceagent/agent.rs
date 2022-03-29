@@ -295,14 +295,31 @@ impl Daemon {
                         info!("Received transfer id {}", t.id);
                         match t.data.try_into() {
                             Ok(bundle) => {
-                                if let Err(e) = receiver_convergane_agent_sender
-                                    .send(ConverganceAgentRequest::CLForwardBundle { bundle })
+                                let (forward_response_sender, forward_response_receiver) =
+                                    oneshot::channel();
+                                match receiver_convergane_agent_sender
+                                    .send(ConverganceAgentRequest::CLForwardBundle {
+                                        bundle,
+                                        responder: forward_response_sender,
+                                    })
                                     .await
                                 {
-                                    warn!(
-                                        "Error sending received bundle to Convergance Agent: {:?}",
+                                    Ok(_) => {
+                                        match forward_response_receiver.await {
+                                            Ok(_) => {}
+                                            Err(_) => {
+                                                // TODO: don't drop it here but send and error to remote
+                                                warn!("Error saving received bundle. Dropping now");
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        // TODO: don't drop it here but send and error to remote
+                                        warn!(
+                                        "Error sending received bundle to Convergance Agent. Dropping now: {:?}",
                                         e
                                     );
+                                    }
                                 };
                             }
                             Err(e) => {
@@ -353,24 +370,30 @@ fn get_bundle_sender(
         loop {
             match bundle_receiver.recv().await {
                 Some(afb) => {
-                    match afb.bundle.try_into() {
+                    match afb.bundle.get_bundle().try_into() {
                         Ok(bundle_data) => {
                             let (status_sender, status_receiver) = oneshot::channel();
                             match send_channel.send((bundle_data, status_sender)).await {
                                 Ok(_) => {}
                                 Err(e) => {
-                                    error!("Error sending bundle to tcpcl connection. Bundle will be dropped here: {}", e);
+                                    error!("Error sending bundle to tcpcl connection. {}", e);
                                 }
                             }
                             match status_receiver.await {
-                                Ok(status) => match status {
-                                    Ok(_) => {
-                                        info!("Bundle successfully sent");
+                                Ok(status) => {
+                                    match status {
+                                        Ok(_) => {
+                                            info!("Bundle successfully sent");
+                                            if let Err(_) = afb.responder.send(Ok(())) {
+                                                error!("Error notifying bpa of successfull sent bundle");
+                                            };
+                                            continue;
+                                        }
+                                        Err(e) => {
+                                            error!("Error sending bundle because of {:?}. Bundle will be dropped here", e);
+                                        }
                                     }
-                                    Err(e) => {
-                                        error!("Error sending bundle because of {:?}. Bundle will be dropped here", e);
-                                    }
-                                },
+                                }
                                 Err(e) => {
                                     error!("We could not receive a bundle status: {:?}", e);
                                 }
@@ -381,8 +404,10 @@ fn get_bundle_sender(
                                 "Error converting bundle to bytes. Bundle will be dropped here: {:?}",
                                 e
                             );
-                            //TODO: dont drop stuff :)
                         }
+                    };
+                    if let Err(_) = afb.responder.send(Err(())) {
+                        error!("Error notifying bpa of failed sent bundle");
                     };
                 }
                 None => return,

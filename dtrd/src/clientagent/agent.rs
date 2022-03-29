@@ -59,8 +59,9 @@ impl crate::common::agent::Daemon for Daemon {
                 destination,
                 payload,
                 lifetime,
+                responder,
             } => {
-                self.message_client_send_bundle(destination, payload, lifetime)
+                self.message_client_send_bundle(destination, payload, lifetime, responder)
                     .await;
             }
             ClientAgentRequest::ClientListenBundles {
@@ -120,6 +121,8 @@ impl Daemon {
         destination: Endpoint,
         payload: Vec<u8>,
         lifetime: u64,
+
+        responder: oneshot::Sender<Result<(), ()>>,
     ) {
         let sender = self.bpa_sender.as_ref().unwrap();
         if let Err(e) = sender
@@ -127,6 +130,7 @@ impl Daemon {
                 destination,
                 payload,
                 lifetime,
+                responder,
             })
             .await
         {

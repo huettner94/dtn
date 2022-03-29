@@ -76,8 +76,8 @@ impl crate::common::agent::Daemon for Daemon {
             ConverganceAgentRequest::CLUnregisterNode { url, node } => {
                 self.message_cl_unregister_node(url, node).await;
             }
-            ConverganceAgentRequest::CLForwardBundle { bundle } => {
-                self.message_cl_forward_bundle(bundle).await;
+            ConverganceAgentRequest::CLForwardBundle { bundle, responder } => {
+                self.message_cl_forward_bundle(bundle, responder).await;
             }
         }
     }
@@ -239,12 +239,16 @@ impl Daemon {
         }
     }
 
-    async fn message_cl_forward_bundle(&mut self, bundle: Bundle) {
+    async fn message_cl_forward_bundle(
+        &mut self,
+        bundle: Bundle,
+        responder: oneshot::Sender<Result<(), ()>>,
+    ) {
         match self
             .bpa_sender
             .as_ref()
             .unwrap()
-            .send(BPARequest::ReceiveBundle { bundle })
+            .send(BPARequest::ReceiveBundle { bundle, responder })
             .await
         {
             Ok(_) => {}

@@ -7,6 +7,7 @@ pub enum BPARequest {
         destination: Endpoint,
         payload: Vec<u8>,
         lifetime: u64,
+        responder: oneshot::Sender<Result<(), ()>>,
     },
     IsEndpointLocal {
         endpoint: Endpoint,
@@ -20,5 +21,6 @@ pub enum BPARequest {
     },
     ReceiveBundle {
         bundle: Bundle,
+        responder: oneshot::Sender<Result<(), ()>>,
     },
 }

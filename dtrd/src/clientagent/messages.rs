@@ -16,6 +16,7 @@ pub enum ClientAgentRequest {
         destination: Endpoint,
         payload: Vec<u8>,
         lifetime: u64,
+        responder: oneshot::Sender<Result<(), ()>>,
     },
     ClientListenBundles {
         destination: Endpoint,
