@@ -100,8 +100,7 @@ impl Daemon {
         bundles: oneshot::Sender<Result<Vec<StoredBundle>, String>>,
     ) {
         let mut ret = Vec::new();
-        let mut i = 0;
-        while i < self.bundles.len() {
+        for i in 0..self.bundles.len() {
             if self.bundles[i]
                 .get_bundle()
                 .primary_block
@@ -109,8 +108,6 @@ impl Daemon {
                 == destination
             {
                 ret.push(self.bundles[i].clone());
-            } else {
-                i += 1;
             }
         }
         debug!(
@@ -129,8 +126,7 @@ impl Daemon {
         bundles: oneshot::Sender<Result<Vec<StoredBundle>, String>>,
     ) {
         let mut ret = Vec::new();
-        let mut i = 0;
-        while i < self.bundles.len() {
+        for i in 0..self.bundles.len() {
             if self.bundles[i]
                 .get_bundle()
                 .primary_block
@@ -138,8 +134,6 @@ impl Daemon {
                 .matches_node(&destination)
             {
                 ret.push(self.bundles[i].clone());
-            } else {
-                i += 1;
             }
         }
         debug!(
