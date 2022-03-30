@@ -1,5 +1,12 @@
+use async_recursion::async_recursion;
 use async_trait::async_trait;
 use bp7::{
+    administrative_record::{
+        bundle_status_report::{
+            BundleStatusInformation, BundleStatusItem, BundleStatusReason, BundleStatusReport,
+        },
+        AdministrativeRecord,
+    },
     block::payload_block::PayloadBlock,
     block::{Block, CanonicalBlock},
     blockflags::BlockFlags,
@@ -122,7 +129,10 @@ impl Daemon {
         let bundle = Bundle {
             primary_block: PrimaryBlock {
                 version: 7,
-                bundle_processing_flags: BundleFlags::empty(),
+                bundle_processing_flags: BundleFlags::BUNDLE_RECEIPTION_STATUS_REQUESTED
+                    | BundleFlags::BUNDLE_FORWARDING_STATUS_REQUEST
+                    | BundleFlags::BUNDLE_DELIVERY_STATUS_REQUESTED
+                    | BundleFlags::BUNDLE_DELETION_STATUS_REQUESTED,
                 crc: CRCType::NoCRC,
                 destination_endpoint: destination,
                 source_node: self.endpoint.clone(),
@@ -241,7 +251,7 @@ impl Daemon {
         .await
         {
             Ok(sb) => {
-                //TODO: send status report if reqeusted
+                self.send_status_report_received(sb.get_bundle()).await;
                 //TODO: Check crc or drop otherwise
                 //TODO: CHeck extensions or do other stuff
                 self.dispatch_bundle(sb).await;
@@ -253,6 +263,7 @@ impl Daemon {
             error!("Error sending response for received bundle");
         };
     }
+
     async fn dispatch_bundle(&self, bundle: StoredBundle) {
         if bundle
             .get_bundle()
@@ -315,18 +326,16 @@ impl Daemon {
                         })
                         .await;
                     match result {
-                        Ok(_) => {
-                            match send_result_receiver.await {
-                                Ok(_) => {
-                                    //TODO: send status report if reqeusted
-                                    debug!("Bundle forwarded to remote node");
-                                    return Ok(());
-                                }
-                                Err(_) => {
-                                    warn!("Error during bundle forwarding");
-                                }
+                        Ok(_) => match send_result_receiver.await {
+                            Ok(_) => {
+                                debug!("Bundle forwarded to remote node");
+                                self.send_status_report_forwarded(bundle.get_bundle()).await;
+                                return Ok(());
                             }
-                        }
+                            Err(_) => {
+                                warn!("Error during bundle forwarding");
+                            }
+                        },
                         Err(_) => {
                             info!("Remote node not available. Bundle queued.");
                         }
@@ -367,8 +376,8 @@ impl Daemon {
                 .await;
             match result {
                 Ok(_) => {
-                    //TODO: send status report if reqeusted
                     debug!("Bundle dispatched to local agent");
+                    self.send_status_report_delivered(bundle.get_bundle()).await;
                     Ok(())
                 }
                 Err(_) => {
@@ -439,5 +448,147 @@ impl Daemon {
                 None
             }
         }
+    }
+
+    async fn send_status_report_received(&self, bundle: &Bundle) {
+        if !bundle
+            .primary_block
+            .bundle_processing_flags
+            .contains(BundleFlags::BUNDLE_RECEIPTION_STATUS_REQUESTED)
+        {
+            return;
+        }
+        self.send_status_report(
+            bundle,
+            BundleStatusReason::NoAdditionalInformation,
+            true,
+            false,
+            false,
+            false,
+        )
+        .await;
+    }
+
+    async fn send_status_report_forwarded(&self, bundle: &Bundle) {
+        if !bundle
+            .primary_block
+            .bundle_processing_flags
+            .contains(BundleFlags::BUNDLE_FORWARDING_STATUS_REQUEST)
+        {
+            return;
+        }
+        self.send_status_report(
+            bundle,
+            BundleStatusReason::NoAdditionalInformation,
+            false,
+            true,
+            false,
+            false,
+        )
+        .await;
+    }
+
+    async fn send_status_report_delivered(&self, bundle: &Bundle) {
+        if !bundle
+            .primary_block
+            .bundle_processing_flags
+            .contains(BundleFlags::BUNDLE_DELIVERY_STATUS_REQUESTED)
+        {
+            return;
+        }
+        self.send_status_report(
+            bundle,
+            BundleStatusReason::NoAdditionalInformation,
+            false,
+            false,
+            true,
+            false,
+        )
+        .await;
+    }
+
+    #[async_recursion]
+    async fn send_status_report(
+        &self,
+        bundle: &Bundle,
+        reason: BundleStatusReason,
+        is_received: bool,
+        is_forwarded: bool,
+        is_delivered: bool,
+        is_deleted: bool,
+    ) {
+        let now = DtnTime::now();
+        let received_info = BundleStatusItem {
+            is_asserted: is_received,
+            timestamp: if is_received { Some(now) } else { None },
+        };
+        let forwarded_info = BundleStatusItem {
+            is_asserted: is_forwarded,
+            timestamp: if is_forwarded { Some(now) } else { None },
+        };
+        let delivered_info = BundleStatusItem {
+            is_asserted: is_delivered,
+            timestamp: if is_delivered { Some(now) } else { None },
+        };
+        let deleted_info = BundleStatusItem {
+            is_asserted: is_deleted,
+            timestamp: if is_deleted { Some(now) } else { None },
+        };
+        match AdministrativeRecord::BundleStatusReport(BundleStatusReport {
+            status_information: BundleStatusInformation {
+                received_bundle: received_info,
+                forwarded_bundle: forwarded_info,
+                delivered_bundle: delivered_info,
+                deleted_bundle: deleted_info,
+            },
+            reason,
+            bundle_source: bundle.primary_block.source_node.clone(),
+            bundle_creation_timestamp: bundle.primary_block.creation_timestamp.clone(),
+            fragment_offset: None, // TODO: fix with fragmentation
+            fragment_length: None, // TODO: fix with fragmentation
+        })
+        .try_into()
+        {
+            Ok(data) => {
+                let bundle = Bundle {
+                    primary_block: PrimaryBlock {
+                        version: 7,
+                        bundle_processing_flags: BundleFlags::ADMINISTRATIVE_RECORD,
+                        crc: CRCType::NoCRC,
+                        destination_endpoint: bundle.primary_block.report_to.clone(),
+                        source_node: self.endpoint.clone(),
+                        report_to: self.endpoint.clone(),
+                        creation_timestamp: CreationTimestamp {
+                            creation_time: DtnTime::now(),
+                            sequence_number: 0, // TODO: Needs to increase for all of the same timestamp
+                        },
+                        lifetime: bundle.primary_block.lifetime,
+                        fragment_offset: None,
+                        total_data_length: None,
+                    },
+                    blocks: vec![CanonicalBlock {
+                        block: Block::Payload(PayloadBlock { data }),
+                        block_flags: BlockFlags::empty(),
+                        block_number: 1,
+                        crc: CRCType::NoCRC,
+                    }],
+                };
+                debug!("Dispatching administrative record bundle {:?}", &bundle);
+                match bundlestorageagent::client::store_bundle(
+                    self.bsa_sender.as_ref().unwrap(),
+                    bundle,
+                )
+                .await
+                {
+                    Ok(sb) => {
+                        self.dispatch_bundle(sb).await;
+                    }
+                    Err(_) => warn!("Could not store bundle status report for dispatching"),
+                };
+            }
+            Err(e) => {
+                warn!("Error serializing bundle status report: {:?}", e)
+            }
+        };
     }
 }

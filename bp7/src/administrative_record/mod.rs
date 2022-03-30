@@ -5,7 +5,7 @@ use serde::{
 };
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
-use crate::administrative_record::bundle_status_report::BundleStatusReport;
+use crate::{administrative_record::bundle_status_report::BundleStatusReport, SerializationError};
 
 pub mod bundle_status_report;
 
@@ -69,5 +69,29 @@ impl<'de> Deserialize<'de> for AdministrativeRecord {
             }
         }
         deserializer.deserialize_seq(AdministrativeRecordVisitor)
+    }
+}
+
+impl TryFrom<Vec<u8>> for AdministrativeRecord {
+    type Error = SerializationError;
+
+    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+        serde_cbor::from_slice(&value).or_else(|e| Err(SerializationError::SerializationError(e)))
+    }
+}
+
+impl TryFrom<AdministrativeRecord> for Vec<u8> {
+    type Error = SerializationError;
+
+    fn try_from(value: AdministrativeRecord) -> Result<Self, Self::Error> {
+        (&value).try_into()
+    }
+}
+
+impl TryFrom<&AdministrativeRecord> for Vec<u8> {
+    type Error = SerializationError;
+
+    fn try_from(value: &AdministrativeRecord) -> Result<Self, Self::Error> {
+        serde_cbor::to_vec(value).or_else(|e| Err(SerializationError::SerializationError(e)))
     }
 }
