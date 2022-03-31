@@ -2,6 +2,8 @@
 
 members = [
     "bp7",
-    "tcpcl",
+    "cli",
+    "client",
     "dtrd",
+    "tcpcl"
 ]

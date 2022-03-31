@@ -1,0 +1,13 @@
+[package]
+name = "dtrd_cli"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bp7 = {path = "../bp7"}
+dtrd_client = {path = "../client"}
+tokio = { version = "1.15.0", features = ["macros", "rt-multi-thread", "fs"] }
+futures-util = "0.3.16"
+clap = { version = "3.1.6", features = ["derive"] }

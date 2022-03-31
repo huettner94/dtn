@@ -15,6 +15,7 @@ enum AdministrativeRecordType {
     BundleStatusReport = 1,
 }
 
+#[derive(Debug)]
 pub enum AdministrativeRecord {
     BundleStatusReport(BundleStatusReport),
 }
@@ -76,6 +77,14 @@ impl TryFrom<Vec<u8>> for AdministrativeRecord {
     type Error = SerializationError;
 
     fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+        serde_cbor::from_slice(&value).or_else(|e| Err(SerializationError::SerializationError(e)))
+    }
+}
+
+impl TryFrom<&Vec<u8>> for AdministrativeRecord {
+    type Error = SerializationError;
+
+    fn try_from(value: &Vec<u8>) -> Result<Self, Self::Error> {
         serde_cbor::from_slice(&value).or_else(|e| Err(SerializationError::SerializationError(e)))
     }
 }

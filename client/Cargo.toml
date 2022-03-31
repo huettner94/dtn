@@ -1,0 +1,17 @@
+[package]
+name = "dtrd_client"
+version = "0.1.0"
+edition = "2021"
+resolver = "2"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+log = "0.4"
+tonic = "0.5.2"
+prost = "0.8"
+futures-util = "0.3.16"
+maybe-async = "0.2.6"
+
+[build-dependencies]
+tonic-build = "0.5.2"
