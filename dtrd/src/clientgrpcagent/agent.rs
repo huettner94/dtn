@@ -2,6 +2,7 @@ use std::task::Poll;
 
 use futures_util::{future::FutureExt, Stream};
 
+use adminservice::admin_service_server::{AdminService, AdminServiceServer};
 use bundleservice::bundle_service_server::{BundleService, BundleServiceServer};
 use log::info;
 use tokio::sync::{broadcast, mpsc, oneshot};
@@ -16,7 +17,11 @@ use crate::{
 use bp7::endpoint::Endpoint;
 
 mod bundleservice {
-    tonic::include_proto!("dtn");
+    tonic::include_proto!("dtn_bundle");
+}
+
+mod adminservice {
+    tonic::include_proto!("dtn_admin");
 }
 
 pub struct ListenBundleResponseTransformer {
@@ -124,11 +129,17 @@ impl BundleService for MyBundleService {
             canceltoken,
         }));
     }
+}
+pub struct MyAdminService {
+    client_agent_sender: mpsc::Sender<ClientAgentRequest>,
+}
 
+#[tonic::async_trait]
+impl AdminService for MyAdminService {
     async fn list_nodes(
         &self,
-        _: tonic::Request<bundleservice::ListNodesRequest>,
-    ) -> Result<tonic::Response<bundleservice::ListNodesResponse>, tonic::Status> {
+        _: tonic::Request<adminservice::ListNodesRequest>,
+    ) -> Result<tonic::Response<adminservice::ListNodesResponse>, tonic::Status> {
         let (list_nodes_sender, list_nodes_receiver) = oneshot::channel();
         let msg = ClientAgentRequest::ClientListNodes {
             responder: list_nodes_sender,
@@ -143,7 +154,7 @@ impl BundleService for MyBundleService {
             Ok(node_list) => {
                 let nodes = node_list
                     .iter()
-                    .map(|node| bundleservice::Node {
+                    .map(|node| adminservice::Node {
                         url: node.url.clone(),
                         status: node.connection_status.to_string(),
                         endpoint: node
@@ -154,7 +165,7 @@ impl BundleService for MyBundleService {
                         temporary: node.temporary,
                     })
                     .collect();
-                return Ok(Response::new(bundleservice::ListNodesResponse { nodes }));
+                return Ok(Response::new(adminservice::ListNodesResponse { nodes }));
             }
             Err(_) => return Err(Status::internal("Error communicating with node agent")),
         }
@@ -162,8 +173,8 @@ impl BundleService for MyBundleService {
 
     async fn add_node(
         &self,
-        request: tonic::Request<bundleservice::AddNodeRequest>,
-    ) -> Result<tonic::Response<bundleservice::AddNodeResponse>, tonic::Status> {
+        request: tonic::Request<adminservice::AddNodeRequest>,
+    ) -> Result<tonic::Response<adminservice::AddNodeResponse>, tonic::Status> {
         let req = request.into_inner();
 
         let msg = ClientAgentRequest::ClientAddNode { url: req.url };
@@ -172,13 +183,13 @@ impl BundleService for MyBundleService {
             .send(msg)
             .await
             .map_err(|e| tonic::Status::unknown(e.to_string()))?;
-        Ok(Response::new(bundleservice::AddNodeResponse {}))
+        Ok(Response::new(adminservice::AddNodeResponse {}))
     }
 
     async fn remove_node(
         &self,
-        request: tonic::Request<bundleservice::RemoveNodeRequest>,
-    ) -> Result<tonic::Response<bundleservice::RemoveNodeResponse>, tonic::Status> {
+        request: tonic::Request<adminservice::RemoveNodeRequest>,
+    ) -> Result<tonic::Response<adminservice::RemoveNodeResponse>, tonic::Status> {
         let req = request.into_inner();
 
         let msg = ClientAgentRequest::ClientRemoveNode { url: req.url };
@@ -187,13 +198,13 @@ impl BundleService for MyBundleService {
             .send(msg)
             .await
             .map_err(|e| tonic::Status::unknown(e.to_string()))?;
-        Ok(Response::new(bundleservice::RemoveNodeResponse {}))
+        Ok(Response::new(adminservice::RemoveNodeResponse {}))
     }
 
     async fn list_routes(
         &self,
-        _: tonic::Request<bundleservice::ListRoutesRequest>,
-    ) -> Result<tonic::Response<bundleservice::ListRoutesResponse>, tonic::Status> {
+        _: tonic::Request<adminservice::ListRoutesRequest>,
+    ) -> Result<tonic::Response<adminservice::ListRoutesResponse>, tonic::Status> {
         let (list_routes_sender, list_routes_receiver) = oneshot::channel();
         let msg = ClientAgentRequest::ClientListRoutes {
             responder: list_routes_sender,
@@ -213,8 +224,8 @@ impl BundleService for MyBundleService {
                             RouteType::Connected => 0,
                             RouteType::Static => 1,
                         };
-                        bundleservice::RouteStatus {
-                            route: Some(bundleservice::Route {
+                        adminservice::RouteStatus {
+                            route: Some(adminservice::Route {
                                 target: route.target.to_string(),
                                 next_hop: route.next_hop.to_string(),
                             }),
@@ -225,7 +236,7 @@ impl BundleService for MyBundleService {
                         }
                     })
                     .collect();
-                return Ok(Response::new(bundleservice::ListRoutesResponse { routes }));
+                return Ok(Response::new(adminservice::ListRoutesResponse { routes }));
             }
             Err(_) => return Err(Status::internal("Error communicating with route agent")),
         }
@@ -233,8 +244,8 @@ impl BundleService for MyBundleService {
 
     async fn add_route(
         &self,
-        request: tonic::Request<bundleservice::AddRouteRequest>,
-    ) -> Result<tonic::Response<bundleservice::AddRouteResponse>, tonic::Status> {
+        request: tonic::Request<adminservice::AddRouteRequest>,
+    ) -> Result<tonic::Response<adminservice::AddRouteResponse>, tonic::Status> {
         let req = request.into_inner();
 
         let route = req
@@ -252,13 +263,13 @@ impl BundleService for MyBundleService {
             .send(msg)
             .await
             .map_err(|e| tonic::Status::unknown(e.to_string()))?;
-        Ok(Response::new(bundleservice::AddRouteResponse {}))
+        Ok(Response::new(adminservice::AddRouteResponse {}))
     }
 
     async fn remove_route(
         &self,
-        request: tonic::Request<bundleservice::RemoveRouteRequest>,
-    ) -> Result<tonic::Response<bundleservice::RemoveRouteResponse>, tonic::Status> {
+        request: tonic::Request<adminservice::RemoveRouteRequest>,
+    ) -> Result<tonic::Response<adminservice::RemoveRouteResponse>, tonic::Status> {
         let req = request.into_inner();
 
         let route = req
@@ -276,7 +287,7 @@ impl BundleService for MyBundleService {
             .send(msg)
             .await
             .map_err(|e| tonic::Status::unknown(e.to_string()))?;
-        Ok(Response::new(bundleservice::RemoveRouteResponse {}))
+        Ok(Response::new(adminservice::RemoveRouteResponse {}))
     }
 }
 
@@ -287,13 +298,17 @@ pub async fn main(
     client_agent_sender: mpsc::Sender<ClientAgentRequest>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let addr = settings.grpc_clientapi_address.parse().unwrap();
-    let echo = MyBundleService {
+    let bundle_service = MyBundleService {
+        client_agent_sender: client_agent_sender.clone(),
+    };
+    let admin_service = MyAdminService {
         client_agent_sender: client_agent_sender.clone(),
     };
 
     info!("Server listening on {}", addr);
     Server::builder()
-        .add_service(BundleServiceServer::new(echo))
+        .add_service(BundleServiceServer::new(bundle_service))
+        .add_service(AdminServiceServer::new(admin_service))
         .serve_with_shutdown(addr, shutdown.recv().map(|_| ()))
         .await?;
     info!("Server has shutdown. See you");

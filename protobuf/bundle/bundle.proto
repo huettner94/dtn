@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package dtn;
+package dtn_bundle;
 
 message SubmitBundleRequest {
   string destination = 1;
@@ -20,58 +20,7 @@ message ListenBundleResponse {
   bytes payload = 2;
 }
 
-message Node {
-  string url = 1;
-  string status = 2;
-  string endpoint = 3;
-  bool temporary = 4;
-}
-
-message ListNodesRequest {}
-message ListNodesResponse { repeated Node nodes = 1; }
-
-message AddNodeRequest { string url = 1; }
-message AddNodeResponse {}
-
-message RemoveNodeRequest { string url = 1; }
-message RemoveNodeResponse {}
-
-message Route {
-  string target = 1;
-  string next_hop = 2;
-}
-
-message RouteStatus {
-  Route route = 1;
-
-  enum RouteType {
-    CONNECTED = 0;
-    STATIC = 1;
-  }
-  RouteType type = 2;
-
-  bool preferred = 3;
-  bool available = 4;
-
-  uint64 max_bundle_size = 5;
-}
-
-message ListRoutesRequest {}
-message ListRoutesResponse { repeated RouteStatus routes = 1; }
-
-message AddRouteRequest { Route route = 1; }
-message AddRouteResponse {}
-
-message RemoveRouteRequest { Route route = 1; }
-message RemoveRouteResponse {}
-
 service BundleService {
   rpc SubmitBundle(SubmitBundleRequest) returns (SubmitBundleRespone);
   rpc ListenBundles(ListenBundleRequest) returns (stream ListenBundleResponse);
-  rpc ListNodes(ListNodesRequest) returns (ListNodesResponse);
-  rpc AddNode(AddNodeRequest) returns (AddNodeResponse);
-  rpc RemoveNode(RemoveNodeRequest) returns (RemoveNodeResponse);
-  rpc ListRoutes(ListRoutesRequest) returns (ListRoutesResponse);
-  rpc AddRoute(AddRouteRequest) returns (AddRouteResponse);
-  rpc RemoveRoute(RemoveRouteRequest) returns (RemoveRouteResponse);
 }
