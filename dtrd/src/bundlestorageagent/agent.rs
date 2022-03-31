@@ -77,7 +77,7 @@ impl Daemon {
         bundle: Bundle,
         responder: oneshot::Sender<Result<StoredBundle, ()>>,
     ) {
-        debug!("Storing Bundle {:?} for later", bundle);
+        debug!("Storing Bundle {:?} for later", bundle.primary_block);
         let sb: StoredBundle = bundle.into();
         self.bundles.push(sb.clone());
         if let Err(_) = responder.send(Ok(sb)) {

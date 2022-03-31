@@ -152,7 +152,7 @@ impl Daemon {
                 crc: CRCType::NoCRC,
             }],
         };
-        debug!("Dispatching new bundle {:?}", &bundle);
+        debug!("Dispatching new bundle {:?}", &bundle.primary_block);
         let res = match bundlestorageagent::client::store_bundle(
             self.bsa_sender.as_ref().unwrap(),
             bundle,
@@ -243,7 +243,7 @@ impl Daemon {
         bundle: Bundle,
         responder: oneshot::Sender<Result<(), ()>>,
     ) {
-        debug!("Recived bundle: {:?}", bundle);
+        debug!("Recived bundle: {:?}", bundle.primary_block);
         let res = match bundlestorageagent::client::store_bundle(
             self.bsa_sender.as_ref().unwrap(),
             bundle,
@@ -304,7 +304,7 @@ impl Daemon {
     }
 
     async fn forward_bundle(&self, bundle: &StoredBundle) -> Result<(), ()> {
-        debug!("forwarding bundle {:?}", bundle);
+        debug!("forwarding bundle {:?}", bundle.get_bundle().primary_block);
 
         match routingagent::client::get_next_hop(
             self.routing_agent_sender.as_ref().unwrap(),
@@ -352,7 +352,10 @@ impl Daemon {
     }
 
     async fn local_delivery(&self, bundle: &StoredBundle) -> Result<(), ()> {
-        debug!("locally delivering bundle {:?}", &bundle);
+        debug!(
+            "locally delivering bundle {:?}",
+            &bundle.get_bundle().primary_block
+        );
         if bundle.get_bundle().primary_block.fragment_offset.is_some() {
             panic!("Bundle is a fragment. No idea what to do");
             //TODO
@@ -573,7 +576,10 @@ impl Daemon {
                         crc: CRCType::NoCRC,
                     }],
                 };
-                debug!("Dispatching administrative record bundle {:?}", &bundle);
+                debug!(
+                    "Dispatching administrative record bundle {:?}",
+                    &bundle.primary_block
+                );
                 match bundlestorageagent::client::store_bundle(
                     self.bsa_sender.as_ref().unwrap(),
                     bundle,
