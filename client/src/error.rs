@@ -5,6 +5,7 @@ pub enum Error {
     InvalidUrl,
     TransportError(tonic::transport::Error),
     GrpcError(tonic::Status),
+    NoMessage,
 }
 
 impl From<InvalidUri> for Error {

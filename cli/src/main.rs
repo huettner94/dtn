@@ -1,3 +1,5 @@
+use std::io::Write;
+
 use clap::{ArgEnum, ErrorKind, IntoApp, Parser, Subcommand};
 use dtrd_client::Client;
 use futures_util::StreamExt;
@@ -24,6 +26,7 @@ struct Cli {
 enum OutputMode {
     Parse,
     Hex,
+    Raw,
 }
 
 #[derive(Subcommand)]
@@ -66,6 +69,12 @@ enum BundleCommands {
         )]
         output_mode: OutputMode,
     },
+    Receive {
+        #[clap(short, long, help = "The endpoint to listen on")]
+        endpoint: String,
+        #[clap(short, long, help = "The file to write the bundle to")]
+        file: Option<String>,
+    },
 }
 
 #[tokio::main]
@@ -98,6 +107,9 @@ pub async fn main() {
                 endpoint,
                 output_mode,
             } => command_bundle_listen(&mut client, endpoint, output_mode).await,
+            BundleCommands::Receive { endpoint, file } => {
+                command_bundle_receive(&mut client, endpoint, file).await
+            }
         },
     }
 }
@@ -161,6 +173,11 @@ async fn command_bundle_listen(client: &mut Client, endpoint: String, output_mod
                             }
                         }
                         OutputMode::Hex => println!("Received bundle: {:?}", data),
+                        OutputMode::Raw => {
+                            let mut stdout = std::io::stdout();
+                            stdout.write(&data).unwrap();
+                            stdout.flush().unwrap();
+                        }
                     },
                     Err(e) => {
                         println!("Error receiving bundle: {:?}", e);
@@ -170,6 +187,24 @@ async fn command_bundle_listen(client: &mut Client, endpoint: String, output_mod
         }
         Err(e) => {
             println!("Error listening for bundles: {:?}", e);
+        }
+    }
+}
+
+async fn command_bundle_receive(client: &mut Client, endpoint: String, file: Option<String>) {
+    match client.receive_bundle(&endpoint).await {
+        Ok(data) => match file {
+            Some(path) => {
+                fs::write(path, data).await.unwrap();
+            }
+            None => {
+                let mut stdout = std::io::stdout();
+                stdout.write(&data).unwrap();
+                stdout.flush().unwrap()
+            }
+        },
+        Err(e) => {
+            println!("Error receiving bundle: {:?}", e);
         }
     }
 }

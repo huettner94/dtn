@@ -80,4 +80,22 @@ impl Client {
             });
         Ok(stream)
     }
+
+    #[maybe_async]
+    pub async fn receive_bundle(&mut self, endpoint: &str) -> Result<Vec<u8>, Error> {
+        let req = bundleservice::ListenBundleRequest {
+            endpoint: endpoint.to_string(),
+        };
+        let mut stream = self
+            .bundle_client
+            .listen_bundles(req)
+            .await?
+            .into_inner()
+            .take(1)
+            .map(|r| match r {
+                Ok(b) => Ok(b.payload),
+                Err(e) => Err(Error::GrpcError(e)),
+            });
+        Ok(stream.next().await.ok_or(Error::NoMessage)??)
+    }
 }
