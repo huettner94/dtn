@@ -296,9 +296,7 @@ impl Daemon {
                     )
                     .await
                 }
-                Err(_) => {
-                    info!("Some issue appeared during local delivery.");
-                }
+                Err(_) => {}
             };
         }
     }
@@ -327,13 +325,18 @@ impl Daemon {
                         .await;
                     match result {
                         Ok(_) => match send_result_receiver.await {
-                            Ok(_) => {
-                                debug!("Bundle forwarded to remote node");
-                                self.send_status_report_forwarded(bundle.get_bundle()).await;
-                                return Ok(());
-                            }
+                            Ok(result) => match result {
+                                Ok(_) => {
+                                    debug!("Bundle forwarded to remote node");
+                                    self.send_status_report_forwarded(bundle.get_bundle()).await;
+                                    return Ok(());
+                                }
+                                Err(_) => {
+                                    warn!("Error during bundle forwarding");
+                                }
+                            },
                             Err(_) => {
-                                warn!("Error during bundle forwarding");
+                                warn!("Error receiving sending result");
                             }
                         },
                         Err(_) => {
