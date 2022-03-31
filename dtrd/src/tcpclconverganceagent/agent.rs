@@ -390,7 +390,7 @@ fn get_bundle_sender(
                                             continue;
                                         }
                                         Err(e) => {
-                                            error!("Error sending bundle because of {:?}. Bundle will be dropped here", e);
+                                            error!("Error sending bundle because of {:?}", e);
                                         }
                                     }
                                 }
@@ -400,10 +400,7 @@ fn get_bundle_sender(
                             }
                         }
                         Err(e) => {
-                            error!(
-                                "Error converting bundle to bytes. Bundle will be dropped here: {:?}",
-                                e
-                            );
+                            error!("Error converting bundle to bytes: {:?}", e);
                         }
                     };
                     if let Err(_) = afb.responder.send(Err(())) {
