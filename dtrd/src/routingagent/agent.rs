@@ -1,19 +1,29 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    hash::Hash,
+};
 
 use async_trait::async_trait;
 use bp7::endpoint::Endpoint;
-use log::error;
+use log::{debug, error, warn};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{bundleprotocolagent::messages::BPARequest, common::settings::Settings};
 
 use super::messages::{RouteStatus, RouteType, RoutingAgentRequest};
 
-#[derive(Debug, Hash)]
+#[derive(Debug, Eq)]
 struct RouteEntry {
     route_type: RouteType,
     next_hop: Endpoint,
     max_bundle_size: Option<u64>,
+}
+
+impl Hash for RouteEntry {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.route_type.hash(state);
+        self.next_hop.hash(state);
+    }
 }
 
 impl PartialEq for RouteEntry {
@@ -21,7 +31,6 @@ impl PartialEq for RouteEntry {
         self.route_type == other.route_type && self.next_hop == other.next_hop
     }
 }
-impl Eq for RouteEntry {}
 
 pub struct Daemon {
     routes: HashMap<Endpoint, HashSet<RouteEntry>>,
@@ -118,6 +127,7 @@ impl Daemon {
                 .difference(&prev_routes)
                 .map(|e| e.clone())
                 .collect();
+            debug!("New routes added to routing table for: {:?}", new_routes);
             if !new_routes.is_empty() {
                 if let Err(e) = self
                     .bpa_sender
@@ -140,14 +150,22 @@ impl Daemon {
         route_type: RouteType,
         next_hop: Endpoint,
     ) {
-        self.routes
-            .entry(target)
-            .or_insert_with(|| HashSet::new())
-            .remove(&RouteEntry {
-                route_type,
-                next_hop,
-                max_bundle_size: None, // irrelevant as this is not part of Eq
-            });
+        let endpoint_routes = self
+            .routes
+            .entry(target.clone())
+            .or_insert_with(|| HashSet::new());
+        let entry_to_remove = RouteEntry {
+            route_type,
+            next_hop: next_hop.clone(),
+            max_bundle_size: None, // irrelevant as this is not part of Eq
+        };
+        match endpoint_routes.remove(&entry_to_remove) {
+            true => debug!(
+                "Removed route for {} over {} from routing table",
+                target, next_hop
+            ),
+            false => warn!("No route found to remove for {} over {}", target, next_hop),
+        }
     }
 
     async fn message_get_next_hop(
