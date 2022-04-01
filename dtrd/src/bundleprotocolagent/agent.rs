@@ -376,7 +376,7 @@ impl Daemon {
         {
             let result = sender
                 .send(ListenBundlesResponse {
-                    data: bundle.get_bundle().payload_block().data,
+                    data: bundle.get_bundle().payload_block().data.clone(),
                     endpoint: bundle.get_bundle().primary_block.source_node.clone(),
                 })
                 .await;
