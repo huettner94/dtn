@@ -162,3 +162,17 @@ impl Validate for PrimaryBlock {
         return true;
     }
 }
+
+impl PrimaryBlock {
+    pub fn equals_ignoring_fragment_offset(&self, other: &PrimaryBlock) -> bool {
+        let self_cleaned = PrimaryBlock {
+            fragment_offset: None,
+            ..self.clone()
+        };
+        let other_cleaned = PrimaryBlock {
+            fragment_offset: None,
+            ..other.clone()
+        };
+        self_cleaned == other_cleaned
+    }
+}

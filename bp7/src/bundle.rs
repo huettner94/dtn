@@ -155,6 +155,16 @@ impl Bundle {
         }
     }
 
+    fn mut_payload_block(&mut self) -> &mut PayloadBlock {
+        for block in &mut self.blocks {
+            match &mut block.block {
+                Block::Payload(p) => return p,
+                _ => {}
+            }
+        }
+        panic!("All Bundles MUST contain a payload block");
+    }
+
     pub fn fragment(self, max_size: u64) -> Result<Vec<Bundle>, FragmentationError> {
         if Vec::<u8>::try_from(&self)?.len() as u64 <= max_size {
             return Ok(vec![self]);
@@ -203,7 +213,10 @@ impl Bundle {
         let payload_length = self.payload_block().data.len() as u64;
 
         let global_payload_offset = self.primary_block.fragment_offset.unwrap_or(0); // 0 if the bundle was no fragment before
-        let total_data_length = self.primary_block.total_data_length.unwrap_or(payload_length); // default if the bundle was no fragment before
+        let total_data_length = self
+            .primary_block
+            .total_data_length
+            .unwrap_or(payload_length); // default if the bundle was no fragment before
 
         let new_primary_block = PrimaryBlock {
             bundle_processing_flags: self.primary_block.bundle_processing_flags
@@ -289,6 +302,62 @@ impl Bundle {
 
         return Ok(fragments);
     }
+
+    pub fn reassemble(mut self, mut other: Bundle) -> Self {
+        if !self
+            .primary_block
+            .bundle_processing_flags
+            .contains(BundleFlags::FRAGMENT)
+            || !other
+                .primary_block
+                .bundle_processing_flags
+                .contains(BundleFlags::FRAGMENT)
+        {
+            panic!("Attempted to defragment a bundle that is not a fragment");
+        }
+
+        if self.primary_block.total_data_length != other.primary_block.total_data_length {
+            panic!("Attempted to defragment bundles with different total data lengths");
+        }
+
+        if !self
+            .primary_block
+            .equals_ignoring_fragment_offset(&other.primary_block)
+        {
+            panic!("Attempted to defragment bundles with different primary blocks. They probably belong to different bundles");
+        }
+
+        let self_data_end =
+            self.primary_block.fragment_offset.unwrap() + self.payload_block().data.len() as u64;
+
+        if self_data_end != other.primary_block.fragment_offset.unwrap() {
+            panic!("Attempted to defragment bundles that are not contiguous. We end at {} and the other starts at {}", self_data_end, other.primary_block.fragment_offset.unwrap());
+        }
+
+        let mut other_data = other
+            .blocks
+            .drain(0..other.blocks.len())
+            .find_map(|b| match b.block {
+                Block::Payload(p) => Some(p),
+                _ => None,
+            })
+            .unwrap()
+            .data;
+        self.mut_payload_block().data.append(&mut other_data);
+
+        if self.primary_block.fragment_offset.unwrap() == 0
+            && self.primary_block.total_data_length.unwrap()
+                == self.payload_block().data.len() as u64
+        {
+            self.primary_block
+                .bundle_processing_flags
+                .remove(BundleFlags::FRAGMENT);
+            self.primary_block.fragment_offset = None;
+            self.primary_block.total_data_length = None;
+        }
+
+        self
+    }
 }
 
 #[cfg(test)]
@@ -308,11 +377,16 @@ mod tests {
 
     use super::Bundle;
 
-    fn get_test_bundle() -> Bundle {
+    fn get_bundle_data() -> Vec<u8> {
         let mut data: Vec<u8> = Vec::new();
         for i in 0..1024 {
             data.push(i as u8);
         }
+        data
+    }
+
+    fn get_test_bundle() -> Bundle {
+        let data = get_bundle_data();
         Bundle {
             primary_block: PrimaryBlock {
                 version: 7,
@@ -357,6 +431,11 @@ mod tests {
         let fragments = get_test_bundle().fragment(256)?;
         let mut current_offset = 0;
         for fragment in &fragments {
+            assert!(fragment
+                .primary_block
+                .bundle_processing_flags
+                .contains(BundleFlags::FRAGMENT));
+            assert_eq!(fragment.primary_block.total_data_length.unwrap(), 1024);
             let fragment_length = Vec::<u8>::try_from(fragment)?.len() as u64;
             assert!(fragment_length <= 256);
             let offset = fragment.primary_block.fragment_offset.unwrap();
@@ -395,6 +474,27 @@ mod tests {
             fragments[0].primary_block.total_data_length.unwrap()
         );
         assert_eq!(fragments.len(), 4);
+        Ok(())
+    }
+
+    #[test]
+    fn reassembly_bundle_2_frags() -> Result<(), FragmentationError> {
+        let mut fragments = get_test_bundle().fragment(800)?;
+        assert_eq!(fragments.len(), 2);
+
+        let reassembled = fragments
+            .swap_remove(0)
+            .reassemble(fragments.swap_remove(0));
+
+        assert!(!reassembled
+            .primary_block
+            .bundle_processing_flags
+            .contains(BundleFlags::FRAGMENT));
+        assert!(reassembled.primary_block.fragment_offset.is_none());
+        assert!(reassembled.primary_block.total_data_length.is_none());
+        assert_eq!(reassembled.payload_block().data.len(), 1024);
+        assert_eq!(reassembled.payload_block().data, get_bundle_data());
+
         Ok(())
     }
 }
