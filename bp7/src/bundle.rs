@@ -358,6 +358,50 @@ impl Bundle {
 
         self
     }
+
+    pub fn reassemble_bundles(mut bundles: Vec<Bundle>) -> Vec<Bundle> {
+        if bundles.len() == 0 {
+            return bundles;
+        }
+        let first = &bundles[0];
+        if !first
+            .primary_block
+            .bundle_processing_flags
+            .contains(BundleFlags::FRAGMENT)
+        {
+            panic!("Tried to reassemble a bundle that is not a fragment");
+        }
+
+        if !bundles.iter().all(|item| {
+            first
+                .primary_block
+                .equals_ignoring_fragment_offset(&item.primary_block)
+        }) {
+            panic!("Tried to reassemble bundles with different primary blocks. They probably belong to different bundles");
+        }
+
+        bundles.sort_by(|a, b| {
+            a.primary_block
+                .fragment_offset
+                .unwrap()
+                .cmp(&b.primary_block.fragment_offset.unwrap())
+        });
+        let mut i = 0;
+        while i < bundles.len() - 1 {
+            let first_data_end = bundles[i].primary_block.fragment_offset.unwrap()
+                + bundles[i].payload_block().data.len() as u64;
+            if bundles[i + 1].primary_block.fragment_offset.unwrap() == first_data_end {
+                let mut to_merge: Vec<Bundle> = bundles.drain(i..i + 2).collect();
+                let first = to_merge.remove(0);
+                let second = to_merge.remove(0);
+                bundles.insert(i, first.reassemble(second));
+            } else {
+                i = i + 1;
+            }
+        }
+
+        bundles
+    }
 }
 
 #[cfg(test)]
@@ -490,6 +534,45 @@ mod tests {
             .primary_block
             .bundle_processing_flags
             .contains(BundleFlags::FRAGMENT));
+        assert!(reassembled.primary_block.fragment_offset.is_none());
+        assert!(reassembled.primary_block.total_data_length.is_none());
+        assert_eq!(reassembled.payload_block().data.len(), 1024);
+        assert_eq!(reassembled.payload_block().data, get_bundle_data());
+
+        Ok(())
+    }
+
+    #[test]
+    fn reassmeble_double_fragment_bundle() -> Result<(), FragmentationError> {
+        let mut fragments_first = get_test_bundle().fragment(750)?;
+        let mut fragments: Vec<Bundle> = fragments_first
+            .drain(0..fragments_first.len())
+            .map(|f| f.fragment(600).unwrap())
+            .flatten()
+            .collect();
+
+        let mut current_offset = 0;
+        for fragment in &fragments {
+            let fragment_length = Vec::<u8>::try_from(fragment)?.len() as u64;
+            assert!(fragment_length <= 600);
+            let offset = fragment.primary_block.fragment_offset.unwrap();
+            let length = fragment.payload_block().data.len() as u64;
+            assert_eq!(offset, current_offset);
+            current_offset += length;
+        }
+        assert_eq!(
+            current_offset,
+            fragments[0].primary_block.total_data_length.unwrap()
+        );
+        assert_eq!(fragments.len(), 4);
+
+        // just to test reordering
+        fragments.swap(0, 2);
+        fragments.swap(1, 3);
+
+        let reassembled_bundles = Bundle::reassemble_bundles(fragments);
+        assert_eq!(reassembled_bundles.len(), 1);
+        let reassembled = reassembled_bundles.first().unwrap();
         assert!(reassembled.primary_block.fragment_offset.is_none());
         assert!(reassembled.primary_block.total_data_length.is_none());
         assert_eq!(reassembled.payload_block().data.len(), 1024);
