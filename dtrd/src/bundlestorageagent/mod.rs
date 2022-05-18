@@ -4,18 +4,23 @@ use bp7::bundle::Bundle;
 use uuid::Uuid;
 
 pub mod agent;
-pub mod messages;
 pub mod client;
+pub mod messages;
 
 #[derive(Debug, Eq)]
 pub struct StoredBundle {
     bundle: Arc<Bundle>,
     id: Uuid,
+    size: u64,
 }
 
 impl StoredBundle {
     pub fn get_bundle(&self) -> &Bundle {
         return &self.bundle;
+    }
+
+    pub fn get_bundle_size(&self) -> u64 {
+        self.size
     }
 }
 
@@ -24,6 +29,7 @@ impl Clone for StoredBundle {
         Self {
             bundle: self.bundle.clone(),
             id: self.id,
+            size: self.size,
         }
     }
 }
@@ -40,11 +46,16 @@ impl PartialEq<StoredBundle> for &StoredBundle {
     }
 }
 
-impl From<Bundle> for StoredBundle {
-    fn from(bundle: Bundle) -> Self {
-        Self {
+impl TryFrom<Bundle> for StoredBundle {
+    type Error = bp7::SerializationError;
+
+    fn try_from(bundle: Bundle) -> Result<Self, Self::Error> {
+        let bundle_as_bytes: Vec<u8> = bundle.clone().try_into()?;
+        let size = bundle_as_bytes.len() as u64;
+        Ok(Self {
             bundle: Arc::new(bundle),
             id: Uuid::new_v4(),
-        }
+            size,
+        })
     }
 }

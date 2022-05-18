@@ -10,7 +10,7 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::{bundleprotocolagent::messages::BPARequest, common::settings::Settings};
 
-use super::messages::{RouteStatus, RouteType, RoutingAgentRequest};
+use super::messages::{NexthopInfo, RouteStatus, RouteType, RoutingAgentRequest};
 
 #[derive(Debug, Eq)]
 struct RouteEntry {
@@ -171,7 +171,7 @@ impl Daemon {
     async fn message_get_next_hop(
         &self,
         target: Endpoint,
-        responder: oneshot::Sender<Option<Endpoint>>,
+        responder: oneshot::Sender<Option<NexthopInfo>>,
     ) {
         let response = self.routes.get(&target.get_node_endpoint()).and_then(|s| {
             let mut v = s
@@ -196,7 +196,10 @@ impl Daemon {
             if v.len() == 0 {
                 None
             } else {
-                Some(v[0].next_hop.clone())
+                Some(NexthopInfo {
+                    next_hop: v[0].next_hop.clone(),
+                    max_size: v[0].max_bundle_size,
+                })
             }
         });
         if let Err(e) = responder.send(response) {

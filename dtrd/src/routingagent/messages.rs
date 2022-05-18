@@ -18,6 +18,12 @@ pub struct RouteStatus {
 }
 
 #[derive(Debug)]
+pub struct NexthopInfo {
+    pub next_hop: Endpoint,
+    pub max_size: Option<u64>,
+}
+
+#[derive(Debug)]
 pub enum RoutingAgentRequest {
     AddRoute {
         target: Endpoint,
@@ -32,7 +38,7 @@ pub enum RoutingAgentRequest {
     },
     GetNextHop {
         target: Endpoint,
-        responder: oneshot::Sender<Option<Endpoint>>,
+        responder: oneshot::Sender<Option<NexthopInfo>>,
     },
     ListRoutes {
         responder: oneshot::Sender<Vec<RouteStatus>>,

@@ -78,9 +78,18 @@ impl Daemon {
         responder: oneshot::Sender<Result<StoredBundle, ()>>,
     ) {
         debug!("Storing Bundle {:?} for later", bundle.primary_block);
-        let sb: StoredBundle = bundle.into();
-        self.bundles.push(sb.clone());
-        if let Err(_) = responder.send(Ok(sb)) {
+        let res: Result<StoredBundle, ()> = match TryInto::<StoredBundle>::try_into(bundle) {
+            Ok(sb) => {
+                self.bundles.push(sb.clone());
+                Ok(sb)
+            }
+            Err(e) => {
+                error!("Error converting bundle to StoredBundle: {:?}", e);
+                Err(())
+            }
+        };
+
+        if let Err(_) = responder.send(res) {
             error!("Error sending stored bundle result");
         };
     }

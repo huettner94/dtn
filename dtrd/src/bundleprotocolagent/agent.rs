@@ -25,7 +25,10 @@ use crate::{
     clientagent::messages::{ClientAgentRequest, ListenBundlesResponse},
     common::settings::Settings,
     converganceagent::messages::{AgentForwardBundle, ConverganceAgentRequest},
-    routingagent::{self, messages::RoutingAgentRequest},
+    routingagent::{
+        self,
+        messages::{NexthopInfo, RoutingAgentRequest},
+    },
 };
 
 use super::messages::BPARequest;
@@ -264,6 +267,7 @@ impl Daemon {
         };
     }
 
+    #[async_recursion]
     async fn dispatch_bundle(&self, bundle: StoredBundle) {
         if bundle
             .get_bundle()
@@ -314,7 +318,46 @@ impl Daemon {
         )
         .await
         {
-            Some(next_hop) => {
+            Some(NexthopInfo { next_hop, max_size }) => {
+                debug!(
+                    "Forwarding bundle destined for {} to {} with max bundle size of {:?}",
+                    bundle.get_bundle().primary_block.destination_endpoint,
+                    next_hop,
+                    max_size
+                );
+                if max_size.is_some() && max_size.unwrap() < bundle.get_bundle_size() {
+                    debug!("Fragmenting bundle to size {}", max_size.unwrap());
+                    match bundle.get_bundle().clone().fragment(max_size.unwrap()) {
+                        Ok(fragments) => {
+                            for fragment in fragments {
+                                let res = match bundlestorageagent::client::store_bundle(
+                                    self.bsa_sender.as_ref().unwrap(),
+                                    fragment,
+                                )
+                                .await
+                                {
+                                    Ok(sb) => {
+                                        self.dispatch_bundle(sb).await;
+                                        Ok(())
+                                    }
+                                    Err(_) => Err(()),
+                                };
+                                if res.is_err() {
+                                    return res;
+                                }
+                            }
+                            return Ok(());
+                        }
+                        Err(e) => {
+                            error!(
+                                "Error fragmenting bundle to size {}: {:?}",
+                                max_size.unwrap(),
+                                e
+                            );
+                            return Err(());
+                        }
+                    }
+                }
                 if let Some(sender) = self.get_connected_node(next_hop).await {
                     let (send_result_sender, send_result_receiver) = oneshot::channel();
                     let result = sender
