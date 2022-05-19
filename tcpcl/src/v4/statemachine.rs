@@ -227,13 +227,21 @@ impl StateMachine {
                         self.state = States::ConnectionClose;
                         Ok(Messages::SessTerm(st))
                     }
-                    MessageType::SessTerm if self.state == States::SessionEstablished => {
+                    MessageType::SessTerm
+                        if self.state == States::SessionEstablished
+                            || matches!(self.state, States::SendXferSegments(_))
+                            || matches!(self.state, States::SendXferSegmentsAndAck(_, _)) =>
+                    {
                         let st = SessTerm::read(reader)?;
                         self.state = States::SendSessTerm(Some(st.reason));
                         self.terminating = true;
                         Ok(Messages::SessTerm(st))
                     }
-                    MessageType::XferSegment if self.state == States::SessionEstablished => {
+                    MessageType::XferSegment
+                        if self.state == States::SessionEstablished
+                            || matches!(self.state, States::SendXferSegments(_))
+                            || matches!(self.state, States::SendXferSegmentsAndAck(_, _)) =>
+                    {
                         let xs = XferSegment::read(reader)?;
                         Ok(Messages::XferSegment(xs))
                     }
@@ -267,11 +275,15 @@ impl StateMachine {
                                 Ok(Messages::XferAck(xa))
                             }
                             _ => {
+                                warn!(
+                                    "Received inappropriate message type {:?} while in state {:?}",
+                                    message_type, self.state
+                                );
                                 self.state = States::SendMsgReject(
                                     msg_reject::ReasonCode::MessageUnexpected,
                                     MessageType::XferAck.into(),
                                 );
-                                Err(Errors::MessageTypeInappropriate)
+                                Err(Errors::MessageTypeInappropriate(MessageType::XferAck))
                             }
                         }
                     }
@@ -280,11 +292,15 @@ impl StateMachine {
                         Ok(Messages::MsgReject(rej))
                     }
                     _ => {
+                        warn!(
+                            "Received inappropriate message type {:?} while in state {:?}",
+                            message_type, self.state
+                        );
                         self.state = States::SendMsgReject(
                             msg_reject::ReasonCode::MessageUnexpected,
                             message_type.into(),
                         );
-                        Err(Errors::MessageTypeInappropriate)
+                        Err(Errors::MessageTypeInappropriate(message_type))
                     }
                 }
             }

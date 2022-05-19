@@ -1,5 +1,7 @@
 use openssl::error::ErrorStack;
 
+use crate::v4::messages::MessageType;
+
 #[derive(Debug)]
 pub enum Errors {
     MessageTooShort,
@@ -8,7 +10,7 @@ pub enum Errors {
     UnkownCriticalSessionExtension(u16),
     UnkownCriticalTransferExtension(u16),
     UnkownMessageType,
-    MessageTypeInappropriate,
+    MessageTypeInappropriate(MessageType),
     RemoteRejected,
     TLSNameMissmatch(String),
     SegmentTooLong,

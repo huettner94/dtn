@@ -590,8 +590,11 @@ impl TCPCLSession {
             Err(Errors::UnkownMessageType) => {
                 warn!("Received a unkown message type");
             }
-            Err(Errors::MessageTypeInappropriate) => {
-                warn!("Remote send message type currently not applicable");
+            Err(Errors::MessageTypeInappropriate(mt)) => {
+                warn!(
+                    "Remote send message type currently not applicable: {:?}",
+                    mt
+                );
             }
             Err(Errors::RemoteRejected) => {
                 warn!("In the remote rejected state");
