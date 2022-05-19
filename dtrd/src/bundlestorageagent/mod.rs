@@ -50,7 +50,7 @@ impl TryFrom<Bundle> for StoredBundle {
     type Error = bp7::SerializationError;
 
     fn try_from(bundle: Bundle) -> Result<Self, Self::Error> {
-        let bundle_as_bytes: Vec<u8> = bundle.clone().try_into()?;
+        let bundle_as_bytes: Vec<u8> = bundle.clone().try_into()?; // TODO: This is bad because of a full clone
         let size = bundle_as_bytes.len() as u64;
         Ok(Self {
             bundle: Arc::new(bundle),

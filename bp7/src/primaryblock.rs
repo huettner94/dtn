@@ -175,4 +175,18 @@ impl PrimaryBlock {
         };
         self_cleaned == other_cleaned
     }
+
+    pub fn equals_ignoring_fragment_info(&self, other: &PrimaryBlock) -> bool {
+        let self_cleaned = PrimaryBlock {
+            fragment_offset: None,
+            total_data_length: None,
+            ..self.clone()
+        };
+        let other_cleaned = PrimaryBlock {
+            fragment_offset: None,
+            total_data_length: None,
+            ..other.clone()
+        };
+        self_cleaned == other_cleaned
+    }
 }

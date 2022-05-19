@@ -275,18 +275,40 @@ impl Daemon {
             .destination_endpoint
             .matches_node(&self.endpoint)
         {
-            match self.local_delivery(&bundle).await {
-                Ok(_) => {
-                    bundlestorageagent::client::delete_bundle(
-                        self.bsa_sender.as_ref().unwrap(),
-                        bundle,
-                    )
-                    .await
+            if bundle.get_bundle().primary_block.fragment_offset.is_some() {
+                match bundlestorageagent::client::try_defragment_bundle(
+                    self.bsa_sender.as_ref().unwrap(),
+                    bundle,
+                )
+                .await
+                {
+                    Ok(defragmented) => match defragmented {
+                        Some(defragment) => {
+                            debug!("Successfully defragmented bundle");
+                            self.dispatch_bundle(defragment).await;
+                        }
+                        None => {
+                            debug!("Not yet enough fragments for defragmentation.")
+                        }
+                    },
+                    Err(_) => {
+                        info!("Some issue appeared during defragmentation.");
+                    }
                 }
-                Err(_) => {
-                    info!("Some issue appeared during local delivery.");
-                }
-            };
+            } else {
+                match self.local_delivery(&bundle).await {
+                    Ok(_) => {
+                        bundlestorageagent::client::delete_bundle(
+                            self.bsa_sender.as_ref().unwrap(),
+                            bundle,
+                        )
+                        .await
+                    }
+                    Err(_) => {
+                        info!("Some issue appeared during local delivery.");
+                    }
+                };
+            }
         } else {
             info!(
                 "Bundle is not for me, but for {}. trying to forward",
@@ -403,8 +425,7 @@ impl Daemon {
             &bundle.get_bundle().primary_block
         );
         if bundle.get_bundle().primary_block.fragment_offset.is_some() {
-            panic!("Bundle is a fragment. No idea what to do");
-            //TODO
+            panic!("Bundle is a fragment. It should have been reassembled before calling this");
         }
 
         if let Some(sender) = self

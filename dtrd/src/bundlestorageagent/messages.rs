@@ -20,4 +20,8 @@ pub enum BSARequest {
         destination: Endpoint,
         bundles: oneshot::Sender<Result<Vec<StoredBundle>, String>>,
     },
+    TryDefragmentBundle {
+        bundle: StoredBundle,
+        responder: oneshot::Sender<Result<Option<StoredBundle>, ()>>,
+    },
 }

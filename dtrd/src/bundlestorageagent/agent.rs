@@ -61,6 +61,9 @@ impl crate::common::agent::Daemon for Daemon {
             } => {
                 self.message_get_bundle_for_node(destination, bundles).await;
             }
+            BSARequest::TryDefragmentBundle { bundle, responder } => {
+                self.message_try_defragment_bundle(bundle, responder).await;
+            }
         }
     }
 }
@@ -152,6 +155,41 @@ impl Daemon {
         );
         if let Err(e) = bundles.send(Ok(ret)) {
             error!("Error sending bundles to sender {:?}", e);
+        }
+    }
+
+    async fn message_try_defragment_bundle(
+        &mut self,
+        bundle: StoredBundle,
+        responder: oneshot::Sender<Result<Option<StoredBundle>, ()>>,
+    ) {
+        let requested_primary_block = &bundle.get_bundle().primary_block;
+        let mut i = 0;
+        let mut fragments: Vec<Bundle> = Vec::new();
+        while i < self.bundles.len() {
+            if self.bundles[i]
+                .bundle
+                .primary_block
+                .equals_ignoring_fragment_info(requested_primary_block)
+            {
+                fragments.push(self.bundles.remove(i).bundle.as_ref().clone()); // TODO: This is a full clone and probably bad
+            } else {
+                i += 1;
+            }
+        }
+        let mut reassembled: Vec<StoredBundle> = Bundle::reassemble_bundles(fragments)
+            .into_iter()
+            .map(|frag| frag.try_into().expect("This can not happen"))
+            .collect();
+        if reassembled.len() == 1 {
+            if let Err(e) = responder.send(Ok(Some(reassembled.drain(0..1).next().unwrap()))) {
+                error!("Error sending reassembled bundle response: {:?}", e);
+            }
+        } else {
+            self.bundles.append(&mut reassembled);
+            if let Err(e) = responder.send(Ok(None)) {
+                error!("Error sending empty bundle response: {:?}", e);
+            }
         }
     }
 }

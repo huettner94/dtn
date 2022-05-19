@@ -38,3 +38,29 @@ pub async fn delete_bundle(sender: &mpsc::Sender<BSARequest>, bundle: StoredBund
         }
     }
 }
+
+pub async fn try_defragment_bundle(
+    sender: &mpsc::Sender<BSARequest>,
+    bundle: StoredBundle,
+) -> Result<Option<StoredBundle>, ()> {
+    let (responder_sender, responder_receiver) = oneshot::channel();
+    match sender
+        .send(BSARequest::TryDefragmentBundle {
+            bundle,
+            responder: responder_sender,
+        })
+        .await
+    {
+        Ok(_) => match responder_receiver.await {
+            Ok(e) => e,
+            Err(e) => {
+                error!("Error receiving request from routing agent: {:?}", e);
+                Err(())
+            }
+        },
+        Err(e) => {
+            error!("Error sending request to routing agent: {:?}", e);
+            Err(())
+        }
+    }
+}
