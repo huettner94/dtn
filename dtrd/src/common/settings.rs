@@ -8,6 +8,7 @@ pub struct Settings {
     pub tcpcl_certificate_path: Option<String>,
     pub tcpcl_key_path: Option<String>,
     pub tcpcl_trusted_certs_path: Option<String>,
+    pub tokio_tracing_port: Option<String>,
 }
 
 impl Default for Settings {
@@ -19,6 +20,7 @@ impl Default for Settings {
             tcpcl_certificate_path: None,
             tcpcl_key_path: None,
             tcpcl_trusted_certs_path: None,
+            tokio_tracing_port: None,
         }
     }
 }
@@ -43,6 +45,9 @@ impl Settings {
         };
         if let Ok(setting) = env::var("TCPCL_TRUSTED_CERTS_PATH") {
             settings.tcpcl_trusted_certs_path = Some(setting);
+        };
+        if let Ok(setting) = env::var("TOKIO_TRACING_PORT") {
+            settings.tokio_tracing_port = Some(setting);
         };
         settings
     }

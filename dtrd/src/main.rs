@@ -18,13 +18,14 @@ mod tcpclconverganceagent;
 use crate::common::{agent::Daemon, settings::Settings};
 
 fn spawn_task(
+    name: &str,
     mut daemon: impl Daemon + Send + 'static,
     notify_shutdown: &broadcast::Sender<()>,
     shutdown_complete: &mpsc::Sender<()>,
 ) -> JoinHandle<Result<(), String>> {
     let shutdown_notifier = notify_shutdown.subscribe();
     let shutdown_complete_tx_task = shutdown_complete.clone();
-    tokio::spawn(async move {
+    tokio::task::Builder::new().name(name).spawn(async move {
         match daemon
             .run(shutdown_notifier, shutdown_complete_tx_task)
             .await
@@ -39,14 +40,22 @@ fn spawn_task(
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     info!("Starting up");
-    runserver(tokio::signal::ctrl_c()).await?;
+    let settings: Settings = Settings::from_env();
+    info!("Starting with settings: {:?}", settings);
+    if let Some(tokio_tracing_port) = settings.tokio_tracing_port.clone() {
+        info!("Initializing tokio tracing on port {}", tokio_tracing_port);
+        console_subscriber::ConsoleLayer::builder()
+            .server_addr(([127, 0, 0, 1], tokio_tracing_port.parse()?))
+            .init();
+    }
+    runserver(tokio::signal::ctrl_c(), settings).await?;
     Ok(())
 }
 
-async fn runserver(ctrl_c: impl Future) -> Result<(), Box<dyn std::error::Error>> {
-    let settings: Settings = Settings::from_env();
-    info!("Starting with settings: {:?}", settings);
-
+async fn runserver(
+    ctrl_c: impl Future,
+    settings: Settings,
+) -> Result<(), Box<dyn std::error::Error>> {
     let (notify_shutdown, _) = broadcast::channel::<()>(1);
     let (shutdown_complete_tx, mut shutdown_complete_rx) = mpsc::channel::<()>(1);
 
@@ -88,45 +97,73 @@ async fn runserver(ctrl_c: impl Future) -> Result<(), Box<dyn std::error::Error>
     );
 
     let bpa_task = spawn_task(
+        "BundleProtocolAgent",
         bundle_protocol_agent,
         &notify_shutdown,
         &shutdown_complete_tx,
     );
 
-    let routing_agent_task = spawn_task(routing_agent, &notify_shutdown, &shutdown_complete_tx);
+    let routing_agent_task = spawn_task(
+        "RoutingAgent",
+        routing_agent,
+        &notify_shutdown,
+        &shutdown_complete_tx,
+    );
 
     let bsa_task = spawn_task(
+        "BundleStorageAgent",
         bundle_storage_agent,
         &notify_shutdown,
         &shutdown_complete_tx,
     );
 
-    let client_agent_task = spawn_task(client_agent, &notify_shutdown, &shutdown_complete_tx);
+    let client_agent_task = spawn_task(
+        "ClientAgent",
+        client_agent,
+        &notify_shutdown,
+        &shutdown_complete_tx,
+    );
 
     let api_agent_task_shutdown_notifier = notify_shutdown.subscribe();
     let api_agent_task_shutdown_complete_tx_task = shutdown_complete_tx.clone();
     let api_agent_task_client_agent_sender = client_agent_sender.clone();
     let api_agent_task_settings = settings.clone();
-    let api_agent_task = tokio::spawn(async move {
-        match clientgrpcagent::agent::main(
-            &api_agent_task_settings,
-            api_agent_task_shutdown_notifier,
-            api_agent_task_shutdown_complete_tx_task,
-            api_agent_task_client_agent_sender,
-        )
-        .await
-        {
-            Ok(_) => Ok(()),
-            Err(e) => Err(e.to_string()),
-        }
-    });
+    let api_agent_task = tokio::task::Builder::new()
+        .name("ApiAgent")
+        .spawn(async move {
+            match clientgrpcagent::agent::main(
+                &api_agent_task_settings,
+                api_agent_task_shutdown_notifier,
+                api_agent_task_shutdown_complete_tx_task,
+                api_agent_task_client_agent_sender,
+            )
+            .await
+            {
+                Ok(_) => Ok(()),
+                Err(e) => Err(e.to_string()),
+            }
+        });
 
-    let convergance_agent_task =
-        spawn_task(convergance_agent, &notify_shutdown, &shutdown_complete_tx);
+    let convergance_agent_task = spawn_task(
+        "ConverganceAgent",
+        convergance_agent,
+        &notify_shutdown,
+        &shutdown_complete_tx,
+    );
 
-    let tcpcl_agent_task = spawn_task(tcpcl_agent, &notify_shutdown, &shutdown_complete_tx);
+    let tcpcl_agent_task = spawn_task(
+        "TCPCLAgent",
+        tcpcl_agent,
+        &notify_shutdown,
+        &shutdown_complete_tx,
+    );
 
-    let node_agent_task = spawn_task(node_agent, &notify_shutdown, &shutdown_complete_tx);
+    let node_agent_task = spawn_task(
+        "NodeAgent",
+        node_agent,
+        &notify_shutdown,
+        &shutdown_complete_tx,
+    );
 
     tokio::select! {
         res = api_agent_task => {
