@@ -357,7 +357,7 @@ impl Daemon {
 fn get_bundle_sender(
     send_channel: mpsc::Sender<(Vec<u8>, oneshot::Sender<Result<(), TransferSendErrors>>)>,
 ) -> mpsc::Sender<crate::converganceagent::messages::AgentForwardBundle> {
-    let (bundle_sender, mut bundle_receiver) = mpsc::channel::<AgentForwardBundle>(1);
+    let (bundle_sender, mut bundle_receiver) = mpsc::channel::<AgentForwardBundle>(32);
 
     tokio::spawn(async move {
         loop {
