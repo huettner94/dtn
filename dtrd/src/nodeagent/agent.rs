@@ -19,9 +19,9 @@ use super::messages::{Node, NodeAgentRequest, NodeConnectionStatus};
 
 pub struct Daemon {
     nodes: Vec<Node>,
-    channel_receiver: Option<mpsc::Receiver<NodeAgentRequest>>,
-    convergance_agent_sender: Option<mpsc::Sender<ConverganceAgentRequest>>,
-    routing_agent_sender: Option<mpsc::Sender<RoutingAgentRequest>>,
+    channel_receiver: Option<mpsc::UnboundedReceiver<NodeAgentRequest>>,
+    convergance_agent_sender: Option<mpsc::UnboundedSender<ConverganceAgentRequest>>,
+    routing_agent_sender: Option<mpsc::UnboundedSender<RoutingAgentRequest>>,
 }
 
 #[async_trait]
@@ -41,14 +41,14 @@ impl crate::common::agent::Daemon for Daemon {
         "Node Agent"
     }
 
-    fn get_channel_receiver(&mut self) -> Option<mpsc::Receiver<Self::MessageType>> {
+    fn get_channel_receiver(&mut self) -> Option<mpsc::UnboundedReceiver<Self::MessageType>> {
         self.channel_receiver.take()
     }
 
     async fn main_loop(
         &mut self,
         shutdown: &mut Shutdown,
-        receiver: &mut mpsc::Receiver<Self::MessageType>,
+        receiver: &mut mpsc::UnboundedReceiver<Self::MessageType>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut reconnect_interval = interval(Duration::from_secs(60));
         while !shutdown.is_shutdown() {
@@ -97,12 +97,12 @@ impl crate::common::agent::Daemon for Daemon {
 impl Daemon {
     pub fn init_channels(
         &mut self,
-        convergance_agent_sender: mpsc::Sender<ConverganceAgentRequest>,
-        routing_agent_sender: mpsc::Sender<RoutingAgentRequest>,
-    ) -> mpsc::Sender<NodeAgentRequest> {
+        convergance_agent_sender: mpsc::UnboundedSender<ConverganceAgentRequest>,
+        routing_agent_sender: mpsc::UnboundedSender<RoutingAgentRequest>,
+    ) -> mpsc::UnboundedSender<NodeAgentRequest> {
         self.convergance_agent_sender = Some(convergance_agent_sender);
         self.routing_agent_sender = Some(routing_agent_sender);
-        let (channel_sender, channel_receiver) = mpsc::channel::<NodeAgentRequest>(1);
+        let (channel_sender, channel_receiver) = mpsc::unbounded_channel::<NodeAgentRequest>();
         self.channel_receiver = Some(channel_receiver);
         return channel_sender;
     }
@@ -124,15 +124,11 @@ impl Daemon {
         if !self.nodes.contains(&node) {
             node.connection_status = NodeConnectionStatus::Connecting;
             self.nodes.push(node);
-            if let Err(e) = self
-                .convergance_agent_sender
-                .as_ref()
-                .unwrap()
-                .send(ConverganceAgentRequest::AgentConnectNode {
+            if let Err(e) = self.convergance_agent_sender.as_ref().unwrap().send(
+                ConverganceAgentRequest::AgentConnectNode {
                     connection_string: url,
-                })
-                .await
-            {
+                },
+            ) {
                 error!("Error sending request to convergance agent: {:?}", e)
             }
         }
@@ -151,15 +147,11 @@ impl Daemon {
                 node.temporary = true;
                 node.connection_status = NodeConnectionStatus::Disconnecting;
 
-                if let Err(e) = self
-                    .convergance_agent_sender
-                    .as_ref()
-                    .unwrap()
-                    .send(ConverganceAgentRequest::AgentDisconnectNode {
+                if let Err(e) = self.convergance_agent_sender.as_ref().unwrap().send(
+                    ConverganceAgentRequest::AgentDisconnectNode {
                         connection_string: url,
-                    })
-                    .await
-                {
+                    },
+                ) {
                     error!("Error sending request to convergance agent: {:?}", e)
                 }
             }
@@ -188,17 +180,16 @@ impl Daemon {
                 });
             }
         }
-        if let Err(e) = self
-            .routing_agent_sender
-            .as_ref()
-            .unwrap()
-            .send(RoutingAgentRequest::AddRoute {
-                target: endpoint.clone(),
-                route_type: RouteType::Connected,
-                next_hop: endpoint,
-                max_bundle_size: Some(max_bundle_size),
-            })
-            .await
+        if let Err(e) =
+            self.routing_agent_sender
+                .as_ref()
+                .unwrap()
+                .send(RoutingAgentRequest::AddRoute {
+                    target: endpoint.clone(),
+                    route_type: RouteType::Connected,
+                    next_hop: endpoint,
+                    max_bundle_size: Some(max_bundle_size),
+                })
         {
             error!(
                 "Error sending node add notification to routing agent: {:?}",
@@ -213,17 +204,13 @@ impl Daemon {
                 let node = &mut self.nodes[pos];
 
                 if node.remote_endpoint.is_some() {
-                    if let Err(e) = self
-                        .routing_agent_sender
-                        .as_ref()
-                        .unwrap()
-                        .send(RoutingAgentRequest::RemoveRoute {
+                    if let Err(e) = self.routing_agent_sender.as_ref().unwrap().send(
+                        RoutingAgentRequest::RemoveRoute {
                             target: node.remote_endpoint.clone().unwrap(),
                             route_type: RouteType::Connected,
                             next_hop: node.remote_endpoint.clone().unwrap(),
-                        })
-                        .await
-                    {
+                        },
+                    ) {
                         error!(
                             "Error sending node remove notification to routing agent: {:?}",
                             e
@@ -252,15 +239,11 @@ impl Daemon {
             if node.connection_status == NodeConnectionStatus::Disconnected && !node.temporary {
                 info!("Trying to reconnect to {}", node.url);
                 node.connection_status = NodeConnectionStatus::Connecting;
-                if let Err(e) = self
-                    .convergance_agent_sender
-                    .as_ref()
-                    .unwrap()
-                    .send(ConverganceAgentRequest::AgentConnectNode {
+                if let Err(e) = self.convergance_agent_sender.as_ref().unwrap().send(
+                    ConverganceAgentRequest::AgentConnectNode {
                         connection_string: node.url.clone(),
-                    })
-                    .await
-                {
+                    },
+                ) {
                     error!("Error sending request to convergance agent: {:?}", e)
                 }
             }

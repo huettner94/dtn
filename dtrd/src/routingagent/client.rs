@@ -5,7 +5,7 @@ use tokio::sync::{mpsc, oneshot};
 use super::messages::{NexthopInfo, RoutingAgentRequest};
 
 pub async fn get_next_hop(
-    sender: &mpsc::Sender<RoutingAgentRequest>,
+    sender: &mpsc::UnboundedSender<RoutingAgentRequest>,
     target: Endpoint,
 ) -> Option<NexthopInfo> {
     let (responder_sender, responder_receiver) = oneshot::channel();
@@ -14,7 +14,6 @@ pub async fn get_next_hop(
             target,
             responder: responder_sender,
         })
-        .await
     {
         Ok(_) => match responder_receiver.await {
             Ok(e) => e,

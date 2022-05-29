@@ -17,10 +17,10 @@ use super::messages::{ClientAgentRequest, ListenBundlesResponse};
 
 pub struct Daemon {
     clients: HashMap<Endpoint, (mpsc::Sender<ListenBundlesResponse>, CancellationToken)>,
-    channel_receiver: Option<mpsc::Receiver<ClientAgentRequest>>,
-    bpa_sender: Option<mpsc::Sender<BPARequest>>,
-    node_agent_sender: Option<mpsc::Sender<NodeAgentRequest>>,
-    routing_agent_sender: Option<mpsc::Sender<RoutingAgentRequest>>,
+    channel_receiver: Option<mpsc::UnboundedReceiver<ClientAgentRequest>>,
+    bpa_sender: Option<mpsc::UnboundedSender<BPARequest>>,
+    node_agent_sender: Option<mpsc::UnboundedSender<NodeAgentRequest>>,
+    routing_agent_sender: Option<mpsc::UnboundedSender<RoutingAgentRequest>>,
 }
 
 #[async_trait]
@@ -41,7 +41,7 @@ impl crate::common::agent::Daemon for Daemon {
         "ClientAgent"
     }
 
-    fn get_channel_receiver(&mut self) -> Option<mpsc::Receiver<Self::MessageType>> {
+    fn get_channel_receiver(&mut self) -> Option<mpsc::UnboundedReceiver<Self::MessageType>> {
         self.channel_receiver.take()
     }
 
@@ -104,14 +104,14 @@ impl crate::common::agent::Daemon for Daemon {
 impl Daemon {
     pub fn init_channels(
         &mut self,
-        bpa_sender: tokio::sync::mpsc::Sender<BPARequest>,
-        node_agent_sender: mpsc::Sender<NodeAgentRequest>,
-        routing_agent_sender: mpsc::Sender<RoutingAgentRequest>,
-    ) -> mpsc::Sender<ClientAgentRequest> {
+        bpa_sender: tokio::sync::mpsc::UnboundedSender<BPARequest>,
+        node_agent_sender: mpsc::UnboundedSender<NodeAgentRequest>,
+        routing_agent_sender: mpsc::UnboundedSender<RoutingAgentRequest>,
+    ) -> mpsc::UnboundedSender<ClientAgentRequest> {
         self.bpa_sender = Some(bpa_sender);
         self.node_agent_sender = Some(node_agent_sender);
         self.routing_agent_sender = Some(routing_agent_sender);
-        let (channel_sender, channel_receiver) = mpsc::channel::<ClientAgentRequest>(1);
+        let (channel_sender, channel_receiver) = mpsc::unbounded_channel::<ClientAgentRequest>();
         self.channel_receiver = Some(channel_receiver);
         return channel_sender;
     }
@@ -125,15 +125,12 @@ impl Daemon {
         responder: oneshot::Sender<Result<(), ()>>,
     ) {
         let sender = self.bpa_sender.as_ref().unwrap();
-        if let Err(e) = sender
-            .send(BPARequest::SendBundle {
-                destination,
-                payload,
-                lifetime,
-                responder,
-            })
-            .await
-        {
+        if let Err(e) = sender.send(BPARequest::SendBundle {
+            destination,
+            payload,
+            lifetime,
+            responder,
+        }) {
             error!("Error sending bundle send request to BPA: {:?}", e);
         }
     }
@@ -148,13 +145,10 @@ impl Daemon {
         let sender = self.bpa_sender.as_ref().unwrap();
         let (endpoint_local_response_sender, endpoint_local_response_receiver) =
             oneshot::channel::<bool>();
-        if let Err(e) = sender
-            .send(BPARequest::IsEndpointLocal {
-                endpoint: destination.clone(),
-                sender: endpoint_local_response_sender,
-            })
-            .await
-        {
+        if let Err(e) = sender.send(BPARequest::IsEndpointLocal {
+            endpoint: destination.clone(),
+            sender: endpoint_local_response_sender,
+        }) {
             error!("Error sending is_endpoint_local to BPA: {:?}", e);
             if let Err(e) = status.send(Err("internal error".to_string())) {
                 error!("Error sending response to requestor {:?}", e);
@@ -184,10 +178,7 @@ impl Daemon {
 
         self.clients
             .insert(destination.clone(), (responder.clone(), canceltoken));
-        if let Err(e) = sender
-            .send(BPARequest::NewClientConnected { destination })
-            .await
-        {
+        if let Err(e) = sender.send(BPARequest::NewClientConnected { destination }) {
             error!("Error sending bundle send request to BPA: {:?}", e);
         }
 
@@ -202,7 +193,6 @@ impl Daemon {
             .as_ref()
             .unwrap()
             .send(NodeAgentRequest::ListNodes { responder })
-            .await
         {
             error!("Error sending request to node agent {:?}", e);
         }
@@ -214,7 +204,6 @@ impl Daemon {
             .as_ref()
             .unwrap()
             .send(NodeAgentRequest::AddNode { url })
-            .await
         {
             error!("Error sending request to node agent {:?}", e);
         }
@@ -226,7 +215,6 @@ impl Daemon {
             .as_ref()
             .unwrap()
             .send(NodeAgentRequest::RemoveNode { url })
-            .await
         {
             error!("Error sending request to node agent {:?}", e);
         }
@@ -238,40 +226,37 @@ impl Daemon {
             .as_ref()
             .unwrap()
             .send(RoutingAgentRequest::ListRoutes { responder })
-            .await
         {
             error!("Error sending request to route agent {:?}", e);
         }
     }
 
     async fn message_client_add_route(&self, target: Endpoint, next_hop: Endpoint) {
-        if let Err(e) = self
-            .routing_agent_sender
-            .as_ref()
-            .unwrap()
-            .send(RoutingAgentRequest::AddRoute {
-                target,
-                next_hop,
-                route_type: RouteType::Static,
-                max_bundle_size: None,
-            })
-            .await
+        if let Err(e) =
+            self.routing_agent_sender
+                .as_ref()
+                .unwrap()
+                .send(RoutingAgentRequest::AddRoute {
+                    target,
+                    next_hop,
+                    route_type: RouteType::Static,
+                    max_bundle_size: None,
+                })
         {
             error!("Error sending request to route agent {:?}", e);
         }
     }
 
     async fn message_client_remove_route(&self, target: Endpoint, next_hop: Endpoint) {
-        if let Err(e) = self
-            .routing_agent_sender
-            .as_ref()
-            .unwrap()
-            .send(RoutingAgentRequest::RemoveRoute {
-                target,
-                next_hop,
-                route_type: RouteType::Static,
-            })
-            .await
+        if let Err(e) =
+            self.routing_agent_sender
+                .as_ref()
+                .unwrap()
+                .send(RoutingAgentRequest::RemoveRoute {
+                    target,
+                    next_hop,
+                    route_type: RouteType::Static,
+                })
         {
             error!("Error sending request to route agent {:?}", e);
         }

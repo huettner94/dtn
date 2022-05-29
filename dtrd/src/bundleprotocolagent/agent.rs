@@ -36,11 +36,11 @@ use super::messages::BPARequest;
 
 pub struct Daemon {
     endpoint: Endpoint,
-    channel_receiver: Option<mpsc::Receiver<BPARequest>>,
-    bsa_sender: Option<mpsc::Sender<BSARequest>>,
-    client_agent_sender: Option<mpsc::Sender<ClientAgentRequest>>,
-    convergance_agent_sender: Option<mpsc::Sender<ConverganceAgentRequest>>,
-    routing_agent_sender: Option<mpsc::Sender<RoutingAgentRequest>>,
+    channel_receiver: Option<mpsc::UnboundedReceiver<BPARequest>>,
+    bsa_sender: Option<mpsc::UnboundedSender<BSARequest>>,
+    client_agent_sender: Option<mpsc::UnboundedSender<ClientAgentRequest>>,
+    convergance_agent_sender: Option<mpsc::UnboundedSender<ConverganceAgentRequest>>,
+    routing_agent_sender: Option<mpsc::UnboundedSender<RoutingAgentRequest>>,
     todo_bundles: VecDeque<StoredBundle>,
 }
 
@@ -64,7 +64,7 @@ impl crate::common::agent::Daemon for Daemon {
         "BPA"
     }
 
-    fn get_channel_receiver(&mut self) -> Option<mpsc::Receiver<Self::MessageType>> {
+    fn get_channel_receiver(&mut self) -> Option<mpsc::UnboundedReceiver<Self::MessageType>> {
         self.channel_receiver.take()
     }
 
@@ -79,7 +79,7 @@ impl crate::common::agent::Daemon for Daemon {
     async fn main_loop(
         &mut self,
         shutdown: &mut Shutdown,
-        receiver: &mut mpsc::Receiver<Self::MessageType>,
+        receiver: &mut mpsc::UnboundedReceiver<Self::MessageType>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         while !shutdown.is_shutdown() {
             match receiver.try_recv() {
@@ -143,20 +143,20 @@ impl crate::common::agent::Daemon for Daemon {
 impl Daemon {
     pub fn init_channels(
         &mut self,
-        bsa_sender: tokio::sync::mpsc::Sender<BSARequest>,
-        routing_agent_sender: mpsc::Sender<RoutingAgentRequest>,
-    ) -> mpsc::Sender<BPARequest> {
+        bsa_sender: tokio::sync::mpsc::UnboundedSender<BSARequest>,
+        routing_agent_sender: mpsc::UnboundedSender<RoutingAgentRequest>,
+    ) -> mpsc::UnboundedSender<BPARequest> {
         self.bsa_sender = Some(bsa_sender);
         self.routing_agent_sender = Some(routing_agent_sender);
-        let (channel_sender, channel_receiver) = mpsc::channel::<BPARequest>(1);
+        let (channel_sender, channel_receiver) = mpsc::unbounded_channel::<BPARequest>();
         self.channel_receiver = Some(channel_receiver);
         return channel_sender;
     }
 
     pub fn set_agents(
         &mut self,
-        client_agent_sender: mpsc::Sender<ClientAgentRequest>,
-        convergance_agent_sender: mpsc::Sender<ConverganceAgentRequest>,
+        client_agent_sender: mpsc::UnboundedSender<ClientAgentRequest>,
+        convergance_agent_sender: mpsc::UnboundedSender<ConverganceAgentRequest>,
     ) {
         self.client_agent_sender = Some(client_agent_sender);
         self.convergance_agent_sender = Some(convergance_agent_sender);
@@ -221,15 +221,14 @@ impl Daemon {
 
     async fn message_new_client_connected(&mut self, destination: Endpoint) {
         let (response_sender, response_receiver) = oneshot::channel();
-        if let Err(e) = self
-            .bsa_sender
-            .as_ref()
-            .unwrap()
-            .send(BSARequest::GetBundleForDestination {
-                destination,
-                bundles: response_sender,
-            })
-            .await
+        if let Err(e) =
+            self.bsa_sender
+                .as_ref()
+                .unwrap()
+                .send(BSARequest::GetBundleForDestination {
+                    destination,
+                    bundles: response_sender,
+                })
         {
             error!("Error sending request to bsa {:?}", e);
         };
@@ -260,7 +259,6 @@ impl Daemon {
                     destination,
                     bundles: response_sender,
                 })
-                .await
             {
                 error!("Error sending request to bsa {:?}", e);
             };
@@ -511,13 +509,10 @@ impl Daemon {
             oneshot::channel::<Option<mpsc::Sender<ListenBundlesResponse>>>();
 
         let client_agent = self.client_agent_sender.as_ref().unwrap();
-        if let Err(e) = client_agent
-            .send(ClientAgentRequest::AgentGetClient {
-                destination: endpoint,
-                responder: responder_sender,
-            })
-            .await
-        {
+        if let Err(e) = client_agent.send(ClientAgentRequest::AgentGetClient {
+            destination: endpoint,
+            responder: responder_sender,
+        }) {
             error!("Error sending request to Client Agent: {:?}", e);
             return None;
         }
@@ -539,13 +534,10 @@ impl Daemon {
             oneshot::channel::<Option<mpsc::Sender<AgentForwardBundle>>>();
 
         let convergance_agent = self.convergance_agent_sender.as_ref().unwrap();
-        if let Err(e) = convergance_agent
-            .send(ConverganceAgentRequest::AgentGetNode {
-                destination: endpoint,
-                responder: responder_sender,
-            })
-            .await
-        {
+        if let Err(e) = convergance_agent.send(ConverganceAgentRequest::AgentGetNode {
+            destination: endpoint,
+            responder: responder_sender,
+        }) {
             error!("Error sending request to Convergance Agent: {:?}", e);
             return None;
         }

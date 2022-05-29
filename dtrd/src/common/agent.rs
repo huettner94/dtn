@@ -14,7 +14,7 @@ pub trait Daemon {
 
     fn get_agent_name(&self) -> &'static str;
 
-    fn get_channel_receiver(&mut self) -> Option<mpsc::Receiver<Self::MessageType>>;
+    fn get_channel_receiver(&mut self) -> Option<mpsc::UnboundedReceiver<Self::MessageType>>;
 
     fn validate(&self) {}
 
@@ -49,7 +49,7 @@ pub trait Daemon {
     async fn main_loop(
         &mut self,
         shutdown: &mut Shutdown,
-        receiver: &mut mpsc::Receiver<Self::MessageType>,
+        receiver: &mut mpsc::UnboundedReceiver<Self::MessageType>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         while !shutdown.is_shutdown() {
             tokio::select! {

@@ -9,7 +9,7 @@ use super::{messages::BSARequest, StoredBundle};
 
 pub struct Daemon {
     bundles: Vec<StoredBundle>,
-    channel_receiver: Option<mpsc::Receiver<BSARequest>>,
+    channel_receiver: Option<mpsc::UnboundedReceiver<BSARequest>>,
 }
 
 #[async_trait]
@@ -27,7 +27,7 @@ impl crate::common::agent::Daemon for Daemon {
         "BSA"
     }
 
-    fn get_channel_receiver(&mut self) -> Option<mpsc::Receiver<Self::MessageType>> {
+    fn get_channel_receiver(&mut self) -> Option<mpsc::UnboundedReceiver<Self::MessageType>> {
         self.channel_receiver.take()
     }
 
@@ -69,8 +69,8 @@ impl crate::common::agent::Daemon for Daemon {
 }
 
 impl Daemon {
-    pub fn init_channels(&mut self) -> mpsc::Sender<BSARequest> {
-        let (channel_sender, channel_receiver) = mpsc::channel::<BSARequest>(1);
+    pub fn init_channels(&mut self) -> mpsc::UnboundedSender<BSARequest> {
+        let (channel_sender, channel_receiver) = mpsc::unbounded_channel::<BSARequest>();
         self.channel_receiver = Some(channel_receiver);
         return channel_sender;
     }

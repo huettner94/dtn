@@ -57,7 +57,7 @@ impl Drop for ListenBundleResponseTransformer {
 }
 
 pub struct MyBundleService {
-    client_agent_sender: mpsc::Sender<ClientAgentRequest>,
+    client_agent_sender: mpsc::UnboundedSender<ClientAgentRequest>,
 }
 
 #[tonic::async_trait]
@@ -79,7 +79,6 @@ impl BundleService for MyBundleService {
 
         self.client_agent_sender
             .send(msg)
-            .await
             .map_err(|e| tonic::Status::unknown(e.to_string()))?;
 
         match send_result_receiver.await {
@@ -115,7 +114,6 @@ impl BundleService for MyBundleService {
 
         self.client_agent_sender
             .send(msg)
-            .await
             .map_err(|e| tonic::Status::unknown(e.to_string()))?;
 
         match status_receiver.await {
@@ -131,7 +129,7 @@ impl BundleService for MyBundleService {
     }
 }
 pub struct MyAdminService {
-    client_agent_sender: mpsc::Sender<ClientAgentRequest>,
+    client_agent_sender: mpsc::UnboundedSender<ClientAgentRequest>,
 }
 
 #[tonic::async_trait]
@@ -147,7 +145,6 @@ impl AdminService for MyAdminService {
 
         self.client_agent_sender
             .send(msg)
-            .await
             .map_err(|e| tonic::Status::unknown(e.to_string()))?;
 
         match list_nodes_receiver.await {
@@ -181,7 +178,6 @@ impl AdminService for MyAdminService {
 
         self.client_agent_sender
             .send(msg)
-            .await
             .map_err(|e| tonic::Status::unknown(e.to_string()))?;
         Ok(Response::new(adminservice::AddNodeResponse {}))
     }
@@ -196,7 +192,6 @@ impl AdminService for MyAdminService {
 
         self.client_agent_sender
             .send(msg)
-            .await
             .map_err(|e| tonic::Status::unknown(e.to_string()))?;
         Ok(Response::new(adminservice::RemoveNodeResponse {}))
     }
@@ -212,7 +207,6 @@ impl AdminService for MyAdminService {
 
         self.client_agent_sender
             .send(msg)
-            .await
             .map_err(|e| tonic::Status::unknown(e.to_string()))?;
 
         match list_routes_receiver.await {
@@ -261,7 +255,6 @@ impl AdminService for MyAdminService {
 
         self.client_agent_sender
             .send(msg)
-            .await
             .map_err(|e| tonic::Status::unknown(e.to_string()))?;
         Ok(Response::new(adminservice::AddRouteResponse {}))
     }
@@ -285,7 +278,6 @@ impl AdminService for MyAdminService {
 
         self.client_agent_sender
             .send(msg)
-            .await
             .map_err(|e| tonic::Status::unknown(e.to_string()))?;
         Ok(Response::new(adminservice::RemoveRouteResponse {}))
     }
@@ -295,7 +287,7 @@ pub async fn main(
     settings: &Settings,
     mut shutdown: broadcast::Receiver<()>,
     _sender: mpsc::Sender<()>,
-    client_agent_sender: mpsc::Sender<ClientAgentRequest>,
+    client_agent_sender: mpsc::UnboundedSender<ClientAgentRequest>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let addr = settings.grpc_clientapi_address.parse().unwrap();
     let bundle_service = MyBundleService {

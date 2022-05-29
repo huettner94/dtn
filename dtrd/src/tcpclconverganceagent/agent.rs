@@ -24,8 +24,8 @@ use super::messages::TCPCLAgentRequest;
 pub struct Daemon {
     settings: Settings,
     tls_settings: Option<TLSSettings>,
-    channel_receiver: Option<mpsc::Receiver<TCPCLAgentRequest>>,
-    convergance_agent_sender: Option<mpsc::Sender<ConverganceAgentRequest>>,
+    channel_receiver: Option<mpsc::UnboundedReceiver<TCPCLAgentRequest>>,
+    convergance_agent_sender: Option<mpsc::UnboundedSender<ConverganceAgentRequest>>,
     tcpcl_sessions: Vec<JoinHandle<()>>,
     close_channels: HashMap<SocketAddr, oneshot::Sender<()>>,
 }
@@ -60,14 +60,14 @@ impl crate::common::agent::Daemon for Daemon {
         "TCPCL Agent"
     }
 
-    fn get_channel_receiver(&mut self) -> Option<mpsc::Receiver<Self::MessageType>> {
+    fn get_channel_receiver(&mut self) -> Option<mpsc::UnboundedReceiver<Self::MessageType>> {
         self.channel_receiver.take()
     }
 
     async fn main_loop(
         &mut self,
         shutdown: &mut Shutdown,
-        receiver: &mut mpsc::Receiver<Self::MessageType>,
+        receiver: &mut mpsc::UnboundedReceiver<Self::MessageType>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let socket: SocketAddr = self.settings.tcpcl_listen_address.parse().unwrap();
 
@@ -165,10 +165,10 @@ impl Daemon {
 
     pub fn init_channels(
         &mut self,
-        convergance_agent_sender: mpsc::Sender<ConverganceAgentRequest>,
-    ) -> mpsc::Sender<TCPCLAgentRequest> {
+        convergance_agent_sender: mpsc::UnboundedSender<ConverganceAgentRequest>,
+    ) -> mpsc::UnboundedSender<TCPCLAgentRequest> {
         self.convergance_agent_sender = Some(convergance_agent_sender);
-        let (channel_sender, channel_receiver) = mpsc::channel::<TCPCLAgentRequest>(1);
+        let (channel_sender, channel_receiver) = mpsc::unbounded_channel::<TCPCLAgentRequest>();
         self.channel_receiver = Some(channel_receiver);
         return channel_sender;
     }
@@ -184,16 +184,12 @@ impl Daemon {
             Ok(sess) => self.process_socket(sess).await,
             Err(e) => {
                 error!("Error connecting to requested remote {}: {:?}", socket, e);
-                if let Err(e) = self
-                    .convergance_agent_sender
-                    .as_ref()
-                    .unwrap()
-                    .send(ConverganceAgentRequest::CLUnregisterNode {
+                if let Err(e) = self.convergance_agent_sender.as_ref().unwrap().send(
+                    ConverganceAgentRequest::CLUnregisterNode {
                         node: None,
                         url: format!("tcpcl://{}", &socket),
-                    })
-                    .await
-                {
+                    },
+                ) {
                     error!("Error sending message to convergance agent: {:?}", e);
                 }
             }
@@ -254,17 +250,16 @@ impl Daemon {
                 Ok(ci) => match Endpoint::new(&ci.peer_endpoint.as_ref().unwrap()) {
                     Some(node) => {
                         let bundle_sender = get_bundle_sender(send_channel);
-                        if let Err(e) = established_convergane_agent_sender
-                            .send(ConverganceAgentRequest::CLRegisterNode {
+                        if let Err(e) = established_convergane_agent_sender.send(
+                            ConverganceAgentRequest::CLRegisterNode {
                                 url: format!("tcpcl://{}", ci.peer_address),
                                 node,
                                 max_bundle_size: ci
                                     .max_bundle_size
                                     .expect("We must have a bundle size if we are connected"),
                                 sender: bundle_sender,
-                            })
-                            .await
-                        {
+                            },
+                        ) {
                             warn!(
                                 "Error sending node registration to Convergance Agent: {:?}",
                                 e
@@ -297,13 +292,12 @@ impl Daemon {
                             Ok(bundle) => {
                                 let (forward_response_sender, forward_response_receiver) =
                                     oneshot::channel();
-                                match receiver_convergane_agent_sender
-                                    .send(ConverganceAgentRequest::CLForwardBundle {
+                                match receiver_convergane_agent_sender.send(
+                                    ConverganceAgentRequest::CLForwardBundle {
                                         bundle,
                                         responder: forward_response_sender,
-                                    })
-                                    .await
-                                {
+                                    },
+                                ) {
                                     Ok(_) => {
                                         match forward_response_receiver.await {
                                             Ok(_) => {}
@@ -343,12 +337,11 @@ impl Daemon {
                 Some(endpoint) => Endpoint::new(&endpoint),
                 None => None,
             };
-            if let Err(e) = finished_convergane_agent_sender
-                .send(ConverganceAgentRequest::CLUnregisterNode {
+            if let Err(e) =
+                finished_convergane_agent_sender.send(ConverganceAgentRequest::CLUnregisterNode {
                     url: format!("tcpcl://{}", ci.peer_address),
                     node,
                 })
-                .await
             {
                 warn!(
                     "Error sending node unregistration to Convergance Agent: {:?}",

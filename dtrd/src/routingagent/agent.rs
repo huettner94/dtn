@@ -34,8 +34,8 @@ impl PartialEq for RouteEntry {
 
 pub struct Daemon {
     routes: HashMap<Endpoint, HashSet<RouteEntry>>,
-    channel_receiver: Option<mpsc::Receiver<RoutingAgentRequest>>,
-    bpa_sender: Option<mpsc::Sender<BPARequest>>,
+    channel_receiver: Option<mpsc::UnboundedReceiver<RoutingAgentRequest>>,
+    bpa_sender: Option<mpsc::UnboundedSender<BPARequest>>,
 }
 
 #[async_trait]
@@ -54,7 +54,7 @@ impl crate::common::agent::Daemon for Daemon {
         "Routing Agent"
     }
 
-    fn get_channel_receiver(&mut self) -> Option<mpsc::Receiver<Self::MessageType>> {
+    fn get_channel_receiver(&mut self) -> Option<mpsc::UnboundedReceiver<Self::MessageType>> {
         self.channel_receiver.take()
     }
 
@@ -94,13 +94,13 @@ impl crate::common::agent::Daemon for Daemon {
 }
 
 impl Daemon {
-    pub fn init_channels(&mut self) -> mpsc::Sender<RoutingAgentRequest> {
-        let (channel_sender, channel_receiver) = mpsc::channel::<RoutingAgentRequest>(1);
+    pub fn init_channels(&mut self) -> mpsc::UnboundedSender<RoutingAgentRequest> {
+        let (channel_sender, channel_receiver) = mpsc::unbounded_channel::<RoutingAgentRequest>();
         self.channel_receiver = Some(channel_receiver);
         return channel_sender;
     }
 
-    pub fn set_senders(&mut self, bpa_sender: mpsc::Sender<BPARequest>) {
+    pub fn set_senders(&mut self, bpa_sender: mpsc::UnboundedSender<BPARequest>) {
         self.bpa_sender = Some(bpa_sender);
     }
 
@@ -129,14 +129,13 @@ impl Daemon {
                 .collect();
             debug!("New routes added to routing table for: {:?}", new_routes);
             if !new_routes.is_empty() {
-                if let Err(e) = self
-                    .bpa_sender
-                    .as_ref()
-                    .unwrap()
-                    .send(BPARequest::NewRoutesAvailable {
-                        destinations: new_routes,
-                    })
-                    .await
+                if let Err(e) =
+                    self.bpa_sender
+                        .as_ref()
+                        .unwrap()
+                        .send(BPARequest::NewRoutesAvailable {
+                            destinations: new_routes,
+                        })
                 {
                     error!("Error sending new route notification to bpa: {:?}", e);
                 }

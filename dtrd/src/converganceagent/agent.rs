@@ -14,10 +14,10 @@ use super::messages::{AgentForwardBundle, ConverganceAgentRequest};
 
 pub struct Daemon {
     connected_nodes: HashMap<Endpoint, mpsc::Sender<AgentForwardBundle>>,
-    channel_receiver: Option<mpsc::Receiver<ConverganceAgentRequest>>,
-    bpa_sender: Option<mpsc::Sender<BPARequest>>,
-    node_agent_sender: Option<mpsc::Sender<NodeAgentRequest>>,
-    tcpcl_agent_sender: Option<mpsc::Sender<TCPCLAgentRequest>>,
+    channel_receiver: Option<mpsc::UnboundedReceiver<ConverganceAgentRequest>>,
+    bpa_sender: Option<mpsc::UnboundedSender<BPARequest>>,
+    node_agent_sender: Option<mpsc::UnboundedSender<NodeAgentRequest>>,
+    tcpcl_agent_sender: Option<mpsc::UnboundedSender<TCPCLAgentRequest>>,
 }
 
 #[async_trait]
@@ -38,7 +38,7 @@ impl crate::common::agent::Daemon for Daemon {
         "ConverganceAgent"
     }
 
-    fn get_channel_receiver(&mut self) -> Option<mpsc::Receiver<Self::MessageType>> {
+    fn get_channel_receiver(&mut self) -> Option<mpsc::UnboundedReceiver<Self::MessageType>> {
         self.channel_receiver.take()
     }
 
@@ -86,18 +86,19 @@ impl crate::common::agent::Daemon for Daemon {
 impl Daemon {
     pub fn init_channels(
         &mut self,
-        bpa_sender: mpsc::Sender<BPARequest>,
-    ) -> mpsc::Sender<ConverganceAgentRequest> {
+        bpa_sender: mpsc::UnboundedSender<BPARequest>,
+    ) -> mpsc::UnboundedSender<ConverganceAgentRequest> {
         self.bpa_sender = Some(bpa_sender);
-        let (channel_sender, channel_receiver) = mpsc::channel::<ConverganceAgentRequest>(1);
+        let (channel_sender, channel_receiver) =
+            mpsc::unbounded_channel::<ConverganceAgentRequest>();
         self.channel_receiver = Some(channel_receiver);
         return channel_sender;
     }
 
     pub fn set_senders(
         &mut self,
-        node_agent_sender: mpsc::Sender<NodeAgentRequest>,
-        tcpcl_agent_sender: mpsc::Sender<TCPCLAgentRequest>,
+        node_agent_sender: mpsc::UnboundedSender<NodeAgentRequest>,
+        tcpcl_agent_sender: mpsc::UnboundedSender<TCPCLAgentRequest>,
     ) {
         self.node_agent_sender = Some(node_agent_sender);
         self.tcpcl_agent_sender = Some(tcpcl_agent_sender);
@@ -128,7 +129,6 @@ impl Daemon {
                             .as_ref()
                             .unwrap()
                             .send(TCPCLAgentRequest::ConnectRemote { socket })
-                            .await
                         {
                             error!("Error sending request to tcpcl agent {:?}", e);
                         }
@@ -164,7 +164,6 @@ impl Daemon {
                             .as_ref()
                             .unwrap()
                             .send(TCPCLAgentRequest::DisonnectRemote { socket })
-                            .await
                         {
                             error!("Error sending request to tcpcl agent {:?}", e);
                         }
@@ -199,16 +198,15 @@ impl Daemon {
     ) {
         info!("Received a registration request for node {}", node);
         self.connected_nodes.insert(node.clone(), sender);
-        if let Err(e) = self
-            .node_agent_sender
-            .as_ref()
-            .unwrap()
-            .send(NodeAgentRequest::NotifyNodeConnected {
-                url,
-                endpoint: node.clone(),
-                max_bundle_size,
-            })
-            .await
+        if let Err(e) =
+            self.node_agent_sender
+                .as_ref()
+                .unwrap()
+                .send(NodeAgentRequest::NotifyNodeConnected {
+                    url,
+                    endpoint: node.clone(),
+                    max_bundle_size,
+                })
         {
             warn!(
                 "Error sending node connected notification to nodeagent: {:?}",
@@ -230,7 +228,6 @@ impl Daemon {
             .as_ref()
             .unwrap()
             .send(NodeAgentRequest::NotifyNodeDisconnected { url })
-            .await
         {
             warn!(
                 "Error sending node connected notification to nodeagent: {:?}",
@@ -249,7 +246,6 @@ impl Daemon {
             .as_ref()
             .unwrap()
             .send(BPARequest::ReceiveBundle { bundle, responder })
-            .await
         {
             Ok(_) => {}
             Err(e) => {
