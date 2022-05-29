@@ -1,10 +1,20 @@
+use std::fmt::Debug;
+
 use serde::Serialize;
 
 use crate::Validate;
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(PartialEq, Eq, Clone)]
 pub struct PayloadBlock {
     pub data: Vec<u8>,
+}
+
+impl Debug for PayloadBlock {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PayloadBlock")
+            .field("data (length)", &self.data.len())
+            .finish()
+    }
 }
 
 impl Serialize for PayloadBlock {
