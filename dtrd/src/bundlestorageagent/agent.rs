@@ -181,7 +181,13 @@ impl Daemon {
             .into_iter()
             .map(|frag| frag.try_into().expect("This can not happen"))
             .collect();
-        if reassembled.len() == 1 {
+        if reassembled.len() == 1
+            && reassembled[0]
+                .get_bundle()
+                .primary_block
+                .fragment_offset
+                .is_none()
+        {
             if let Err(e) = responder.send(Ok(Some(reassembled.drain(0..1).next().unwrap()))) {
                 error!("Error sending reassembled bundle response: {:?}", e);
             }
