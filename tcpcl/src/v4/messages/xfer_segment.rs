@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use bitflags::bitflags;
 
 use crate::errors::Errors;
@@ -60,12 +62,22 @@ bitflags! {
     }
 }
 
-#[derive(Debug)]
 pub struct XferSegment {
     pub flags: MessageFlags,
     pub transfer_id: u64,
     transfer_extensions: Vec<TransferExtension>,
     pub data: Vec<u8>,
+}
+
+impl Debug for XferSegment {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("XferSegment")
+            .field("flags", &self.flags)
+            .field("transfer_id", &self.transfer_id)
+            .field("transfer_extensions", &self.transfer_extensions)
+            .field("data (length)", &self.data.len())
+            .finish()
+    }
 }
 
 impl XferSegment {
