@@ -311,7 +311,7 @@ impl TCPCLSession {
                     }
                     return Ok(());
                 }
-                _ = (&mut close_channel), if !self.statemachine.connection_closing() => {
+                _ = (&mut close_channel), if !self.statemachine.connection_closing() && self.statemachine.is_established() => {
                     self.statemachine.close_connection(Some(ReasonCode::ResourceExhaustion));
                 }
             }
@@ -549,11 +549,8 @@ impl TCPCLSession {
                 }
                 self.statemachine.send_ack(ack);
             }
-            Ok(Messages::XferAck(x)) => {
-                debug!(
-                    "Got xfer ack, we don't do things as the statemachine cares about that: {:?}",
-                    x
-                );
+            Ok(Messages::XferAck(_)) => {
+                //statemachine cares about it
             }
             Ok(Messages::XferRefuse(x)) => {
                 warn!("Got xfer refuse, no idea what to do now: {:?}", x);
