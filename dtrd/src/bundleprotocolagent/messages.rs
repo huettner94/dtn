@@ -1,6 +1,8 @@
 use bp7::{bundle::Bundle, endpoint::Endpoint};
 use tokio::sync::oneshot;
 
+use crate::bundlestorageagent::StoredBundle;
+
 #[derive(Debug)]
 pub enum BPARequest {
     SendBundle {
@@ -22,5 +24,9 @@ pub enum BPARequest {
     ReceiveBundle {
         bundle: Bundle,
         responder: oneshot::Sender<Result<(), ()>>,
+    },
+    ForwardBundleResult {
+        result: Result<(), ()>,
+        bundle: StoredBundle,
     },
 }

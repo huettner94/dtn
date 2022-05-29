@@ -37,6 +37,7 @@ use super::messages::BPARequest;
 pub struct Daemon {
     endpoint: Endpoint,
     channel_receiver: Option<mpsc::UnboundedReceiver<BPARequest>>,
+    channel_sender: Option<mpsc::UnboundedSender<BPARequest>>,
     bsa_sender: Option<mpsc::UnboundedSender<BSARequest>>,
     client_agent_sender: Option<mpsc::UnboundedSender<ClientAgentRequest>>,
     convergance_agent_sender: Option<mpsc::UnboundedSender<ConverganceAgentRequest>>,
@@ -52,6 +53,7 @@ impl crate::common::agent::Daemon for Daemon {
         Daemon {
             endpoint: Endpoint::new(&settings.my_node_id).unwrap(),
             channel_receiver: None,
+            channel_sender: None,
             bsa_sender: None,
             client_agent_sender: None,
             convergance_agent_sender: None,
@@ -136,6 +138,9 @@ impl crate::common::agent::Daemon for Daemon {
             BPARequest::ReceiveBundle { bundle, responder } => {
                 self.message_receive_bundle(bundle, responder).await;
             }
+            BPARequest::ForwardBundleResult { result, bundle } => {
+                self.message_forward_bundle_result(result, bundle).await;
+            }
         }
     }
 }
@@ -150,6 +155,7 @@ impl Daemon {
         self.routing_agent_sender = Some(routing_agent_sender);
         let (channel_sender, channel_receiver) = mpsc::unbounded_channel::<BPARequest>();
         self.channel_receiver = Some(channel_receiver);
+        self.channel_sender = Some(channel_sender.clone());
         return channel_sender;
     }
 
@@ -304,6 +310,20 @@ impl Daemon {
             error!("Error sending response for received bundle");
         };
     }
+    async fn message_forward_bundle_result(
+        &mut self,
+        result: Result<(), ()>,
+        bundle: StoredBundle,
+    ) {
+        match result {
+            Ok(_) => {
+                self.send_status_report_forwarded(bundle.get_bundle()).await;
+                bundlestorageagent::client::delete_bundle(self.bsa_sender.as_ref().unwrap(), bundle)
+                    .await
+            }
+            Err(_) => {}
+        }
+    }
 
     async fn dispatch_bundle(&mut self, bundle: StoredBundle) {
         if bundle
@@ -351,20 +371,11 @@ impl Daemon {
                 "Bundle is not for me, but for {}. trying to forward",
                 bundle.get_bundle().primary_block.destination_endpoint
             );
-            match self.forward_bundle(&bundle).await {
-                Ok(_) => {
-                    bundlestorageagent::client::delete_bundle(
-                        self.bsa_sender.as_ref().unwrap(),
-                        bundle,
-                    )
-                    .await
-                }
-                Err(_) => {}
-            };
+            self.forward_bundle(&bundle).await
         }
     }
 
-    async fn forward_bundle(&mut self, bundle: &StoredBundle) -> Result<(), ()> {
+    async fn forward_bundle(&mut self, bundle: &StoredBundle) {
         debug!("forwarding bundle {:?}", bundle.get_bundle().primary_block);
 
         match routingagent::client::get_next_hop(
@@ -402,10 +413,10 @@ impl Daemon {
                                     Err(_) => Err(()),
                                 };
                                 if res.is_err() {
-                                    return res;
+                                    return;
                                 }
                             }
-                            return Ok(());
+                            return;
                         }
                         Err(e) => {
                             error!(
@@ -413,7 +424,7 @@ impl Daemon {
                                 max_size.unwrap(),
                                 e
                             );
-                            return Err(());
+                            return;
                         }
                     }
                 }
@@ -426,21 +437,44 @@ impl Daemon {
                         })
                         .await;
                     match result {
-                        Ok(_) => match send_result_receiver.await {
-                            Ok(result) => match result {
-                                Ok(_) => {
-                                    debug!("Bundle forwarded to remote node");
-                                    self.send_status_report_forwarded(bundle.get_bundle()).await;
-                                    return Ok(());
+                        Ok(_) => {
+                            // since this might take arbitrary long we do not want to block
+                            let sender = self.channel_sender.as_ref().unwrap().clone();
+                            let cloned_bundle = bundle.clone();
+                            tokio::task::spawn(async move {
+                                match send_result_receiver.await {
+                                    Ok(result) => match result {
+                                        Ok(_) => {
+                                            debug!("Bundle forwarded to remote node");
+                                            if let Err(e) =
+                                                sender.send(BPARequest::ForwardBundleResult {
+                                                    result: Ok(()),
+                                                    bundle: cloned_bundle,
+                                                })
+                                            {
+                                                error!(
+                                                    "Error sending forward result to bpa {:?}",
+                                                    e
+                                                );
+                                            };
+                                            return;
+                                        }
+                                        Err(_) => {
+                                            warn!("Error during bundle forwarding");
+                                        }
+                                    },
+                                    Err(_) => {
+                                        warn!("Error receiving sending result");
+                                    }
                                 }
-                                Err(_) => {
-                                    warn!("Error during bundle forwarding");
-                                }
-                            },
-                            Err(_) => {
-                                warn!("Error receiving sending result");
-                            }
-                        },
+                                if let Err(e) = sender.send(BPARequest::ForwardBundleResult {
+                                    result: Err(()),
+                                    bundle: cloned_bundle,
+                                }) {
+                                    error!("Error sending forward result to bpa {:?}", e);
+                                };
+                            });
+                        }
                         Err(_) => {
                             info!("Remote node not available. Bundle queued.");
                         }
@@ -453,7 +487,6 @@ impl Daemon {
                 info!("No next hop found. Bundle queued.");
             }
         }
-        return Err(());
     }
 
     async fn local_delivery(&mut self, bundle: &StoredBundle) -> Result<(), ()> {
