@@ -19,12 +19,12 @@ pub async fn store_bundle(
         Ok(_) => match responder_receiver.await {
             Ok(e) => e,
             Err(e) => {
-                error!("Error receiving request from routing agent: {:?}", e);
+                error!("Error receiving request from storage agent: {:?}", e);
                 Err(())
             }
         },
         Err(e) => {
-            error!("Error sending request to routing agent: {:?}", e);
+            error!("Error sending request to storage agent: {:?}", e);
             Err(())
         }
     }
@@ -34,7 +34,7 @@ pub async fn delete_bundle(sender: &mpsc::Sender<BSARequest>, bundle: StoredBund
     match sender.send(BSARequest::DeleteBundle { bundle }).await {
         Ok(_) => {}
         Err(e) => {
-            error!("Error sending request to routing agent: {:?}", e);
+            error!("Error sending request to storage agent: {:?}", e);
         }
     }
 }
@@ -54,12 +54,12 @@ pub async fn try_defragment_bundle(
         Ok(_) => match responder_receiver.await {
             Ok(e) => e,
             Err(e) => {
-                error!("Error receiving request from routing agent: {:?}", e);
+                error!("Error receiving request from storage agent: {:?}", e);
                 Err(())
             }
         },
         Err(e) => {
-            error!("Error sending request to routing agent: {:?}", e);
+            error!("Error sending request to storage agent: {:?}", e);
             Err(())
         }
     }
