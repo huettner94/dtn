@@ -1,4 +1,5 @@
-use async_recursion::async_recursion;
+use std::collections::VecDeque;
+
 use async_trait::async_trait;
 use bp7::{
     administrative_record::{
@@ -23,7 +24,7 @@ use tokio::sync::{mpsc, oneshot};
 use crate::{
     bundlestorageagent::{self, messages::BSARequest, StoredBundle},
     clientagent::messages::{ClientAgentRequest, ListenBundlesResponse},
-    common::settings::Settings,
+    common::{settings::Settings, shutdown::Shutdown},
     converganceagent::messages::{AgentForwardBundle, ConverganceAgentRequest},
     routingagent::{
         self,
@@ -40,6 +41,7 @@ pub struct Daemon {
     client_agent_sender: Option<mpsc::Sender<ClientAgentRequest>>,
     convergance_agent_sender: Option<mpsc::Sender<ConverganceAgentRequest>>,
     routing_agent_sender: Option<mpsc::Sender<RoutingAgentRequest>>,
+    todo_bundles: VecDeque<StoredBundle>,
 }
 
 #[async_trait]
@@ -54,6 +56,7 @@ impl crate::common::agent::Daemon for Daemon {
             client_agent_sender: None,
             convergance_agent_sender: None,
             routing_agent_sender: None,
+            todo_bundles: VecDeque::new(),
         }
     }
 
@@ -71,6 +74,43 @@ impl crate::common::agent::Daemon for Daemon {
                 "Must call set_client_agent before calling run (also run may only be called once)"
             );
         }
+    }
+
+    async fn main_loop(
+        &mut self,
+        shutdown: &mut Shutdown,
+        receiver: &mut mpsc::Receiver<Self::MessageType>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        while !shutdown.is_shutdown() {
+            match receiver.try_recv() {
+                Ok(msg) => {
+                    self.handle_message(msg).await;
+                    continue;
+                }
+                Err(_) => {}
+            }
+            if !shutdown.is_shutdown() && !self.todo_bundles.is_empty() {
+                let bundle = self.todo_bundles.pop_front().unwrap();
+                self.dispatch_bundle(bundle).await;
+                continue;
+            }
+            tokio::select! {
+                res = receiver.recv() => {
+                    if let Some(msg) = res {
+                        self.handle_message(msg).await;
+                    } else {
+                        info!("{} can no longer receive messages. Exiting", self.get_agent_name());
+                        return Ok(())
+                    }
+                }
+                _ = shutdown.recv() => {
+                    info!("{} received shutdown", self.get_agent_name());
+                    receiver.close();
+                    info!("{} will not allow more requests to be sent", self.get_agent_name());
+                }
+            }
+        }
+        Ok(())
     }
 
     async fn handle_message(&mut self, msg: BPARequest) {
@@ -123,7 +163,7 @@ impl Daemon {
     }
 
     async fn message_send_bundle(
-        &self,
+        &mut self,
         destination: Endpoint,
         payload: Vec<u8>,
         lifetime: u64,
@@ -163,7 +203,7 @@ impl Daemon {
         .await
         {
             Ok(sb) => {
-                self.dispatch_bundle(sb).await;
+                self.todo_bundles.push_back(sb);
                 Ok(())
             }
             Err(_) => Err(()),
@@ -179,7 +219,7 @@ impl Daemon {
         }
     }
 
-    async fn message_new_client_connected(&self, destination: Endpoint) {
+    async fn message_new_client_connected(&mut self, destination: Endpoint) {
         let (response_sender, response_receiver) = oneshot::channel();
         if let Err(e) = self
             .bsa_sender
@@ -197,7 +237,7 @@ impl Daemon {
         match response_receiver.await {
             Ok(Ok(bundles)) => {
                 for bundle in bundles {
-                    self.dispatch_bundle(bundle).await;
+                    self.todo_bundles.push_back(bundle);
                 }
             }
             Ok(Err(e)) => {
@@ -209,7 +249,7 @@ impl Daemon {
         }
     }
 
-    async fn message_new_routes_available(&self, destinations: Vec<Endpoint>) {
+    async fn message_new_routes_available(&mut self, destinations: Vec<Endpoint>) {
         for destination in destinations {
             let (response_sender, response_receiver) = oneshot::channel();
             if let Err(e) = self
@@ -228,7 +268,7 @@ impl Daemon {
             match response_receiver.await {
                 Ok(Ok(bundles)) => {
                     for bundle in bundles {
-                        self.dispatch_bundle(bundle).await;
+                        self.todo_bundles.push_back(bundle);
                     }
                 }
                 Ok(Err(e)) => {
@@ -257,7 +297,7 @@ impl Daemon {
                 self.send_status_report_received(sb.get_bundle()).await;
                 //TODO: Check crc or drop otherwise
                 //TODO: CHeck extensions or do other stuff
-                self.dispatch_bundle(sb).await;
+                self.todo_bundles.push_back(sb);
                 Ok(())
             }
             Err(_) => Err(()),
@@ -267,8 +307,7 @@ impl Daemon {
         };
     }
 
-    #[async_recursion]
-    async fn dispatch_bundle(&self, bundle: StoredBundle) {
+    async fn dispatch_bundle(&mut self, bundle: StoredBundle) {
         if bundle
             .get_bundle()
             .primary_block
@@ -285,7 +324,7 @@ impl Daemon {
                     Ok(defragmented) => match defragmented {
                         Some(defragment) => {
                             debug!("Successfully defragmented bundle");
-                            self.dispatch_bundle(defragment).await;
+                            self.todo_bundles.push_back(defragment);
                         }
                         None => {
                             debug!("Not yet enough fragments for defragmentation.")
@@ -327,7 +366,7 @@ impl Daemon {
         }
     }
 
-    async fn forward_bundle(&self, bundle: &StoredBundle) -> Result<(), ()> {
+    async fn forward_bundle(&mut self, bundle: &StoredBundle) -> Result<(), ()> {
         debug!("forwarding bundle {:?}", bundle.get_bundle().primary_block);
 
         match routingagent::client::get_next_hop(
@@ -359,7 +398,7 @@ impl Daemon {
                                 .await
                                 {
                                     Ok(sb) => {
-                                        self.dispatch_bundle(sb).await;
+                                        self.todo_bundles.push_back(sb);
                                         Ok(())
                                     }
                                     Err(_) => Err(()),
@@ -419,7 +458,7 @@ impl Daemon {
         return Err(());
     }
 
-    async fn local_delivery(&self, bundle: &StoredBundle) -> Result<(), ()> {
+    async fn local_delivery(&mut self, bundle: &StoredBundle) -> Result<(), ()> {
         debug!(
             "locally delivering bundle {:?}",
             &bundle.get_bundle().primary_block
@@ -520,7 +559,7 @@ impl Daemon {
         }
     }
 
-    async fn send_status_report_received(&self, bundle: &Bundle) {
+    async fn send_status_report_received(&mut self, bundle: &Bundle) {
         if !bundle
             .primary_block
             .bundle_processing_flags
@@ -539,7 +578,7 @@ impl Daemon {
         .await;
     }
 
-    async fn send_status_report_forwarded(&self, bundle: &Bundle) {
+    async fn send_status_report_forwarded(&mut self, bundle: &Bundle) {
         if !bundle
             .primary_block
             .bundle_processing_flags
@@ -558,7 +597,7 @@ impl Daemon {
         .await;
     }
 
-    async fn send_status_report_delivered(&self, bundle: &Bundle) {
+    async fn send_status_report_delivered(&mut self, bundle: &Bundle) {
         if !bundle
             .primary_block
             .bundle_processing_flags
@@ -577,9 +616,8 @@ impl Daemon {
         .await;
     }
 
-    #[async_recursion]
     async fn send_status_report(
-        &self,
+        &mut self,
         bundle: &Bundle,
         reason: BundleStatusReason,
         is_received: bool,
@@ -654,7 +692,7 @@ impl Daemon {
                 .await
                 {
                     Ok(sb) => {
-                        self.dispatch_bundle(sb).await;
+                        self.todo_bundles.push_back(sb);
                     }
                     Err(_) => warn!("Could not store bundle status report for dispatching"),
                 };

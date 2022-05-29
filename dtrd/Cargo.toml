@@ -19,7 +19,6 @@ env_logger = "0.8.4"
 async-trait = "0.1.51"
 openssl = "0.10.38"
 uuid = {version = "0.8.2", features = ["v4"]}
-async-recursion = "1.0.0"
 console-subscriber = "0.1.6"
 
 [build-dependencies]
