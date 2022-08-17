@@ -1,27 +1,34 @@
 use bp7::{bundle::Bundle, endpoint::Endpoint};
-use tokio::sync::oneshot;
 
 use super::StoredBundle;
+use actix::prelude::*;
 
-#[derive(Debug)]
-pub enum BSARequest {
-    StoreBundle {
-        bundle: Bundle,
-        responder: oneshot::Sender<Result<StoredBundle, ()>>,
-    },
-    DeleteBundle {
-        bundle: StoredBundle,
-    },
-    GetBundleForDestination {
-        destination: Endpoint,
-        bundles: oneshot::Sender<Result<Vec<StoredBundle>, String>>,
-    },
-    GetBundleForNode {
-        destination: Endpoint,
-        bundles: oneshot::Sender<Result<Vec<StoredBundle>, String>>,
-    },
-    TryDefragmentBundle {
-        bundle: StoredBundle,
-        responder: oneshot::Sender<Result<Option<StoredBundle>, ()>>,
-    },
+#[derive(Message)]
+#[rtype(result = "Result<StoredBundle, ()>")]
+pub struct StoreBundle {
+    bundle: Bundle,
+}
+
+#[derive(Message)]
+#[rtype(result = "")]
+pub struct DeleteBundle {
+    bundle: StoredBundle,
+}
+
+#[derive(Message)]
+#[rtype(result = "Result<Vec<StoredBundle>, String>")]
+pub struct GetBundleForDestination {
+    destination: Endpoint,
+}
+
+#[derive(Message)]
+#[rtype(result = "Result<Vec<StoredBundle>, String>")]
+pub struct GetBundleForNode {
+    destination: Endpoint,
+}
+
+#[derive(Message)]
+#[rtype(result = "Result<Option<StoredBundle>, ()>")]
+pub struct TryDefragmentBundle {
+    bundle: StoredBundle,
 }

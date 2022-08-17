@@ -1,5 +1,5 @@
+use actix::prelude::*;
 use bp7::endpoint::Endpoint;
-use tokio::sync::oneshot;
 
 #[derive(Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Clone, Copy)]
 pub enum RouteType {
@@ -23,24 +23,29 @@ pub struct NexthopInfo {
     pub max_size: Option<u64>,
 }
 
-#[derive(Debug)]
-pub enum RoutingAgentRequest {
-    AddRoute {
-        target: Endpoint,
-        route_type: RouteType,
-        next_hop: Endpoint,
-        max_bundle_size: Option<u64>,
-    },
-    RemoveRoute {
-        target: Endpoint,
-        route_type: RouteType,
-        next_hop: Endpoint,
-    },
-    GetNextHop {
-        target: Endpoint,
-        responder: oneshot::Sender<Option<NexthopInfo>>,
-    },
-    ListRoutes {
-        responder: oneshot::Sender<Vec<RouteStatus>>,
-    },
+#[derive(Message)]
+#[rtype(result = "")]
+pub struct AddRoute {
+    target: Endpoint,
+    route_type: RouteType,
+    next_hop: Endpoint,
+    max_bundle_size: Option<u64>,
 }
+
+#[derive(Message)]
+#[rtype(result = "")]
+pub struct RemoveRoute {
+    target: Endpoint,
+    route_type: RouteType,
+    next_hop: Endpoint,
+}
+
+#[derive(Message)]
+#[rtype(result = "Option<NexthopInfo>")]
+pub struct GetNextHop {
+    target: Endpoint,
+}
+
+#[derive(Message)]
+#[rtype(result = "Vec<RouteStatus>")]
+pub struct ListRoutes {}

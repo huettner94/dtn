@@ -25,9 +25,10 @@ use tokio::sync::{
 };
 
 use crate::{
+    bundleprotocolagent::messages::*,
     bundlestorageagent::{self, messages::BSARequest, StoredBundle},
     clientagent::messages::{ClientAgentRequest, ListenBundlesResponse},
-    common::{settings::Settings, shutdown::Shutdown},
+    common::settings::Settings,
     converganceagent::messages::{AgentForwardBundle, ConverganceAgentRequest},
     routingagent::{
         self,
@@ -35,154 +36,42 @@ use crate::{
     },
 };
 
-use super::messages::BPARequest;
+use actix::prelude::*;
 
 enum BundleProcessing {
     RETRY,
     FINISHED,
 }
 
+#[derive(Default)]
 pub struct Daemon {
-    endpoint: Endpoint,
-    channel_receiver: Option<mpsc::UnboundedReceiver<BPARequest>>,
-    channel_sender: Option<mpsc::UnboundedSender<BPARequest>>,
-    bsa_sender: Option<mpsc::UnboundedSender<BSARequest>>,
-    client_agent_sender: Option<mpsc::UnboundedSender<ClientAgentRequest>>,
-    convergance_agent_sender: Option<mpsc::UnboundedSender<ConverganceAgentRequest>>,
-    routing_agent_sender: Option<mpsc::UnboundedSender<RoutingAgentRequest>>,
+    endpoint: Option<Endpoint>,
+    bsa_addr: Option<Addr<bundlestorageagent::agent::Daemon>>,
     todo_bundles: VecDeque<StoredBundle>,
 }
 
-#[async_trait]
-impl crate::common::agent::Daemon for Daemon {
-    type MessageType = BPARequest;
+impl Actor for Daemon {
+    type Context = Context<Self>;
+}
+impl actix::Supervised for Daemon {}
 
-    async fn new(settings: &Settings) -> Self {
-        Daemon {
-            endpoint: Endpoint::new(&settings.my_node_id).unwrap(),
-            channel_receiver: None,
-            channel_sender: None,
-            bsa_sender: None,
-            client_agent_sender: None,
-            convergance_agent_sender: None,
-            routing_agent_sender: None,
-            todo_bundles: VecDeque::new(),
-        }
-    }
-
-    fn get_agent_name(&self) -> &'static str {
-        "BPA"
-    }
-
-    fn get_channel_receiver(&mut self) -> Option<mpsc::UnboundedReceiver<Self::MessageType>> {
-        self.channel_receiver.take()
-    }
-
-    fn validate(&self) {
-        if self.client_agent_sender.is_none() {
-            panic!(
-                "Must call set_client_agent before calling run (also run may only be called once)"
-            );
-        }
-    }
-
-    async fn main_loop(
-        &mut self,
-        shutdown: &mut Shutdown,
-        receiver: &mut mpsc::UnboundedReceiver<Self::MessageType>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        while !shutdown.is_shutdown() {
-            match receiver.try_recv() {
-                Ok(msg) => {
-                    self.handle_message(msg).await;
-                    continue;
-                }
-                Err(_) => {}
-            }
-            if !shutdown.is_shutdown() && !self.todo_bundles.is_empty() {
-                let bundle = self.todo_bundles.pop_front().unwrap();
-                self.dispatch_bundle(bundle).await;
-                continue;
-            }
-            tokio::select! {
-                res = receiver.recv() => {
-                    if let Some(msg) = res {
-                        self.handle_message(msg).await;
-                    } else {
-                        info!("{} can no longer receive messages. Exiting", self.get_agent_name());
-                        return Ok(())
-                    }
-                }
-                _ = shutdown.recv() => {
-                    info!("{} received shutdown", self.get_agent_name());
-                    receiver.close();
-                    info!("{} will not allow more requests to be sent", self.get_agent_name());
-                }
-            }
-        }
-        Ok(())
-    }
-
-    async fn handle_message(&mut self, msg: BPARequest) {
-        match msg {
-            BPARequest::SendBundle {
-                destination,
-                payload,
-                lifetime,
-                responder,
-            } => {
-                self.message_send_bundle(destination, payload, lifetime, responder)
-                    .await;
-            }
-            BPARequest::IsEndpointLocal { endpoint, sender } => {
-                self.message_is_endpoint_local(endpoint, sender).await;
-            }
-            BPARequest::NewClientConnected { destination } => {
-                self.message_new_client_connected(destination).await;
-            }
-            BPARequest::NewRoutesAvailable { destinations } => {
-                self.message_new_routes_available(destinations).await;
-            }
-            BPARequest::ReceiveBundle { bundle, responder } => {
-                self.message_receive_bundle(bundle, responder).await;
-            }
-            BPARequest::ForwardBundleResult { result, bundle } => {
-                self.message_forward_bundle_result(result, bundle).await;
-            }
-        }
+impl SystemService for Daemon {
+    fn service_started(&mut self, ctx: &mut Context<Self>) {
+        let settings = Settings::from_env();
+        self.endpoint = Some(Endpoint::new(&settings.my_node_id).unwrap());
+        self.bsa_addr = Some(bundlestorageagent::agent::Daemon::from_registry());
     }
 }
 
-impl Daemon {
-    pub fn init_channels(
-        &mut self,
-        bsa_sender: tokio::sync::mpsc::UnboundedSender<BSARequest>,
-        routing_agent_sender: mpsc::UnboundedSender<RoutingAgentRequest>,
-    ) -> mpsc::UnboundedSender<BPARequest> {
-        self.bsa_sender = Some(bsa_sender);
-        self.routing_agent_sender = Some(routing_agent_sender);
-        let (channel_sender, channel_receiver) = mpsc::unbounded_channel::<BPARequest>();
-        self.channel_receiver = Some(channel_receiver);
-        self.channel_sender = Some(channel_sender.clone());
-        return channel_sender;
-    }
+impl Handler<SendBundle> for Daemon {
+    type Result = Result<(), ()>;
 
-    pub fn set_agents(
-        &mut self,
-        client_agent_sender: mpsc::UnboundedSender<ClientAgentRequest>,
-        convergance_agent_sender: mpsc::UnboundedSender<ConverganceAgentRequest>,
-    ) {
-        self.client_agent_sender = Some(client_agent_sender);
-        self.convergance_agent_sender = Some(convergance_agent_sender);
-    }
-
-    async fn message_send_bundle(
-        &mut self,
-        destination: Endpoint,
-        payload: Vec<u8>,
-        lifetime: u64,
-        responder: oneshot::Sender<Result<(), ()>>,
-    ) {
+    fn handle(&mut self, msg: SendBundle, ctx: &mut Context<Self>) -> Self::Result {
+        let SendBundle {
+            destination,
+            payload,
+            lifetime,
+        } = msg;
         let bundle = Bundle {
             primary_block: PrimaryBlock {
                 version: 7,
@@ -192,8 +81,8 @@ impl Daemon {
                     | BundleFlags::BUNDLE_DELETION_STATUS_REQUESTED,
                 crc: CRCType::NoCRC,
                 destination_endpoint: destination,
-                source_node: self.endpoint.clone(),
-                report_to: self.endpoint.clone(),
+                source_node: self.endpoint.unwrap().clone(),
+                report_to: self.endpoint.unwrap().clone(),
                 creation_timestamp: CreationTimestamp {
                     creation_time: DtnTime::now(),
                     sequence_number: 0, // TODO: Needs to increase for all of the same timestamp
@@ -210,6 +99,9 @@ impl Daemon {
             }],
         };
         debug!("Dispatching new bundle {:?}", &bundle.primary_block);
+        self.bsa_addr
+            .unwrap()
+            .do_send(bundlestorageagent::messages::StoreBundle { bundle });
         let res = match bundlestorageagent::client::store_bundle(
             self.bsa_sender.as_ref().unwrap(),
             bundle,
@@ -222,18 +114,15 @@ impl Daemon {
             }
             Err(_) => Err(()),
         };
-        if let Err(_) = responder.send(res) {
-            error!("Error sending response of queued bundle");
-        };
+        res
     }
+}
 
-    async fn message_is_endpoint_local(&self, endpoint: Endpoint, sender: oneshot::Sender<bool>) {
-        if let Err(e) = sender.send(self.endpoint.matches_node(&endpoint)) {
-            error!("Error sending response to requestor {:?}", e);
-        }
-    }
+impl Handler<NewClientConnected> for Daemon {
+    type Result = ();
 
-    async fn message_new_client_connected(&mut self, destination: Endpoint) {
+    fn handle(&mut self, msg: NewClientConnected, ctx: &mut Context<Self>) {
+        let NewClientConnected { destination } = msg;
         let (response_sender, response_receiver) = oneshot::channel();
         if let Err(e) =
             self.bsa_sender
@@ -261,8 +150,13 @@ impl Daemon {
             }
         }
     }
+}
 
-    async fn message_new_routes_available(&mut self, destinations: Vec<Endpoint>) {
+impl Handler<NewRoutesAvailable> for Daemon {
+    type Result = ();
+
+    fn handle(&mut self, msg: NewRoutesAvailable, ctx: &mut Context<Self>) {
+        let NewRoutesAvailable { destinations } = msg;
         for destination in destinations {
             let (response_sender, response_receiver) = oneshot::channel();
             if let Err(e) = self
@@ -292,12 +186,13 @@ impl Daemon {
             }
         }
     }
+}
 
-    async fn message_receive_bundle(
-        &mut self,
-        bundle: Bundle,
-        responder: oneshot::Sender<Result<(), ()>>,
-    ) {
+impl Handler<ReceiveBundle> for Daemon {
+    type Result = Result<(), ()>;
+
+    fn handle(&mut self, msg: ReceiveBundle, ctx: &mut Context<Self>) -> Self::Result {
+        let ReceiveBundle { bundle } = msg;
         debug!("Recived bundle: {:?}", bundle.primary_block);
         let res = match bundlestorageagent::client::store_bundle(
             self.bsa_sender.as_ref().unwrap(),
@@ -314,15 +209,15 @@ impl Daemon {
             }
             Err(_) => Err(()),
         };
-        if let Err(_) = responder.send(res) {
-            error!("Error sending response for received bundle");
-        };
+        res
     }
-    async fn message_forward_bundle_result(
-        &mut self,
-        result: Result<(), ()>,
-        bundle: StoredBundle,
-    ) {
+}
+
+impl Handler<ForwardBundleResult> for Daemon {
+    type Result = ();
+
+    fn handle(&mut self, msg: ForwardBundleResult, ctx: &mut Context<Self>) {
+        let ForwardBundleResult { result, bundle } = msg;
         match result {
             Ok(_) => {
                 self.send_status_report_forwarded(bundle.get_bundle()).await;
@@ -332,13 +227,15 @@ impl Daemon {
             Err(_) => {}
         }
     }
+}
 
+impl Daemon {
     async fn dispatch_bundle(&mut self, bundle: StoredBundle) {
         if bundle
             .get_bundle()
             .primary_block
             .destination_endpoint
-            .matches_node(&self.endpoint)
+            .matches_node(&self.endpoint.unwrap())
         {
             if bundle.get_bundle().primary_block.fragment_offset.is_some() {
                 match bundlestorageagent::client::try_defragment_bundle(
@@ -709,8 +606,8 @@ impl Daemon {
                         bundle_processing_flags: BundleFlags::ADMINISTRATIVE_RECORD,
                         crc: CRCType::NoCRC,
                         destination_endpoint: bundle.primary_block.report_to.clone(),
-                        source_node: self.endpoint.clone(),
-                        report_to: self.endpoint.clone(),
+                        source_node: self.endpoint.unwrap().clone(),
+                        report_to: self.endpoint.unwrap().clone(),
                         creation_timestamp: CreationTimestamp {
                             creation_time: DtnTime::now(),
                             sequence_number: 0, // TODO: Needs to increase for all of the same timestamp

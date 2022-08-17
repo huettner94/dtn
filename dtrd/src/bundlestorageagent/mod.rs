@@ -4,7 +4,6 @@ use bp7::bundle::Bundle;
 use uuid::Uuid;
 
 pub mod agent;
-pub mod client;
 pub mod messages;
 
 #[derive(Debug, Eq)]

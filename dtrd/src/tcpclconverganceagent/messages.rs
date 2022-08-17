@@ -1,7 +1,14 @@
+use actix::prelude::*;
 use std::net::SocketAddr;
 
-#[derive(Debug)]
-pub enum TCPCLAgentRequest {
-    ConnectRemote { socket: SocketAddr },
-    DisonnectRemote { socket: SocketAddr },
+#[derive(Message)]
+#[rtype(result = "")]
+pub struct ConnectRemote {
+    socket: SocketAddr,
+}
+
+#[derive(Message)]
+#[rtype(result = "")]
+pub struct DisonnectRemote {
+    socket: SocketAddr,
 }

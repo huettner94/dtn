@@ -20,6 +20,8 @@ async-trait = "0.1.51"
 openssl = "0.10.38"
 uuid = {version = "0.8.2", features = ["v4"]}
 console-subscriber = "0.1.6"
+actix = "0.13.0"
+actix-rt = "2.7.0"
 
 [build-dependencies]
 tonic-build = "0.5.2"

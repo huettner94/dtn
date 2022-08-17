@@ -20,7 +20,6 @@ pub struct Daemon {
     tcpcl_agent_sender: Option<mpsc::UnboundedSender<TCPCLAgentRequest>>,
 }
 
-#[async_trait]
 impl crate::common::agent::Daemon for Daemon {
     type MessageType = ConverganceAgentRequest;
 

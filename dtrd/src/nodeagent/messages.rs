@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
+use actix::prelude::*;
 use bp7::endpoint::Endpoint;
-use tokio::sync::oneshot;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum NodeConnectionStatus {
@@ -36,23 +36,36 @@ impl PartialEq for Node {
     }
 }
 
-#[derive(Debug)]
-pub enum NodeAgentRequest {
-    ListNodes {
-        responder: oneshot::Sender<Vec<Node>>,
-    },
-    AddNode {
-        url: String,
-    },
-    RemoveNode {
-        url: String,
-    },
-    NotifyNodeConnected {
-        url: String,
-        endpoint: Endpoint,
-        max_bundle_size: u64,
-    },
-    NotifyNodeDisconnected {
-        url: String,
-    },
+#[derive(Message)]
+#[rtype(result = "Vec<Node>")]
+pub struct ListNodes {}
+
+#[derive(Message)]
+#[rtype(result = "")]
+pub struct AddNode {
+    url: String,
 }
+
+#[derive(Message)]
+#[rtype(result = "")]
+pub struct RemoveNode {
+    url: String,
+}
+
+#[derive(Message)]
+#[rtype(result = "")]
+pub struct NotifyNodeConnected {
+    url: String,
+    endpoint: Endpoint,
+    max_bundle_size: u64,
+}
+
+#[derive(Message)]
+#[rtype(result = "")]
+pub struct NotifyNodeDisconnected {
+    url: String,
+}
+
+#[derive(Message)]
+#[rtype(result = "")]
+pub struct TryConnect {}

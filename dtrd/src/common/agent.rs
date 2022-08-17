@@ -6,7 +6,6 @@ use super::shutdown::Shutdown;
 
 use super::settings::Settings;
 
-#[async_trait]
 pub trait Daemon {
     type MessageType: Send;
 
@@ -36,7 +35,7 @@ pub trait Daemon {
         self.main_loop(&mut shutdown, &mut receiver).await?;
 
         while let Some(msg) = receiver.recv().await {
-            self.handle_message(msg).await;
+            self.handle_message(msg);
         }
 
         self.on_shutdown().await;
@@ -55,7 +54,7 @@ pub trait Daemon {
             tokio::select! {
                 res = receiver.recv() => {
                     if let Some(msg) = res {
-                        self.handle_message(msg).await;
+                        self.handle_message(msg);
                     } else {
                         info!("{} can no longer receive messages. Exiting", self.get_agent_name());
                         return Ok(())
@@ -73,5 +72,5 @@ pub trait Daemon {
 
     async fn on_shutdown(&mut self) {}
 
-    async fn handle_message(&mut self, msg: Self::MessageType);
+    fn handle_message(&mut self, msg: Self::MessageType);
 }

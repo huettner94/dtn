@@ -1,120 +1,48 @@
+use crate::{
+    converganceagent::messages::ConverganceAgentRequest,
+    routingagent::messages::{AddRoute, RemoveRoute, RouteType},
+};
+use actix::prelude::*;
+use log::{error, info, warn};
 use std::time::Duration;
 
-use async_trait::async_trait;
-use bp7::endpoint::Endpoint;
-use log::{error, info, warn};
-use tokio::{
-    sync::{mpsc, oneshot},
-    time::interval,
+use super::messages::{
+    AddNode, ListNodes, Node, NodeConnectionStatus, NotifyNodeConnected, NotifyNodeDisconnected,
+    RemoveNode, TryConnect,
 };
 
-use crate::{
-    common::settings::Settings,
-    common::shutdown::Shutdown,
-    converganceagent::messages::ConverganceAgentRequest,
-    routingagent::messages::{RouteType, RoutingAgentRequest},
-};
-
-use super::messages::{Node, NodeAgentRequest, NodeConnectionStatus};
-
+#[derive(Default)]
 pub struct Daemon {
     nodes: Vec<Node>,
-    channel_receiver: Option<mpsc::UnboundedReceiver<NodeAgentRequest>>,
-    convergance_agent_sender: Option<mpsc::UnboundedSender<ConverganceAgentRequest>>,
-    routing_agent_sender: Option<mpsc::UnboundedSender<RoutingAgentRequest>>,
 }
 
-#[async_trait]
-impl crate::common::agent::Daemon for Daemon {
-    type MessageType = NodeAgentRequest;
+impl Actor for Daemon {
+    type Context = Context<Self>;
 
-    async fn new(_: &Settings) -> Self {
-        Daemon {
-            nodes: Vec::new(),
-            channel_receiver: None,
-            convergance_agent_sender: None,
-            routing_agent_sender: None,
-        }
-    }
-
-    fn get_agent_name(&self) -> &'static str {
-        "Node Agent"
-    }
-
-    fn get_channel_receiver(&mut self) -> Option<mpsc::UnboundedReceiver<Self::MessageType>> {
-        self.channel_receiver.take()
-    }
-
-    async fn main_loop(
-        &mut self,
-        shutdown: &mut Shutdown,
-        receiver: &mut mpsc::UnboundedReceiver<Self::MessageType>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut reconnect_interval = interval(Duration::from_secs(60));
-        while !shutdown.is_shutdown() {
-            tokio::select! {
-                res = receiver.recv() => {
-                    if let Some(msg) = res {
-                        self.handle_message(msg).await;
-                    } else {
-                        info!("{} can no longer receive messages. Exiting", self.get_agent_name());
-                        return Ok(())
-                    }
-                }
-                _ = shutdown.recv() => {
-                    info!("{} received shutdown", self.get_agent_name());
-                    receiver.close();
-                    info!("{} will not allow more requests to be sent", self.get_agent_name());
-                }
-                _ = reconnect_interval.tick() => {
-                    self.handle_reconnect().await;
-                }
-            }
-        }
-        Ok(())
-    }
-
-    async fn handle_message(&mut self, msg: NodeAgentRequest) {
-        match msg {
-            NodeAgentRequest::ListNodes { responder } => self.message_list_nodes(responder).await,
-            NodeAgentRequest::AddNode { url } => self.message_add_node(url).await,
-            NodeAgentRequest::RemoveNode { url } => self.message_remove_node(url).await,
-            NodeAgentRequest::NotifyNodeConnected {
-                url,
-                endpoint,
-                max_bundle_size,
-            } => {
-                self.message_notify_node_connected(url, endpoint, max_bundle_size)
-                    .await
-            }
-            NodeAgentRequest::NotifyNodeDisconnected { url } => {
-                self.message_notify_node_disconnected(url).await
-            }
-        }
+    fn started(&mut self, ctx: &mut Self::Context) {
+        ctx.run_interval(Duration::from_secs(60), |_, ctx| {
+            ctx.notify(TryConnect {});
+        });
     }
 }
 
-impl Daemon {
-    pub fn init_channels(
-        &mut self,
-        convergance_agent_sender: mpsc::UnboundedSender<ConverganceAgentRequest>,
-        routing_agent_sender: mpsc::UnboundedSender<RoutingAgentRequest>,
-    ) -> mpsc::UnboundedSender<NodeAgentRequest> {
-        self.convergance_agent_sender = Some(convergance_agent_sender);
-        self.routing_agent_sender = Some(routing_agent_sender);
-        let (channel_sender, channel_receiver) = mpsc::unbounded_channel::<NodeAgentRequest>();
-        self.channel_receiver = Some(channel_receiver);
-        return channel_sender;
-    }
+impl actix::Supervised for Daemon {}
 
-    async fn message_list_nodes(&self, responder: oneshot::Sender<Vec<Node>>) {
-        match responder.send(self.nodes.clone()) {
-            Ok(_) => {}
-            Err(e) => warn!("Error sending response for listing nodes {:?}", e),
-        }
-    }
+impl SystemService for Daemon {}
 
-    async fn message_add_node(&mut self, url: String) {
+impl Handler<ListNodes> for Daemon {
+    type Result = Vec<Node>;
+
+    fn handle(&mut self, msg: ListNodes, ctx: &mut Context<Self>) -> Self::Result {
+        self.nodes.clone()
+    }
+}
+
+impl Handler<AddNode> for Daemon {
+    type Result = ();
+
+    fn handle(&mut self, msg: AddNode, ctx: &mut Context<Self>) -> Self::Result {
+        let AddNode { url } = msg;
         let mut node = Node {
             url: url.clone(),
             connection_status: NodeConnectionStatus::Disconnected,
@@ -133,8 +61,13 @@ impl Daemon {
             }
         }
     }
+}
 
-    async fn message_remove_node(&mut self, url: String) {
+impl Handler<RemoveNode> for Daemon {
+    type Result = ();
+
+    fn handle(&mut self, msg: RemoveNode, ctx: &mut Context<Self>) -> Self::Result {
+        let RemoveNode { url } = msg;
         let node = Node {
             url: url.clone(),
             connection_status: NodeConnectionStatus::Disconnected,
@@ -158,13 +91,17 @@ impl Daemon {
             None => {}
         }
     }
+}
 
-    async fn message_notify_node_connected(
-        &mut self,
-        url: String,
-        endpoint: Endpoint,
-        max_bundle_size: u64,
-    ) {
+impl Handler<NotifyNodeConnected> for Daemon {
+    type Result = ();
+
+    fn handle(&mut self, msg: NotifyNodeConnected, ctx: &mut Context<Self>) -> Self::Result {
+        let NotifyNodeConnected {
+            url,
+            endpoint,
+            max_bundle_size,
+        } = msg;
         match self.nodes.iter().position(|n| n.url == url) {
             Some(pos) => {
                 let node = &mut self.nodes[pos];
@@ -180,42 +117,30 @@ impl Daemon {
                 });
             }
         }
-        if let Err(e) =
-            self.routing_agent_sender
-                .as_ref()
-                .unwrap()
-                .send(RoutingAgentRequest::AddRoute {
-                    target: endpoint.clone(),
-                    route_type: RouteType::Connected,
-                    next_hop: endpoint,
-                    max_bundle_size: Some(max_bundle_size),
-                })
-        {
-            error!(
-                "Error sending node add notification to routing agent: {:?}",
-                e
-            );
-        }
+        crate::routingagent::agent::Daemon::from_registry().do_send(AddRoute {
+            target: endpoint.clone(),
+            route_type: RouteType::Connected,
+            next_hop: endpoint,
+            max_bundle_size: Some(max_bundle_size),
+        });
     }
+}
 
-    async fn message_notify_node_disconnected(&mut self, url: String) {
+impl Handler<NotifyNodeDisconnected> for Daemon {
+    type Result = ();
+
+    fn handle(&mut self, msg: NotifyNodeDisconnected, ctx: &mut Context<Self>) -> Self::Result {
+        let NotifyNodeDisconnected { url } = msg;
         match self.nodes.iter().position(|n| n.url == url) {
             Some(pos) => {
                 let node = &mut self.nodes[pos];
 
                 if node.remote_endpoint.is_some() {
-                    if let Err(e) = self.routing_agent_sender.as_ref().unwrap().send(
-                        RoutingAgentRequest::RemoveRoute {
-                            target: node.remote_endpoint.clone().unwrap(),
-                            route_type: RouteType::Connected,
-                            next_hop: node.remote_endpoint.clone().unwrap(),
-                        },
-                    ) {
-                        error!(
-                            "Error sending node remove notification to routing agent: {:?}",
-                            e
-                        );
-                    }
+                    crate::routingagent::agent::Daemon::from_registry().do_send(RemoveRoute {
+                        target: node.remote_endpoint.clone().unwrap(),
+                        route_type: RouteType::Connected,
+                        next_hop: node.remote_endpoint.clone().unwrap(),
+                    });
                 }
 
                 if node.temporary {
@@ -233,8 +158,12 @@ impl Daemon {
             }
         }
     }
+}
 
-    async fn handle_reconnect(&mut self) {
+impl Handler<TryConnect> for Daemon {
+    type Result = ();
+
+    fn handle(&mut self, msg: TryConnect, ctx: &mut Context<Self>) -> Self::Result {
         for node in &mut self.nodes {
             if node.connection_status == NodeConnectionStatus::Disconnected && !node.temporary {
                 info!("Trying to reconnect to {}", node.url);

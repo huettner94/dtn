@@ -1,16 +1,17 @@
+use actix::prelude::*;
 use std::{
     collections::{HashMap, HashSet},
     hash::Hash,
 };
 
-use async_trait::async_trait;
 use bp7::endpoint::Endpoint;
-use log::{debug, error, warn};
-use tokio::sync::{mpsc, oneshot};
+use log::{debug, warn};
 
-use crate::{bundleprotocolagent::messages::BPARequest, common::settings::Settings};
+use crate::bundleprotocolagent::messages::NewRoutesAvailable;
 
-use super::messages::{NexthopInfo, RouteStatus, RouteType, RoutingAgentRequest};
+use super::messages::{
+    AddRoute, GetNextHop, ListRoutes, NexthopInfo, RemoveRoute, RouteStatus, RouteType,
+};
 
 #[derive(Debug, Eq)]
 struct RouteEntry {
@@ -32,85 +33,29 @@ impl PartialEq for RouteEntry {
     }
 }
 
+#[derive(Default)]
 pub struct Daemon {
     routes: HashMap<Endpoint, HashSet<RouteEntry>>,
-    channel_receiver: Option<mpsc::UnboundedReceiver<RoutingAgentRequest>>,
-    bpa_sender: Option<mpsc::UnboundedSender<BPARequest>>,
 }
 
-#[async_trait]
-impl crate::common::agent::Daemon for Daemon {
-    type MessageType = RoutingAgentRequest;
-
-    async fn new(_: &Settings) -> Self {
-        Daemon {
-            routes: HashMap::new(),
-            channel_receiver: None,
-            bpa_sender: None,
-        }
-    }
-
-    fn get_agent_name(&self) -> &'static str {
-        "Routing Agent"
-    }
-
-    fn get_channel_receiver(&mut self) -> Option<mpsc::UnboundedReceiver<Self::MessageType>> {
-        self.channel_receiver.take()
-    }
-
-    fn validate(&self) {
-        if self.bpa_sender.is_none() {
-            panic!("Must call set_senders before calling run (also run may only be called once)");
-        }
-    }
-
-    async fn handle_message(&mut self, msg: RoutingAgentRequest) {
-        match msg {
-            RoutingAgentRequest::AddRoute {
-                target,
-                route_type,
-                next_hop,
-                max_bundle_size,
-            } => {
-                self.message_add_route(target, route_type, next_hop, max_bundle_size)
-                    .await
-            }
-            RoutingAgentRequest::RemoveRoute {
-                target,
-                route_type,
-                next_hop,
-            } => {
-                self.message_remove_route(target, route_type, next_hop)
-                    .await
-            }
-            RoutingAgentRequest::GetNextHop { target, responder } => {
-                self.message_get_next_hop(target, responder).await
-            }
-            RoutingAgentRequest::ListRoutes { responder } => {
-                self.message_list_routes(responder).await
-            }
-        }
-    }
+impl Actor for Daemon {
+    type Context = Context<Self>;
 }
 
-impl Daemon {
-    pub fn init_channels(&mut self) -> mpsc::UnboundedSender<RoutingAgentRequest> {
-        let (channel_sender, channel_receiver) = mpsc::unbounded_channel::<RoutingAgentRequest>();
-        self.channel_receiver = Some(channel_receiver);
-        return channel_sender;
-    }
+impl actix::Supervised for Daemon {}
 
-    pub fn set_senders(&mut self, bpa_sender: mpsc::UnboundedSender<BPARequest>) {
-        self.bpa_sender = Some(bpa_sender);
-    }
+impl SystemService for Daemon {}
 
-    async fn message_add_route(
-        &mut self,
-        target: Endpoint,
-        route_type: RouteType,
-        next_hop: Endpoint,
-        max_bundle_size: Option<u64>,
-    ) {
+impl Handler<AddRoute> for Daemon {
+    type Result = ();
+
+    fn handle(&mut self, msg: AddRoute, ctx: &mut Context<Self>) -> Self::Result {
+        let AddRoute {
+            target,
+            route_type,
+            next_hop,
+            max_bundle_size,
+        } = msg;
         let prev_routes = self.get_available_routes();
         if self
             .routes
@@ -129,26 +74,25 @@ impl Daemon {
                 .collect();
             debug!("New routes added to routing table for: {:?}", new_routes);
             if !new_routes.is_empty() {
-                if let Err(e) =
-                    self.bpa_sender
-                        .as_ref()
-                        .unwrap()
-                        .send(BPARequest::NewRoutesAvailable {
-                            destinations: new_routes,
-                        })
-                {
-                    error!("Error sending new route notification to bpa: {:?}", e);
-                }
+                crate::bundleprotocolagent::agent::Daemon::from_registry().do_send(
+                    NewRoutesAvailable {
+                        destinations: new_routes,
+                    },
+                );
             }
         }
     }
+}
 
-    async fn message_remove_route(
-        &mut self,
-        target: Endpoint,
-        route_type: RouteType,
-        next_hop: Endpoint,
-    ) {
+impl Handler<RemoveRoute> for Daemon {
+    type Result = ();
+
+    fn handle(&mut self, msg: RemoveRoute, ctx: &mut Context<Self>) -> Self::Result {
+        let RemoveRoute {
+            target,
+            route_type,
+            next_hop,
+        } = msg;
         let endpoint_routes = self
             .routes
             .entry(target.clone())
@@ -166,13 +110,14 @@ impl Daemon {
             false => warn!("No route found to remove for {} over {}", target, next_hop),
         }
     }
+}
 
-    async fn message_get_next_hop(
-        &self,
-        target: Endpoint,
-        responder: oneshot::Sender<Option<NexthopInfo>>,
-    ) {
-        let response = self.routes.get(&target.get_node_endpoint()).and_then(|s| {
+impl Handler<GetNextHop> for Daemon {
+    type Result = Option<NexthopInfo>;
+
+    fn handle(&mut self, msg: GetNextHop, ctx: &mut Context<Self>) -> Self::Result {
+        let GetNextHop { target } = msg;
+        self.routes.get(&target.get_node_endpoint()).and_then(|s| {
             let mut v = s
                 .into_iter()
                 .filter(|r| {
@@ -200,17 +145,16 @@ impl Daemon {
                     max_size: v[0].max_bundle_size,
                 })
             }
-        });
-        if let Err(e) = responder.send(response) {
-            error!("Error sending response for getting next hop: {:?}", e);
-        }
+        })
     }
+}
 
-    async fn message_list_routes(&self, responder: oneshot::Sender<Vec<RouteStatus>>) {
+impl Handler<ListRoutes> for Daemon {
+    type Result = Vec<RouteStatus>;
+
+    fn handle(&mut self, msg: ListRoutes, ctx: &mut Context<Self>) -> Self::Result {
         let connected_routes = self.get_connected_routes();
-
-        let routes: Vec<RouteStatus> = self
-            .routes
+        self.routes
             .iter()
             .map(|(target, routes)| {
                 let mut routes: Vec<RouteStatus> = routes
@@ -235,12 +179,11 @@ impl Daemon {
                 routes
             })
             .flatten()
-            .collect();
-        if let Err(e) = responder.send(routes) {
-            error!("Error sending response for listing routes: {:?}", e);
-        }
+            .collect()
     }
+}
 
+impl Daemon {
     fn get_available_routes(&self) -> HashSet<Endpoint> {
         let mut connected_routes = self.get_connected_routes();
 

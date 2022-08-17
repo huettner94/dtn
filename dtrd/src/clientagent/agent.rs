@@ -23,7 +23,6 @@ pub struct Daemon {
     routing_agent_sender: Option<mpsc::UnboundedSender<RoutingAgentRequest>>,
 }
 
-#[async_trait]
 impl crate::common::agent::Daemon for Daemon {
     type MessageType = ClientAgentRequest;
 

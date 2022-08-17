@@ -1,37 +1,18 @@
-use async_trait::async_trait;
-use bp7::{bundle::Bundle, endpoint::Endpoint};
+use bp7::bundle::Bundle;
 use log::{debug, error, warn};
-use tokio::sync::{mpsc, oneshot};
 
-use crate::common::settings::Settings;
+use super::{messages::*, StoredBundle};
+use actix::prelude::*;
 
-use super::{messages::BSARequest, StoredBundle};
-
+#[derive(Default)]
 pub struct Daemon {
     bundles: Vec<StoredBundle>,
-    channel_receiver: Option<mpsc::UnboundedReceiver<BSARequest>>,
 }
 
-#[async_trait]
-impl crate::common::agent::Daemon for Daemon {
-    type MessageType = BSARequest;
+impl Actor for Daemon {
+    type Context = Context<Self>;
 
-    async fn new(_: &Settings) -> Self {
-        Daemon {
-            bundles: Vec::new(),
-            channel_receiver: None,
-        }
-    }
-
-    fn get_agent_name(&self) -> &'static str {
-        "BSA"
-    }
-
-    fn get_channel_receiver(&mut self) -> Option<mpsc::UnboundedReceiver<Self::MessageType>> {
-        self.channel_receiver.take()
-    }
-
-    async fn on_shutdown(&mut self) {
+    fn stopped(&mut self, ctx: &mut Context<Self>) {
         if self.bundles.len() != 0 {
             warn!(
                 "BSA had {} bundles left over, they will be gone now.",
@@ -39,47 +20,17 @@ impl crate::common::agent::Daemon for Daemon {
             );
         }
     }
-
-    async fn handle_message(&mut self, msg: BSARequest) {
-        match msg {
-            BSARequest::StoreBundle { bundle, responder } => {
-                self.message_store_bundle(bundle, responder).await;
-            }
-            BSARequest::DeleteBundle { bundle } => {
-                self.message_delete_bundle(bundle).await;
-            }
-            BSARequest::GetBundleForDestination {
-                destination,
-                bundles,
-            } => {
-                self.message_get_bundle_for_destination(destination, bundles)
-                    .await;
-            }
-            BSARequest::GetBundleForNode {
-                destination,
-                bundles,
-            } => {
-                self.message_get_bundle_for_node(destination, bundles).await;
-            }
-            BSARequest::TryDefragmentBundle { bundle, responder } => {
-                self.message_try_defragment_bundle(bundle, responder).await;
-            }
-        }
-    }
 }
 
-impl Daemon {
-    pub fn init_channels(&mut self) -> mpsc::UnboundedSender<BSARequest> {
-        let (channel_sender, channel_receiver) = mpsc::unbounded_channel::<BSARequest>();
-        self.channel_receiver = Some(channel_receiver);
-        return channel_sender;
-    }
+impl actix::Supervised for Daemon {}
 
-    async fn message_store_bundle(
-        &mut self,
-        bundle: Bundle,
-        responder: oneshot::Sender<Result<StoredBundle, ()>>,
-    ) {
+impl SystemService for Daemon {}
+
+impl Handler<StoreBundle> for Daemon {
+    type Result = Result<StoredBundle, ()>;
+
+    fn handle(&mut self, msg: StoreBundle, ctx: &mut Context<Self>) -> Self::Result {
+        let StoreBundle { bundle } = msg;
         debug!("Storing Bundle {:?} for later", bundle.primary_block);
         let res: Result<StoredBundle, ()> = match TryInto::<StoredBundle>::try_into(bundle) {
             Ok(sb) => {
@@ -91,13 +42,15 @@ impl Daemon {
                 Err(())
             }
         };
-
-        if let Err(_) = responder.send(res) {
-            error!("Error sending stored bundle result");
-        };
+        res
     }
+}
 
-    async fn message_delete_bundle(&mut self, bundle: StoredBundle) {
+impl Handler<DeleteBundle> for Daemon {
+    type Result = ();
+
+    fn handle(&mut self, msg: DeleteBundle, ctx: &mut Context<Self>) {
+        let DeleteBundle { bundle } = msg;
         match self.bundles.iter().position(|b| b == bundle) {
             Some(idx) => {
                 self.bundles.remove(idx);
@@ -105,12 +58,13 @@ impl Daemon {
             None => {}
         }
     }
+}
 
-    async fn message_get_bundle_for_destination(
-        &mut self,
-        destination: Endpoint,
-        bundles: oneshot::Sender<Result<Vec<StoredBundle>, String>>,
-    ) {
+impl Handler<GetBundleForDestination> for Daemon {
+    type Result = Result<Vec<StoredBundle>, String>;
+
+    fn handle(&mut self, msg: GetBundleForDestination, ctx: &mut Context<Self>) -> Self::Result {
+        let GetBundleForDestination { destination } = msg;
         let mut ret = Vec::new();
         for i in 0..self.bundles.len() {
             if self.bundles[i]
@@ -127,16 +81,15 @@ impl Daemon {
             ret.len(),
             destination
         );
-        if let Err(e) = bundles.send(Ok(ret)) {
-            error!("Error sending bundles to sender {:?}", e);
-        }
+        Ok(ret)
     }
+}
 
-    async fn message_get_bundle_for_node(
-        &mut self,
-        destination: Endpoint,
-        bundles: oneshot::Sender<Result<Vec<StoredBundle>, String>>,
-    ) {
+impl Handler<GetBundleForNode> for Daemon {
+    type Result = Result<Vec<StoredBundle>, String>;
+
+    fn handle(&mut self, msg: GetBundleForNode, ctx: &mut Context<Self>) -> Self::Result {
+        let GetBundleForNode { destination } = msg;
         let mut ret = Vec::new();
         for i in 0..self.bundles.len() {
             if self.bundles[i]
@@ -153,16 +106,15 @@ impl Daemon {
             ret.len(),
             destination
         );
-        if let Err(e) = bundles.send(Ok(ret)) {
-            error!("Error sending bundles to sender {:?}", e);
-        }
+        Ok(ret)
     }
+}
 
-    async fn message_try_defragment_bundle(
-        &mut self,
-        bundle: StoredBundle,
-        responder: oneshot::Sender<Result<Option<StoredBundle>, ()>>,
-    ) {
+impl Handler<TryDefragmentBundle> for Daemon {
+    type Result = Result<Option<StoredBundle>, ()>;
+
+    fn handle(&mut self, msg: TryDefragmentBundle, ctx: &mut Context<Self>) -> Self::Result {
+        let TryDefragmentBundle { bundle } = msg;
         let requested_primary_block = &bundle.get_bundle().primary_block;
         let mut i = 0;
         let mut fragments: Vec<Bundle> = Vec::new();
@@ -188,14 +140,10 @@ impl Daemon {
                 .fragment_offset
                 .is_none()
         {
-            if let Err(e) = responder.send(Ok(Some(reassembled.drain(0..1).next().unwrap()))) {
-                error!("Error sending reassembled bundle response: {:?}", e);
-            }
+            Ok(Some(reassembled.drain(0..1).next().unwrap()))
         } else {
             self.bundles.append(&mut reassembled);
-            if let Err(e) = responder.send(Ok(None)) {
-                error!("Error sending empty bundle response: {:?}", e);
-            }
+            Ok(None)
         }
     }
 }
