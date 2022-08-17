@@ -1,9 +1,9 @@
 use crate::{
-    converganceagent::messages::ConverganceAgentRequest,
+    converganceagent::messages::{AgentConnectNode, AgentDisconnectNode},
     routingagent::messages::{AddRoute, RemoveRoute, RouteType},
 };
 use actix::prelude::*;
-use log::{error, info, warn};
+use log::{info, warn};
 use std::time::Duration;
 
 use super::messages::{
@@ -52,13 +52,9 @@ impl Handler<AddNode> for Daemon {
         if !self.nodes.contains(&node) {
             node.connection_status = NodeConnectionStatus::Connecting;
             self.nodes.push(node);
-            if let Err(e) = self.convergance_agent_sender.as_ref().unwrap().send(
-                ConverganceAgentRequest::AgentConnectNode {
-                    connection_string: url,
-                },
-            ) {
-                error!("Error sending request to convergance agent: {:?}", e)
-            }
+            crate::converganceagent::agent::Daemon::from_registry().do_send(AgentConnectNode {
+                connection_string: url,
+            });
         }
     }
 }
@@ -80,13 +76,11 @@ impl Handler<RemoveNode> for Daemon {
                 node.temporary = true;
                 node.connection_status = NodeConnectionStatus::Disconnecting;
 
-                if let Err(e) = self.convergance_agent_sender.as_ref().unwrap().send(
-                    ConverganceAgentRequest::AgentDisconnectNode {
+                crate::converganceagent::agent::Daemon::from_registry().do_send(
+                    AgentDisconnectNode {
                         connection_string: url,
                     },
-                ) {
-                    error!("Error sending request to convergance agent: {:?}", e)
-                }
+                );
             }
             None => {}
         }
@@ -168,13 +162,9 @@ impl Handler<TryConnect> for Daemon {
             if node.connection_status == NodeConnectionStatus::Disconnected && !node.temporary {
                 info!("Trying to reconnect to {}", node.url);
                 node.connection_status = NodeConnectionStatus::Connecting;
-                if let Err(e) = self.convergance_agent_sender.as_ref().unwrap().send(
-                    ConverganceAgentRequest::AgentConnectNode {
-                        connection_string: node.url.clone(),
-                    },
-                ) {
-                    error!("Error sending request to convergance agent: {:?}", e)
-                }
+                crate::converganceagent::agent::Daemon::from_registry().do_send(AgentConnectNode {
+                    connection_string: node.url.clone(),
+                });
             }
         }
     }

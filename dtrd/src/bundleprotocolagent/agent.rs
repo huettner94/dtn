@@ -1,6 +1,5 @@
 use std::collections::VecDeque;
 
-use async_trait::async_trait;
 use bp7::{
     administrative_record::{
         bundle_status_report::{
@@ -26,14 +25,11 @@ use tokio::sync::{
 
 use crate::{
     bundleprotocolagent::messages::*,
-    bundlestorageagent::{self, messages::BSARequest, StoredBundle},
-    clientagent::messages::{ClientAgentRequest, ListenBundlesResponse},
+    bundlestorageagent::{self, StoredBundle},
+    clientagent::messages::ListenBundlesResponse,
     common::settings::Settings,
-    converganceagent::messages::{AgentForwardBundle, ConverganceAgentRequest},
-    routingagent::{
-        self,
-        messages::{NexthopInfo, RoutingAgentRequest},
-    },
+    converganceagent::messages::AgentForwardBundle,
+    routingagent::{self, messages::NexthopInfo},
 };
 
 use actix::prelude::*;
@@ -192,7 +188,7 @@ impl Handler<ReceiveBundle> for Daemon {
     type Result = Result<(), ()>;
 
     fn handle(&mut self, msg: ReceiveBundle, ctx: &mut Context<Self>) -> Self::Result {
-        let ReceiveBundle { bundle } = msg;
+        let ReceiveBundle { bundle, responder } = msg;
         debug!("Recived bundle: {:?}", bundle.primary_block);
         let res = match bundlestorageagent::client::store_bundle(
             self.bsa_sender.as_ref().unwrap(),

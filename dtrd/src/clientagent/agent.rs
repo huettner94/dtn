@@ -1,272 +1,159 @@
 use std::collections::HashMap;
 
-use async_trait::async_trait;
 use bp7::endpoint::Endpoint;
-use log::{error, info, warn};
+use log::{info, warn};
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    bundleprotocolagent::messages::BPARequest,
+    bundleprotocolagent::messages::{NewClientConnected, SendBundle},
     common::settings::Settings,
-    nodeagent::messages::{Node, NodeAgentRequest},
-    routingagent::messages::{RouteStatus, RouteType, RoutingAgentRequest},
+    nodeagent::messages::{AddNode, ListNodes, Node, RemoveNode},
+    routingagent::messages::{AddRoute, ListRoutes, RemoveRoute, RouteStatus, RouteType},
 };
 
-use super::messages::{ClientAgentRequest, ListenBundlesResponse};
+use super::messages::{
+    AgentGetClient, ClientAddNode, ClientAddRoute, ClientListNodes, ClientListenBundles,
+    ClientRemoveNode, ClientRemoveRoute, ClientSendBundle, ListenBundlesResponse,
+};
+use actix::prelude::*;
 
+#[derive(Default)]
 pub struct Daemon {
     clients: HashMap<Endpoint, (mpsc::Sender<ListenBundlesResponse>, CancellationToken)>,
-    channel_receiver: Option<mpsc::UnboundedReceiver<ClientAgentRequest>>,
-    bpa_sender: Option<mpsc::UnboundedSender<BPARequest>>,
-    node_agent_sender: Option<mpsc::UnboundedSender<NodeAgentRequest>>,
-    routing_agent_sender: Option<mpsc::UnboundedSender<RoutingAgentRequest>>,
 }
 
-impl crate::common::agent::Daemon for Daemon {
-    type MessageType = ClientAgentRequest;
+impl Actor for Daemon {
+    type Context = Context<Self>;
 
-    async fn new(_: &Settings) -> Self {
-        Daemon {
-            clients: HashMap::new(),
-            channel_receiver: None,
-            bpa_sender: None,
-            node_agent_sender: None,
-            routing_agent_sender: None,
-        }
-    }
-
-    fn get_agent_name(&self) -> &'static str {
-        "ClientAgent"
-    }
-
-    fn get_channel_receiver(&mut self) -> Option<mpsc::UnboundedReceiver<Self::MessageType>> {
-        self.channel_receiver.take()
-    }
-
-    async fn on_shutdown(&mut self) {
+    fn stopped(&mut self, ctx: &mut Context<Self>) {
         info!("Closing all client agent channels");
         for (client_endpoint, client_sender) in self.clients.drain() {
             drop(client_sender);
             info!("Closed agent channel for {:?}", client_endpoint);
         }
     }
-
-    async fn handle_message(&mut self, msg: ClientAgentRequest) {
-        match msg {
-            ClientAgentRequest::ClientSendBundle {
-                destination,
-                payload,
-                lifetime,
-                responder,
-            } => {
-                self.message_client_send_bundle(destination, payload, lifetime, responder)
-                    .await;
-            }
-            ClientAgentRequest::ClientListenBundles {
-                destination,
-                responder,
-                status,
-                canceltoken,
-            } => {
-                self.message_client_listen_bundles(destination, responder, status, canceltoken)
-                    .await;
-            }
-            ClientAgentRequest::ClientListNodes { responder } => {
-                self.message_client_list_nodes(responder).await;
-            }
-            ClientAgentRequest::ClientAddNode { url } => {
-                self.message_client_add_node(url).await;
-            }
-            ClientAgentRequest::ClientRemoveNode { url } => {
-                self.message_client_remove_node(url).await;
-            }
-            ClientAgentRequest::ClientListRoutes { responder } => {
-                self.message_client_list_routes(responder).await;
-            }
-            ClientAgentRequest::ClientAddRoute { target, next_hop } => {
-                self.message_client_add_route(target, next_hop).await;
-            }
-            ClientAgentRequest::ClientRemoveRoute { target, next_hop } => {
-                self.message_client_remove_route(target, next_hop).await;
-            }
-            ClientAgentRequest::AgentGetClient {
-                destination,
-                responder,
-            } => {
-                self.message_agent_get_client(destination, responder).await;
-            }
-        }
-    }
 }
 
-impl Daemon {
-    pub fn init_channels(
-        &mut self,
-        bpa_sender: tokio::sync::mpsc::UnboundedSender<BPARequest>,
-        node_agent_sender: mpsc::UnboundedSender<NodeAgentRequest>,
-        routing_agent_sender: mpsc::UnboundedSender<RoutingAgentRequest>,
-    ) -> mpsc::UnboundedSender<ClientAgentRequest> {
-        self.bpa_sender = Some(bpa_sender);
-        self.node_agent_sender = Some(node_agent_sender);
-        self.routing_agent_sender = Some(routing_agent_sender);
-        let (channel_sender, channel_receiver) = mpsc::unbounded_channel::<ClientAgentRequest>();
-        self.channel_receiver = Some(channel_receiver);
-        return channel_sender;
-    }
+impl actix::Supervised for Daemon {}
 
-    async fn message_client_send_bundle(
-        &self,
-        destination: Endpoint,
-        payload: Vec<u8>,
-        lifetime: u64,
+impl SystemService for Daemon {}
 
-        responder: oneshot::Sender<Result<(), ()>>,
-    ) {
-        let sender = self.bpa_sender.as_ref().unwrap();
-        if let Err(e) = sender.send(BPARequest::SendBundle {
+impl Handler<ClientSendBundle> for Daemon {
+    type Result = Result<(), ()>;
+
+    fn handle(&mut self, msg: ClientSendBundle, ctx: &mut Context<Self>) -> Self::Result {
+        let ClientSendBundle {
             destination,
             payload,
             lifetime,
-            responder,
-        }) {
-            error!("Error sending bundle send request to BPA: {:?}", e);
-        }
+        } = msg;
+        crate::bundleprotocolagent::agent::Daemon::from_registry().send(SendBundle {
+            destination,
+            payload,
+            lifetime,
+        })
     }
+}
 
-    async fn message_client_listen_bundles(
-        &mut self,
-        destination: Endpoint,
-        responder: mpsc::Sender<ListenBundlesResponse>,
-        status: oneshot::Sender<Result<(), String>>,
-        canceltoken: CancellationToken,
-    ) {
+impl Handler<ClientListenBundles> for Daemon {
+    type Result = Result<(), String>;
+
+    fn handle(&mut self, msg: ClientListenBundles, ctx: &mut Context<Self>) -> Self::Result {
+        let ClientListenBundles {
+            destination,
+            responder,
+            canceltoken,
+        } = msg;
         let sender = self.bpa_sender.as_ref().unwrap();
         let (endpoint_local_response_sender, endpoint_local_response_receiver) =
             oneshot::channel::<bool>();
-        if let Err(e) = sender.send(BPARequest::IsEndpointLocal {
-            endpoint: destination.clone(),
-            sender: endpoint_local_response_sender,
-        }) {
-            error!("Error sending is_endpoint_local to BPA: {:?}", e);
-            if let Err(e) = status.send(Err("internal error".to_string())) {
-                error!("Error sending response to requestor {:?}", e);
-            }
-            return;
-        }
 
-        match endpoint_local_response_receiver.await {
-            Ok(true) => {}
-            Ok(false) => {
-                warn!("User attempted to register with endpoint not bound here.");
-                if let Err(e) = status.send(Err(
-                    "Endpoint invalid for this BundleProtocolAgent".to_string()
-                )) {
-                    error!("Error sending response to requestor {:?}", e);
-                }
-                return;
-            }
-            Err(e) => {
-                error!("Error receiving is_endpoint_local from BPA: {:?}", e);
-                if let Err(e) = status.send(Err("internal error".to_string())) {
-                    error!("Error sending response to requestor {:?}", e);
-                }
-                return;
-            }
+        let settings = Settings::from_env();
+        let node_id = Endpoint::new(&settings.my_node_id).unwrap();
+
+        if node_id != destination.get_node_endpoint() {
+            warn!("User attempted to register with endpoint not bound here.");
+            return Err("Endpoint invalid for this BundleProtocolAgent".to_string());
         }
 
         self.clients
             .insert(destination.clone(), (responder.clone(), canceltoken));
-        if let Err(e) = sender.send(BPARequest::NewClientConnected { destination }) {
-            error!("Error sending bundle send request to BPA: {:?}", e);
-        }
+        crate::bundleprotocolagent::agent::Daemon::from_registry()
+            .do_send(NewClientConnected { destination });
 
-        if let Err(e) = status.send(Ok(())) {
-            error!("Error sending response to requestor {:?}", e);
-        }
+        Ok(())
     }
+}
 
-    async fn message_client_list_nodes(&self, responder: oneshot::Sender<Vec<Node>>) {
-        if let Err(e) = self
-            .node_agent_sender
-            .as_ref()
-            .unwrap()
-            .send(NodeAgentRequest::ListNodes { responder })
-        {
-            error!("Error sending request to node agent {:?}", e);
-        }
+impl Handler<ClientListNodes> for Daemon {
+    type Result = Vec<Node>;
+
+    fn handle(&mut self, msg: ClientListNodes, ctx: &mut Context<Self>) -> Self::Result {
+        let ClientListNodes { responder } = msg;
+        crate::nodeagent::agent::Daemon::from_registry().send(ListNodes {})
     }
+}
 
-    async fn message_client_add_node(&self, url: String) {
-        if let Err(e) = self
-            .node_agent_sender
-            .as_ref()
-            .unwrap()
-            .send(NodeAgentRequest::AddNode { url })
-        {
-            error!("Error sending request to node agent {:?}", e);
-        }
+impl Handler<ClientAddNode> for Daemon {
+    type Result = ();
+
+    fn handle(&mut self, msg: ClientAddNode, ctx: &mut Context<Self>) -> Self::Result {
+        let ClientAddNode { url } = msg;
+        crate::nodeagent::agent::Daemon::from_registry().do_send(AddNode { url });
     }
+}
 
-    async fn message_client_remove_node(&self, url: String) {
-        if let Err(e) = self
-            .node_agent_sender
-            .as_ref()
-            .unwrap()
-            .send(NodeAgentRequest::RemoveNode { url })
-        {
-            error!("Error sending request to node agent {:?}", e);
-        }
+impl Handler<ClientRemoveNode> for Daemon {
+    type Result = ();
+
+    fn handle(&mut self, msg: ClientRemoveNode, ctx: &mut Context<Self>) -> Self::Result {
+        let ClientRemoveNode { url } = msg;
+        crate::nodeagent::agent::Daemon::from_registry().do_send(RemoveNode { url });
     }
+}
 
-    async fn message_client_list_routes(&self, responder: oneshot::Sender<Vec<RouteStatus>>) {
-        if let Err(e) = self
-            .routing_agent_sender
-            .as_ref()
-            .unwrap()
-            .send(RoutingAgentRequest::ListRoutes { responder })
-        {
-            error!("Error sending request to route agent {:?}", e);
-        }
+impl Handler<ClientListNodes> for Daemon {
+    type Result = Vec<RouteStatus>;
+
+    fn handle(&mut self, msg: ClientListNodes, ctx: &mut Context<Self>) -> Self::Result {
+        crate::nodeagent::agent::Daemon::from_registry().send(ListRoutes {})
     }
+}
 
-    async fn message_client_add_route(&self, target: Endpoint, next_hop: Endpoint) {
-        if let Err(e) =
-            self.routing_agent_sender
-                .as_ref()
-                .unwrap()
-                .send(RoutingAgentRequest::AddRoute {
-                    target,
-                    next_hop,
-                    route_type: RouteType::Static,
-                    max_bundle_size: None,
-                })
-        {
-            error!("Error sending request to route agent {:?}", e);
-        }
+impl Handler<ClientAddRoute> for Daemon {
+    type Result = ();
+
+    fn handle(&mut self, msg: ClientAddRoute, ctx: &mut Context<Self>) -> Self::Result {
+        let ClientAddRoute { target, next_hop } = msg;
+        crate::routingagent::agent::Daemon::from_registry().do_send(AddRoute {
+            target,
+            next_hop,
+            route_type: RouteType::Static,
+            max_bundle_size: None,
+        });
     }
+}
 
-    async fn message_client_remove_route(&self, target: Endpoint, next_hop: Endpoint) {
-        if let Err(e) =
-            self.routing_agent_sender
-                .as_ref()
-                .unwrap()
-                .send(RoutingAgentRequest::RemoveRoute {
-                    target,
-                    next_hop,
-                    route_type: RouteType::Static,
-                })
-        {
-            error!("Error sending request to route agent {:?}", e);
-        }
+impl Handler<ClientRemoveRoute> for Daemon {
+    type Result = ();
+
+    fn handle(&mut self, msg: ClientRemoveRoute, ctx: &mut Context<Self>) -> Self::Result {
+        let ClientRemoveRoute { target, next_hop } = msg;
+        crate::routingagent::agent::Daemon::from_registry().do_send(RemoveRoute {
+            target,
+            next_hop,
+            route_type: RouteType::Static,
+        });
     }
+}
 
-    async fn message_agent_get_client(
-        &mut self,
-        destination: Endpoint,
-        responder: oneshot::Sender<Option<mpsc::Sender<ListenBundlesResponse>>>,
-    ) {
-        let resp = match self.clients.get(&destination) {
+impl Handler<AgentGetClient> for Daemon {
+    type Result = Option<mpsc::Sender<ListenBundlesResponse>>;
+
+    fn handle(&mut self, msg: AgentGetClient, ctx: &mut Context<Self>) -> Self::Result {
+        let AgentGetClient { destination } = msg;
+        match self.clients.get(&destination) {
             Some((sender, canceltoken)) => {
                 if canceltoken.is_cancelled() {
                     info!("Client for endpoint {} already disconnected", destination);
@@ -277,9 +164,6 @@ impl Daemon {
                 }
             }
             None => None,
-        };
-        if let Err(e) = responder.send(resp) {
-            warn!("Error sending client get back to requestor: {:?}", e);
         }
     }
 }
