@@ -4,8 +4,20 @@ use super::StoredBundle;
 use actix::prelude::*;
 
 #[derive(Message)]
-#[rtype(result = "Result<StoredBundle, ()>")]
+#[rtype(result = "")]
+pub struct EventNewBundleStored {
+    bundle: StoredBundle,
+}
+
+#[derive(Message)]
+#[rtype(result = "Result<(), ()>")]
 pub struct StoreBundle {
+    bundle: Bundle,
+}
+
+#[derive(Message)]
+#[rtype(result = "Result<(), ()>")]
+pub struct StoreNewBundle {
     bundle: Bundle,
 }
 
@@ -25,10 +37,4 @@ pub struct GetBundleForDestination {
 #[rtype(result = "Result<Vec<StoredBundle>, String>")]
 pub struct GetBundleForNode {
     destination: Endpoint,
-}
-
-#[derive(Message)]
-#[rtype(result = "Result<Option<StoredBundle>, ()>")]
-pub struct TryDefragmentBundle {
-    bundle: StoredBundle,
 }

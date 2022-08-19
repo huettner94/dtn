@@ -54,7 +54,7 @@ pub struct RemoveNode {
 
 #[derive(Message)]
 #[rtype(result = "")]
-pub struct NotifyNodeConnected {
+pub struct EventNodeConnected {
     url: String,
     endpoint: Endpoint,
     max_bundle_size: u64,

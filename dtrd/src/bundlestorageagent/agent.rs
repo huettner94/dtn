@@ -1,5 +1,7 @@
-use bp7::bundle::Bundle;
+use bp7::{bundle::Bundle, endpoint::Endpoint, time::DtnTime};
 use log::{debug, error, warn};
+
+use crate::common::settings::Settings;
 
 use super::{messages::*, StoredBundle};
 use actix::prelude::*;
@@ -7,6 +9,9 @@ use actix::prelude::*;
 #[derive(Default)]
 pub struct Daemon {
     bundles: Vec<StoredBundle>,
+    endpoint: Option<Endpoint>,
+    last_created_dtn_time: Option<DtnTime>,
+    last_sequence_number: u64,
 }
 
 impl Actor for Daemon {
@@ -24,18 +29,104 @@ impl Actor for Daemon {
 
 impl actix::Supervised for Daemon {}
 
-impl SystemService for Daemon {}
+impl SystemService for Daemon {
+    fn service_started(&mut self, ctx: &mut Context<Self>) {
+        let settings = Settings::from_env();
+        self.endpoint = Some(Endpoint::new(&settings.my_node_id).unwrap());
+    }
+}
 
 impl Handler<StoreBundle> for Daemon {
-    type Result = Result<StoredBundle, ()>;
+    type Result = Result<(), ()>;
 
     fn handle(&mut self, msg: StoreBundle, ctx: &mut Context<Self>) -> Self::Result {
         let StoreBundle { bundle } = msg;
+
+        if bundle
+            .primary_block
+            .source_node
+            .matches_node(&self.endpoint.unwrap())
+        {
+            panic!("Received a StoreBundle message but with us as the source node. Use StoreNewBundle instead!")
+        }
+
         debug!("Storing Bundle {:?} for later", bundle.primary_block);
         let res: Result<StoredBundle, ()> = match TryInto::<StoredBundle>::try_into(bundle) {
             Ok(sb) => {
                 self.bundles.push(sb.clone());
-                Ok(sb)
+
+                if bundle
+                    .primary_block
+                    .destination_endpoint
+                    .matches_node(&self.endpoint.unwrap())
+                {
+                    match self.try_defragment_bundle(&sb.bundle) {
+                        Some(defragmented) => {
+                            crate::bundleprotocolagent::agent::Daemon::from_registry().do_send(
+                                EventNewBundleStored {
+                                    bundle: defragmented,
+                                },
+                            );
+                        }
+                        None => {}
+                    }
+                } else {
+                    crate::bundleprotocolagent::agent::Daemon::from_registry()
+                        .do_send(EventNewBundleStored { bundle: sb });
+                }
+
+                Ok(())
+            }
+            Err(e) => {
+                error!("Error converting bundle to StoredBundle: {:?}", e);
+                Err(())
+            }
+        };
+        res
+    }
+}
+
+impl Handler<StoreNewBundle> for Daemon {
+    type Result = Result<(), ()>;
+
+    fn handle(&mut self, msg: StoreNewBundle, ctx: &mut Self::Context) -> Self::Result {
+        let StoreNewBundle { bundle } = msg;
+
+        if !bundle
+            .primary_block
+            .source_node
+            .matches_node(&self.endpoint.unwrap())
+        {
+            panic!("Received a StoreNewBundle message but with some other node as source node. Use StoreBundle instead!")
+        }
+
+        if bundle.primary_block.fragment_offset.is_some() {
+            panic!("Do not send fragments to StoreNewBundle")
+        }
+
+        let timestamp = bundle.primary_block.creation_timestamp.creation_time;
+        let sequence_number = if Some(timestamp) == self.last_created_dtn_time {
+            self.last_sequence_number += 1;
+            self.last_sequence_number
+        } else {
+            self.last_created_dtn_time = Some(timestamp);
+            self.last_sequence_number = 0;
+            0
+        };
+        debug!(
+            "Decided sequence number {:?} for new bundle",
+            sequence_number
+        );
+        bundle.primary_block.creation_timestamp.sequence_number = sequence_number;
+
+        debug!("Storing Bundle {:?} for later", bundle.primary_block);
+        let res: Result<StoredBundle, ()> = match TryInto::<StoredBundle>::try_into(bundle) {
+            Ok(sb) => {
+                self.bundles.push(sb.clone());
+                crate::bundleprotocolagent::agent::Daemon::from_registry()
+                    .do_send(EventNewBundleStored { bundle: sb });
+
+                Ok(())
             }
             Err(e) => {
                 error!("Error converting bundle to StoredBundle: {:?}", e);
@@ -110,12 +201,9 @@ impl Handler<GetBundleForNode> for Daemon {
     }
 }
 
-impl Handler<TryDefragmentBundle> for Daemon {
-    type Result = Result<Option<StoredBundle>, ()>;
-
-    fn handle(&mut self, msg: TryDefragmentBundle, ctx: &mut Context<Self>) -> Self::Result {
-        let TryDefragmentBundle { bundle } = msg;
-        let requested_primary_block = &bundle.get_bundle().primary_block;
+impl Daemon {
+    fn try_defragment_bundle(&mut self, bundle: &Bundle) -> Option<Bundle> {
+        let requested_primary_block = bundle.get_bundle().primary_block;
         let mut i = 0;
         let mut fragments: Vec<Bundle> = Vec::new();
         while i < self.bundles.len() {
@@ -140,10 +228,12 @@ impl Handler<TryDefragmentBundle> for Daemon {
                 .fragment_offset
                 .is_none()
         {
-            Ok(Some(reassembled.drain(0..1).next().unwrap()))
+            let reassembled_bundle = reassembled.drain(0..1).next().unwrap();
+            self.bundles.push(reassembled_bundle.clone());
+            Some(reassembled_bundle)
         } else {
             self.bundles.append(&mut reassembled);
-            Ok(None)
+            None
         }
     }
 }

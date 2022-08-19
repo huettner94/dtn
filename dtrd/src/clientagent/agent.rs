@@ -1,38 +1,33 @@
-use std::collections::HashMap;
-
-use bp7::endpoint::Endpoint;
-use log::{info, warn};
-use tokio::sync::{mpsc, oneshot};
-use tokio_util::sync::CancellationToken;
+use bp7::{
+    block::{payload_block::PayloadBlock, Block, CanonicalBlock},
+    blockflags::BlockFlags,
+    bundle::Bundle,
+    bundleflags::BundleFlags,
+    crc::CRCType,
+    primaryblock::PrimaryBlock,
+    time::{CreationTimestamp, DtnTime},
+};
+use log::debug;
 
 use crate::{
-    bundleprotocolagent::messages::{NewClientConnected, SendBundle},
-    common::settings::Settings,
+    bundlestorageagent::messages::StoreNewBundle,
     nodeagent::messages::{AddNode, ListNodes, Node, RemoveNode},
     routingagent::messages::{AddRoute, ListRoutes, RemoveRoute, RouteStatus, RouteType},
 };
 
 use super::messages::{
-    AgentGetClient, ClientAddNode, ClientAddRoute, ClientListNodes, ClientListenBundles,
-    ClientRemoveNode, ClientRemoveRoute, ClientSendBundle, ListenBundlesResponse,
+    ClientAddNode, ClientAddRoute, ClientListNodes, ClientRemoveNode, ClientRemoveRoute,
+    ClientSendBundle,
 };
 use actix::prelude::*;
 
 #[derive(Default)]
 pub struct Daemon {
-    clients: HashMap<Endpoint, (mpsc::Sender<ListenBundlesResponse>, CancellationToken)>,
+    //TODO clients: HashMap<Endpoint, (mpsc::Sender<ListenBundlesResponse>, CancellationToken)>,
 }
 
 impl Actor for Daemon {
     type Context = Context<Self>;
-
-    fn stopped(&mut self, ctx: &mut Context<Self>) {
-        info!("Closing all client agent channels");
-        for (client_endpoint, client_sender) in self.clients.drain() {
-            drop(client_sender);
-            info!("Closed agent channel for {:?}", client_endpoint);
-        }
-    }
 }
 
 impl actix::Supervised for Daemon {}
@@ -48,15 +43,39 @@ impl Handler<ClientSendBundle> for Daemon {
             payload,
             lifetime,
         } = msg;
-        crate::bundleprotocolagent::agent::Daemon::from_registry().send(SendBundle {
-            destination,
-            payload,
-            lifetime,
-        })
+
+        let bundle = Bundle {
+            primary_block: PrimaryBlock {
+                version: 7,
+                bundle_processing_flags: BundleFlags::BUNDLE_RECEIPTION_STATUS_REQUESTED
+                    | BundleFlags::BUNDLE_FORWARDING_STATUS_REQUEST
+                    | BundleFlags::BUNDLE_DELIVERY_STATUS_REQUESTED
+                    | BundleFlags::BUNDLE_DELETION_STATUS_REQUESTED,
+                crc: CRCType::NoCRC,
+                destination_endpoint: destination,
+                source_node: self.endpoint.unwrap().clone(),
+                report_to: self.endpoint.unwrap().clone(),
+                creation_timestamp: CreationTimestamp {
+                    creation_time: DtnTime::now(),
+                    sequence_number: 0, // TODO: Needs to increase for all of the same timestamp
+                },
+                lifetime,
+                fragment_offset: None,
+                total_data_length: None,
+            },
+            blocks: vec![CanonicalBlock {
+                block: Block::Payload(PayloadBlock { data: payload }),
+                block_flags: BlockFlags::empty(),
+                block_number: 1,
+                crc: CRCType::NoCRC,
+            }],
+        };
+        debug!("Storing new bundle {:?}", &bundle.primary_block);
+        crate::bundlestorageagent::agent::Daemon::from_registry().send(StoreNewBundle { bundle })
     }
 }
 
-impl Handler<ClientListenBundles> for Daemon {
+/* TODO impl Handler<ClientListenBundles> for Daemon {
     type Result = Result<(), String>;
 
     fn handle(&mut self, msg: ClientListenBundles, ctx: &mut Context<Self>) -> Self::Result {
@@ -65,14 +84,10 @@ impl Handler<ClientListenBundles> for Daemon {
             responder,
             canceltoken,
         } = msg;
-        let sender = self.bpa_sender.as_ref().unwrap();
-        let (endpoint_local_response_sender, endpoint_local_response_receiver) =
-            oneshot::channel::<bool>();
-
         let settings = Settings::from_env();
         let node_id = Endpoint::new(&settings.my_node_id).unwrap();
 
-        if node_id != destination.get_node_endpoint() {
+        if !node_id.matches_node(&destination) {
             warn!("User attempted to register with endpoint not bound here.");
             return Err("Endpoint invalid for this BundleProtocolAgent".to_string());
         }
@@ -84,7 +99,7 @@ impl Handler<ClientListenBundles> for Daemon {
 
         Ok(())
     }
-}
+}*/
 
 impl Handler<ClientListNodes> for Daemon {
     type Result = Vec<Node>;
@@ -145,25 +160,5 @@ impl Handler<ClientRemoveRoute> for Daemon {
             next_hop,
             route_type: RouteType::Static,
         });
-    }
-}
-
-impl Handler<AgentGetClient> for Daemon {
-    type Result = Option<mpsc::Sender<ListenBundlesResponse>>;
-
-    fn handle(&mut self, msg: AgentGetClient, ctx: &mut Context<Self>) -> Self::Result {
-        let AgentGetClient { destination } = msg;
-        match self.clients.get(&destination) {
-            Some((sender, canceltoken)) => {
-                if canceltoken.is_cancelled() {
-                    info!("Client for endpoint {} already disconnected", destination);
-                    self.clients.remove(&destination);
-                    None
-                } else {
-                    Some(sender.clone())
-                }
-            }
-            None => None,
-        }
     }
 }

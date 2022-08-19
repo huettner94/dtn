@@ -6,7 +6,7 @@ use tokio::sync::mpsc;
 
 use crate::{
     bundleprotocolagent::messages::ReceiveBundle,
-    nodeagent::messages::{NotifyNodeConnected, NotifyNodeDisconnected},
+    nodeagent::messages::{EventNodeConnected, NotifyNodeDisconnected},
 };
 
 use super::messages::{
@@ -144,7 +144,7 @@ impl Handler<CLRegisterNode> for Daemon {
         } = msg;
         info!("Received a registration request for node {}", node);
         self.connected_nodes.insert(node.clone(), sender);
-        crate::nodeagent::agent::Daemon::from_registry().do_send(NotifyNodeConnected {
+        crate::nodeagent::agent::Daemon::from_registry().do_send(EventNodeConnected {
             url,
             endpoint: node.clone(),
             max_bundle_size,

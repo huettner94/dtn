@@ -1,14 +1,34 @@
-use bp7::endpoint::Endpoint;
-use tokio::sync::mpsc;
-use tokio_util::sync::CancellationToken;
-
-use crate::{nodeagent::messages::Node, routingagent::messages::RouteStatus};
+use crate::{
+    bundlestorageagent::StoredBundle, nodeagent::messages::Node,
+    routingagent::messages::RouteStatus,
+};
 use actix::prelude::*;
+use bp7::endpoint::Endpoint;
 
-#[derive(Debug)]
-pub struct ListenBundlesResponse {
-    pub endpoint: Endpoint,
-    pub data: Vec<u8>,
+#[derive(Message)]
+#[rtype(result = "")]
+pub struct ClientDeliverBundle {
+    bundle: StoredBundle,
+    responder: Recipient<EventBundleDelivered>,
+}
+
+#[derive(Message)]
+#[rtype(result = "")]
+pub struct EventBundleDelivered {
+    endpoint: Endpoint,
+    bundle: StoredBundle,
+}
+
+#[derive(Message)]
+#[rtype(result = "")]
+pub struct EventClientConnected {
+    destination: Endpoint,
+    sender: Recipient<ClientDeliverBundle>,
+}
+#[derive(Message)]
+#[rtype(result = "")]
+pub struct EventClientDisconnected {
+    destination: Endpoint,
 }
 
 #[derive(Message)]
@@ -17,13 +37,6 @@ pub struct ClientSendBundle {
     destination: Endpoint,
     payload: Vec<u8>,
     lifetime: u64,
-}
-#[derive(Message)]
-#[rtype(result = "Result<(), String>")]
-pub struct ClientListenBundles {
-    destination: Endpoint,
-    responder: mpsc::Sender<ListenBundlesResponse>,
-    canceltoken: CancellationToken,
 }
 #[derive(Message)]
 #[rtype(result = "Vec<Node>")]
@@ -57,10 +70,4 @@ pub struct ClientAddRoute {
 pub struct ClientRemoveRoute {
     target: Endpoint,
     next_hop: Endpoint,
-}
-
-#[derive(Message)]
-#[rtype(result = "Option<mpsc::Sender<ListenBundlesResponse>>")]
-pub struct AgentGetClient {
-    destination: Endpoint,
 }

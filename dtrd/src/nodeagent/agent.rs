@@ -7,7 +7,7 @@ use log::{info, warn};
 use std::time::Duration;
 
 use super::messages::{
-    AddNode, ListNodes, Node, NodeConnectionStatus, NotifyNodeConnected, NotifyNodeDisconnected,
+    AddNode, EventNodeConnected, ListNodes, Node, NodeConnectionStatus, NotifyNodeDisconnected,
     RemoveNode, TryConnect,
 };
 
@@ -87,11 +87,11 @@ impl Handler<RemoveNode> for Daemon {
     }
 }
 
-impl Handler<NotifyNodeConnected> for Daemon {
+impl Handler<EventNodeConnected> for Daemon {
     type Result = ();
 
-    fn handle(&mut self, msg: NotifyNodeConnected, ctx: &mut Context<Self>) -> Self::Result {
-        let NotifyNodeConnected {
+    fn handle(&mut self, msg: EventNodeConnected, ctx: &mut Context<Self>) -> Self::Result {
+        let EventNodeConnected {
             url,
             endpoint,
             max_bundle_size,

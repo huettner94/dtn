@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 
 use bp7::{
     administrative_record::{
@@ -25,8 +25,14 @@ use tokio::sync::{
 
 use crate::{
     bundleprotocolagent::messages::*,
-    bundlestorageagent::{self, StoredBundle},
-    clientagent::messages::ListenBundlesResponse,
+    bundlestorageagent::{
+        self,
+        messages::{EventNewBundleStored, StoreNewBundle},
+        StoredBundle,
+    },
+    clientagent::messages::{
+        ClientDeliverBundle, EventBundleDelivered, EventClientConnected, EventClientDisconnected,
+    },
     common::settings::Settings,
     converganceagent::messages::AgentForwardBundle,
     routingagent::{self, messages::NexthopInfo},
@@ -42,8 +48,11 @@ enum BundleProcessing {
 #[derive(Default)]
 pub struct Daemon {
     endpoint: Option<Endpoint>,
-    bsa_addr: Option<Addr<bundlestorageagent::agent::Daemon>>,
-    todo_bundles: VecDeque<StoredBundle>,
+    bundles_pending_local_delivery: HashMap<Endpoint, Vec<StoredBundle>>,
+    local_bundles: HashMap<Endpoint, VecDeque<StoredBundle>>,
+    remote_bundles: HashMap<Endpoint, VecDeque<StoredBundle>>,
+    local_connections: HashMap<Endpoint, Recipient<ClientDeliverBundle>>,
+    remote_connections: HashMap<Endpoint, Recipient<CLSendBundle>>,
 }
 
 impl Actor for Daemon {
@@ -55,96 +64,65 @@ impl SystemService for Daemon {
     fn service_started(&mut self, ctx: &mut Context<Self>) {
         let settings = Settings::from_env();
         self.endpoint = Some(Endpoint::new(&settings.my_node_id).unwrap());
-        self.bsa_addr = Some(bundlestorageagent::agent::Daemon::from_registry());
     }
 }
 
-impl Handler<SendBundle> for Daemon {
-    type Result = Result<(), ()>;
-
-    fn handle(&mut self, msg: SendBundle, ctx: &mut Context<Self>) -> Self::Result {
-        let SendBundle {
-            destination,
-            payload,
-            lifetime,
-        } = msg;
-        let bundle = Bundle {
-            primary_block: PrimaryBlock {
-                version: 7,
-                bundle_processing_flags: BundleFlags::BUNDLE_RECEIPTION_STATUS_REQUESTED
-                    | BundleFlags::BUNDLE_FORWARDING_STATUS_REQUEST
-                    | BundleFlags::BUNDLE_DELIVERY_STATUS_REQUESTED
-                    | BundleFlags::BUNDLE_DELETION_STATUS_REQUESTED,
-                crc: CRCType::NoCRC,
-                destination_endpoint: destination,
-                source_node: self.endpoint.unwrap().clone(),
-                report_to: self.endpoint.unwrap().clone(),
-                creation_timestamp: CreationTimestamp {
-                    creation_time: DtnTime::now(),
-                    sequence_number: 0, // TODO: Needs to increase for all of the same timestamp
-                },
-                lifetime,
-                fragment_offset: None,
-                total_data_length: None,
-            },
-            blocks: vec![CanonicalBlock {
-                block: Block::Payload(PayloadBlock { data: payload }),
-                block_flags: BlockFlags::empty(),
-                block_number: 1,
-                crc: CRCType::NoCRC,
-            }],
-        };
-        debug!("Dispatching new bundle {:?}", &bundle.primary_block);
-        self.bsa_addr
-            .unwrap()
-            .do_send(bundlestorageagent::messages::StoreBundle { bundle });
-        let res = match bundlestorageagent::client::store_bundle(
-            self.bsa_sender.as_ref().unwrap(),
-            bundle,
-        )
-        .await
-        {
-            Ok(sb) => {
-                self.todo_bundles.push_back(sb);
-                Ok(())
-            }
-            Err(_) => Err(()),
-        };
-        res
-    }
-}
-
-impl Handler<NewClientConnected> for Daemon {
+impl Handler<EventNewBundleStored> for Daemon {
     type Result = ();
 
-    fn handle(&mut self, msg: NewClientConnected, ctx: &mut Context<Self>) {
-        let NewClientConnected { destination } = msg;
-        let (response_sender, response_receiver) = oneshot::channel();
-        if let Err(e) =
-            self.bsa_sender
-                .as_ref()
-                .unwrap()
-                .send(BSARequest::GetBundleForDestination {
-                    destination,
-                    bundles: response_sender,
-                })
-        {
-            error!("Error sending request to bsa {:?}", e);
-        };
-
-        match response_receiver.await {
-            Ok(Ok(bundles)) => {
-                for bundle in bundles {
-                    self.todo_bundles.push_back(bundle);
-                }
-            }
-            Ok(Err(e)) => {
-                error!("Error receiving response from bsa {:?}", e);
-            }
-            Err(e) => {
-                error!("Error receiving response from bsa {:?}", e);
-            }
+    fn handle(&mut self, msg: EventNewBundleStored, ctx: &mut Self::Context) -> Self::Result {
+        let EventNewBundleStored { bundle } = msg;
+        let destination = bundle.get_bundle().primary_block.destination_endpoint;
+        if self.endpoint.unwrap().matches_node(&destination) {
+            self.local_bundles
+                .entry(&destination)
+                .or_default()
+                .push_back(bundle);
+            self.deliver_local_bundles(&destination, ctx)
+        } else {
+            self.remote_bundles
+                .entry(&destination.get_node_endpoint())
+                .or_default()
+                .push_back(bundle);
+            //TODO: try to send it
         }
+    }
+}
+
+impl Handler<EventBundleDelivered> for Daemon {
+    type Result = ();
+
+    fn handle(&mut self, msg: EventBundleDelivered, ctx: &mut Self::Context) -> Self::Result {
+        let EventBundleDelivered { endpoint, bundle } = msg;
+        if let Some(pending) = self.bundles_pending_local_delivery.get(&endpoint) {
+            pending.retain(|e| e != bundle)
+        }
+        self.send_status_report_delivered(bundle.get_bundle()).await;
+    }
+}
+
+impl Handler<EventClientConnected> for Daemon {
+    type Result = ();
+
+    fn handle(&mut self, msg: EventClientConnected, ctx: &mut Context<Self>) {
+        let EventClientConnected {
+            destination,
+            sender,
+        } = msg;
+
+        self.local_connections
+            .insert(destination.clone(), sender.clone());
+
+        self.deliver_local_bundles(&destination, ctx);
+    }
+}
+
+impl Handler<EventClientDisconnected> for Daemon {
+    type Result = ();
+
+    fn handle(&mut self, msg: EventClientDisconnected, ctx: &mut Self::Context) -> Self::Result {
+        let EventClientDisconnected { destination } = msg;
+        self.local_connections.remove(&destination);
     }
 }
 
@@ -226,58 +204,48 @@ impl Handler<ForwardBundleResult> for Daemon {
 }
 
 impl Daemon {
-    async fn dispatch_bundle(&mut self, bundle: StoredBundle) {
-        if bundle
-            .get_bundle()
-            .primary_block
-            .destination_endpoint
-            .matches_node(&self.endpoint.unwrap())
-        {
-            if bundle.get_bundle().primary_block.fragment_offset.is_some() {
-                match bundlestorageagent::client::try_defragment_bundle(
-                    self.bsa_sender.as_ref().unwrap(),
-                    bundle,
-                )
-                .await
-                {
-                    Ok(defragmented) => match defragmented {
-                        Some(defragment) => {
-                            debug!("Successfully defragmented bundle");
-                            self.todo_bundles.push_back(defragment);
-                        }
-                        None => {
-                            debug!("Not yet enough fragments for defragmentation.")
-                        }
-                    },
-                    Err(_) => {
-                        info!("Some issue appeared during defragmentation.");
+    async fn deliver_local_bundles(&mut self, destination: &Endpoint, ctx: &mut Context<Self>) {
+        let sender = match self.local_connections.get(destination) {
+            Some(s) => s,
+            None => return,
+        };
+
+        match self.local_bundles.get(&destination) {
+            Some(queue) => {
+                while let Some(bundle) = queue.pop_front() {
+                    debug!(
+                        "locally delivering bundle {:?}",
+                        &bundle.get_bundle().primary_block
+                    );
+                    if bundle.get_bundle().primary_block.fragment_offset.is_some() {
+                        panic!("Bundle is a fragment. It should have been reassembled before calling this");
+                    }
+
+                    match sender.try_send(ClientDeliverBundle {
+                        bundle: bundle.clone(),
+                        responder: ctx.address().recipient(),
+                    }) {
+                        Ok() => self
+                            .bundles_pending_local_delivery
+                            .entry(destination.clone())
+                            .or_default()
+                            .push(bundle),
+                        Err(e) => match e {
+                            SendError::Full(bundle) => {
+                                queue.push_back(bundle);
+                                return;
+                            }
+                            SendError::Closed(e) => {
+                                warn!("Client for endpoint {} disconnected while sending bundles. Queueing...", destination);
+                                queue.push_back(bundle);
+                                self.local_connections.remove(&destination);
+                                return;
+                            }
+                        },
                     }
                 }
-            } else {
-                match self.local_delivery(&bundle).await {
-                    Ok(_) => {
-                        bundlestorageagent::client::delete_bundle(
-                            self.bsa_sender.as_ref().unwrap(),
-                            bundle,
-                        )
-                        .await
-                    }
-                    Err(_) => {
-                        info!("Some issue appeared during local delivery.");
-                    }
-                };
             }
-        } else {
-            info!(
-                "Bundle is not for me, but for {}. trying to forward",
-                bundle.get_bundle().primary_block.destination_endpoint
-            );
-            match self.forward_bundle(&bundle).await {
-                BundleProcessing::FINISHED => {}
-                BundleProcessing::RETRY => {
-                    self.todo_bundles.push_back(bundle);
-                }
-            }
+            None => {}
         }
     }
 
@@ -400,76 +368,6 @@ impl Daemon {
             }
         }
         return BundleProcessing::RETRY;
-    }
-
-    async fn local_delivery(&mut self, bundle: &StoredBundle) -> Result<(), ()> {
-        debug!(
-            "locally delivering bundle {:?}",
-            &bundle.get_bundle().primary_block
-        );
-        if bundle.get_bundle().primary_block.fragment_offset.is_some() {
-            panic!("Bundle is a fragment. It should have been reassembled before calling this");
-        }
-
-        if let Some(sender) = self
-            .get_connected_client(
-                bundle
-                    .get_bundle()
-                    .primary_block
-                    .destination_endpoint
-                    .clone(),
-            )
-            .await
-        {
-            let result = sender
-                .send(ListenBundlesResponse {
-                    data: bundle.get_bundle().payload_block().data.clone(),
-                    endpoint: bundle.get_bundle().primary_block.source_node.clone(),
-                })
-                .await;
-            match result {
-                Ok(_) => {
-                    debug!("Bundle dispatched to local agent");
-                    self.send_status_report_delivered(bundle.get_bundle()).await;
-                    Ok(())
-                }
-                Err(_) => {
-                    info!("Local agent not available. Bundle queued.");
-                    Err(())
-                }
-            }
-        } else {
-            info!(
-                "No local agent registered for endpoint {}. Bundle queued.",
-                bundle.get_bundle().primary_block.destination_endpoint
-            );
-            Err(())
-        }
-    }
-
-    async fn get_connected_client(
-        &self,
-        endpoint: Endpoint,
-    ) -> Option<mpsc::Sender<ListenBundlesResponse>> {
-        let (responder_sender, responder_receiver) =
-            oneshot::channel::<Option<mpsc::Sender<ListenBundlesResponse>>>();
-
-        let client_agent = self.client_agent_sender.as_ref().unwrap();
-        if let Err(e) = client_agent.send(ClientAgentRequest::AgentGetClient {
-            destination: endpoint,
-            responder: responder_sender,
-        }) {
-            error!("Error sending request to Client Agent: {:?}", e);
-            return None;
-        }
-
-        match responder_receiver.await {
-            Ok(s) => s,
-            Err(e) => {
-                error!("Error receiving response from Client Agent: {:?}", e);
-                None
-            }
-        }
     }
 
     async fn get_connected_node(
@@ -623,17 +521,8 @@ impl Daemon {
                     "Dispatching administrative record bundle {:?}",
                     &bundle.primary_block
                 );
-                match bundlestorageagent::client::store_bundle(
-                    self.bsa_sender.as_ref().unwrap(),
-                    bundle,
-                )
-                .await
-                {
-                    Ok(sb) => {
-                        self.todo_bundles.push_back(sb);
-                    }
-                    Err(_) => warn!("Could not store bundle status report for dispatching"),
-                };
+                crate::bundlestorageagent::agent::Daemon::from_registry()
+                    .do_send(StoreNewBundle { bundle });
             }
             Err(e) => {
                 warn!("Error serializing bundle status report: {:?}", e)
