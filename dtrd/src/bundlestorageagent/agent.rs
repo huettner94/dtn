@@ -16,6 +16,10 @@ pub struct Daemon {
 
 impl Actor for Daemon {
     type Context = Context<Self>;
+    fn started(&mut self, ctx: &mut Context<Self>) {
+        let settings = Settings::from_env();
+        self.endpoint = Some(Endpoint::new(&settings.my_node_id).unwrap());
+    }
 
     fn stopped(&mut self, ctx: &mut Context<Self>) {
         if self.bundles.len() != 0 {
@@ -29,12 +33,7 @@ impl Actor for Daemon {
 
 impl actix::Supervised for Daemon {}
 
-impl SystemService for Daemon {
-    fn service_started(&mut self, ctx: &mut Context<Self>) {
-        let settings = Settings::from_env();
-        self.endpoint = Some(Endpoint::new(&settings.my_node_id).unwrap());
-    }
-}
+impl SystemService for Daemon {}
 
 impl Handler<StoreBundle> for Daemon {
     type Result = Result<(), ()>;
@@ -45,22 +44,22 @@ impl Handler<StoreBundle> for Daemon {
         if bundle
             .primary_block
             .source_node
-            .matches_node(&self.endpoint.unwrap())
+            .matches_node(&self.endpoint.as_ref().unwrap())
         {
             panic!("Received a StoreBundle message but with us as the source node. Use StoreNewBundle instead!")
         }
 
         debug!("Storing Bundle {:?} for later", bundle.primary_block);
-        let res: Result<StoredBundle, ()> = match TryInto::<StoredBundle>::try_into(bundle) {
+        let local = bundle
+            .primary_block
+            .destination_endpoint
+            .matches_node(&self.endpoint.as_ref().unwrap());
+        let res: Result<(), ()> = match TryInto::<StoredBundle>::try_into(bundle) {
             Ok(sb) => {
                 self.bundles.push(sb.clone());
 
-                if bundle
-                    .primary_block
-                    .destination_endpoint
-                    .matches_node(&self.endpoint.unwrap())
-                {
-                    match self.try_defragment_bundle(&sb.bundle) {
+                if local {
+                    match self.try_defragment_bundle(&sb) {
                         Some(defragmented) => {
                             crate::bundleprotocolagent::agent::Daemon::from_registry().do_send(
                                 EventNewBundleStored {
@@ -90,12 +89,12 @@ impl Handler<StoreNewBundle> for Daemon {
     type Result = Result<(), ()>;
 
     fn handle(&mut self, msg: StoreNewBundle, ctx: &mut Self::Context) -> Self::Result {
-        let StoreNewBundle { bundle } = msg;
+        let StoreNewBundle { mut bundle } = msg;
 
         if !bundle
             .primary_block
             .source_node
-            .matches_node(&self.endpoint.unwrap())
+            .matches_node(&self.endpoint.as_ref().unwrap())
         {
             panic!("Received a StoreNewBundle message but with some other node as source node. Use StoreBundle instead!")
         }
@@ -120,7 +119,7 @@ impl Handler<StoreNewBundle> for Daemon {
         bundle.primary_block.creation_timestamp.sequence_number = sequence_number;
 
         debug!("Storing Bundle {:?} for later", bundle.primary_block);
-        let res: Result<StoredBundle, ()> = match TryInto::<StoredBundle>::try_into(bundle) {
+        let res: Result<(), ()> = match TryInto::<StoredBundle>::try_into(bundle) {
             Ok(sb) => {
                 self.bundles.push(sb.clone());
                 crate::bundleprotocolagent::agent::Daemon::from_registry()
@@ -202,15 +201,15 @@ impl Handler<GetBundleForNode> for Daemon {
 }
 
 impl Daemon {
-    fn try_defragment_bundle(&mut self, bundle: &Bundle) -> Option<Bundle> {
-        let requested_primary_block = bundle.get_bundle().primary_block;
+    fn try_defragment_bundle(&mut self, bundle: &StoredBundle) -> Option<StoredBundle> {
+        let requested_primary_block = bundle.get_bundle().primary_block.clone();
         let mut i = 0;
         let mut fragments: Vec<Bundle> = Vec::new();
         while i < self.bundles.len() {
             if self.bundles[i]
                 .bundle
                 .primary_block
-                .equals_ignoring_fragment_info(requested_primary_block)
+                .equals_ignoring_fragment_info(&requested_primary_block)
             {
                 fragments.push(self.bundles.remove(i).bundle.as_ref().clone()); // TODO: This is a full clone and probably bad
             } else {

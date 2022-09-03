@@ -34,7 +34,9 @@ use crate::{
         ClientDeliverBundle, EventBundleDelivered, EventClientConnected, EventClientDisconnected,
     },
     common::settings::Settings,
-    converganceagent::messages::AgentForwardBundle,
+    converganceagent::messages::{
+        AgentForwardBundle, EventBundleForwarded, EventPeerConnected, EventPeerDisconnected,
+    },
     routingagent::{self, messages::NexthopInfo},
 };
 
@@ -49,42 +51,49 @@ enum BundleProcessing {
 pub struct Daemon {
     endpoint: Option<Endpoint>,
     bundles_pending_local_delivery: HashMap<Endpoint, Vec<StoredBundle>>,
+    bundles_pending_forwarding: HashMap<Endpoint, Vec<StoredBundle>>,
     local_bundles: HashMap<Endpoint, VecDeque<StoredBundle>>,
     remote_bundles: HashMap<Endpoint, VecDeque<StoredBundle>>,
     local_connections: HashMap<Endpoint, Recipient<ClientDeliverBundle>>,
-    remote_connections: HashMap<Endpoint, Recipient<CLSendBundle>>,
+    remote_connections: HashMap<Endpoint, Recipient<AgentForwardBundle>>,
+    remote_routes: HashMap<Endpoint, Endpoint>,
 }
+
+//TODO: add routing
 
 impl Actor for Daemon {
     type Context = Context<Self>;
-}
-impl actix::Supervised for Daemon {}
-
-impl SystemService for Daemon {
-    fn service_started(&mut self, ctx: &mut Context<Self>) {
+    fn started(&mut self, ctx: &mut Context<Self>) {
         let settings = Settings::from_env();
         self.endpoint = Some(Endpoint::new(&settings.my_node_id).unwrap());
     }
 }
+impl actix::Supervised for Daemon {}
+
+impl SystemService for Daemon {}
 
 impl Handler<EventNewBundleStored> for Daemon {
     type Result = ();
 
     fn handle(&mut self, msg: EventNewBundleStored, ctx: &mut Self::Context) -> Self::Result {
         let EventNewBundleStored { bundle } = msg;
-        let destination = bundle.get_bundle().primary_block.destination_endpoint;
-        if self.endpoint.unwrap().matches_node(&destination) {
+        let destination = bundle
+            .get_bundle()
+            .primary_block
+            .destination_endpoint
+            .clone();
+        if self.endpoint.as_ref().unwrap().matches_node(&destination) {
             self.local_bundles
-                .entry(&destination)
+                .entry(destination.clone())
                 .or_default()
                 .push_back(bundle);
             self.deliver_local_bundles(&destination, ctx)
         } else {
             self.remote_bundles
-                .entry(&destination.get_node_endpoint())
+                .entry(destination.get_node_endpoint())
                 .or_default()
                 .push_back(bundle);
-            //TODO: try to send it
+            self.deliver_remote_bundles(&destination, ctx);
         }
     }
 }
@@ -94,10 +103,10 @@ impl Handler<EventBundleDelivered> for Daemon {
 
     fn handle(&mut self, msg: EventBundleDelivered, ctx: &mut Self::Context) -> Self::Result {
         let EventBundleDelivered { endpoint, bundle } = msg;
-        if let Some(pending) = self.bundles_pending_local_delivery.get(&endpoint) {
+        if let Some(pending) = self.bundles_pending_local_delivery.get_mut(&endpoint) {
             pending.retain(|e| e != bundle)
         }
-        self.send_status_report_delivered(bundle.get_bundle()).await;
+        self.send_status_report_delivered(bundle.get_bundle());
     }
 }
 
@@ -126,6 +135,46 @@ impl Handler<EventClientDisconnected> for Daemon {
     }
 }
 
+impl Handler<EventPeerConnected> for Daemon {
+    type Result = ();
+
+    fn handle(&mut self, msg: EventPeerConnected, ctx: &mut Context<Self>) {
+        let EventPeerConnected {
+            destination,
+            sender,
+        } = msg;
+        assert!(destination.get_node_endpoint() == destination);
+
+        self.remote_connections
+            .insert(destination.clone(), sender.clone());
+
+        self.deliver_remote_bundles(&destination, ctx);
+    }
+}
+
+impl Handler<EventPeerDisconnected> for Daemon {
+    type Result = ();
+
+    fn handle(&mut self, msg: EventPeerDisconnected, ctx: &mut Self::Context) -> Self::Result {
+        let EventPeerDisconnected { destination } = msg;
+        assert!(destination.get_node_endpoint() == destination);
+        self.remote_connections.remove(&destination);
+    }
+}
+
+impl Handler<EventBundleForwarded> for Daemon {
+    type Result = ();
+
+    fn handle(&mut self, msg: EventBundleForwarded, ctx: &mut Self::Context) -> Self::Result {
+        let EventBundleForwarded { endpoint, bundle } = msg;
+        if let Some(pending) = self.bundles_pending_forwarding.get_mut(&endpoint) {
+            pending.retain(|e| e != bundle)
+        }
+        self.send_status_report_forwarded(bundle.get_bundle());
+    }
+}
+
+/*
 impl Handler<NewRoutesAvailable> for Daemon {
     type Result = ();
 
@@ -201,16 +250,16 @@ impl Handler<ForwardBundleResult> for Daemon {
             Err(_) => {}
         }
     }
-}
+}*/
 
 impl Daemon {
-    async fn deliver_local_bundles(&mut self, destination: &Endpoint, ctx: &mut Context<Self>) {
+    fn deliver_local_bundles(&mut self, destination: &Endpoint, ctx: &mut Context<Self>) {
         let sender = match self.local_connections.get(destination) {
             Some(s) => s,
             None => return,
         };
 
-        match self.local_bundles.get(&destination) {
+        match self.local_bundles.get_mut(&destination) {
             Some(queue) => {
                 while let Some(bundle) = queue.pop_front() {
                     debug!(
@@ -225,13 +274,14 @@ impl Daemon {
                         bundle: bundle.clone(),
                         responder: ctx.address().recipient(),
                     }) {
-                        Ok() => self
+                        Ok(_) => self
                             .bundles_pending_local_delivery
                             .entry(destination.clone())
                             .or_default()
                             .push(bundle),
                         Err(e) => match e {
-                            SendError::Full(bundle) => {
+                            SendError::Full(cdb) => {
+                                let ClientDeliverBundle { bundle, .. } = cdb;
                                 queue.push_back(bundle);
                                 return;
                             }
@@ -249,7 +299,53 @@ impl Daemon {
         }
     }
 
-    async fn forward_bundle(&mut self, bundle: &StoredBundle) -> BundleProcessing {
+    fn deliver_remote_bundles(&mut self, destination: &Endpoint, ctx: &mut Context<Self>) {
+        let sender = match self.remote_connections.get(destination) {
+            Some(s) => s,
+            None => return,
+        };
+
+        match self.remote_bundles.get_mut(&destination) {
+            Some(queue) => {
+                while let Some(bundle) = queue.pop_front() {
+                    debug!(
+                        "forwarding bundle {:?} to {:?}",
+                        &bundle.get_bundle().primary_block,
+                        destination
+                    );
+
+                    //TODO: fragment
+
+                    match sender.try_send(AgentForwardBundle {
+                        bundle: bundle.clone(),
+                        responder: ctx.address().recipient(),
+                    }) {
+                        Ok(_) => self
+                            .bundles_pending_forwarding
+                            .entry(destination.clone())
+                            .or_default()
+                            .push(bundle),
+                        Err(e) => match e {
+                            SendError::Full(afb) => {
+                                let AgentForwardBundle { bundle, .. } = afb;
+                                queue.push_back(bundle);
+                                return;
+                            }
+                            SendError::Closed(e) => {
+                                warn!("Peer for endpoint {} disconnected while forwarding bundles. Queueing...", destination);
+                                queue.push_back(bundle);
+                                self.remote_connections.remove(&destination);
+                                return;
+                            }
+                        },
+                    }
+                }
+            }
+            None => {}
+        }
+    }
+
+    /*async fn forward_bundle(&mut self, bundle: &StoredBundle) -> BundleProcessing {
         debug!("forwarding bundle {:?}", bundle.get_bundle().primary_block);
 
         match routingagent::client::get_next_hop(
@@ -393,9 +489,9 @@ impl Daemon {
                 None
             }
         }
-    }
+    }*/
 
-    async fn send_status_report_received(&mut self, bundle: &Bundle) {
+    fn send_status_report_received(&mut self, bundle: &Bundle) {
         if !bundle
             .primary_block
             .bundle_processing_flags
@@ -410,11 +506,10 @@ impl Daemon {
             false,
             false,
             false,
-        )
-        .await;
+        );
     }
 
-    async fn send_status_report_forwarded(&mut self, bundle: &Bundle) {
+    fn send_status_report_forwarded(&mut self, bundle: &Bundle) {
         if !bundle
             .primary_block
             .bundle_processing_flags
@@ -429,11 +524,10 @@ impl Daemon {
             true,
             false,
             false,
-        )
-        .await;
+        );
     }
 
-    async fn send_status_report_delivered(&mut self, bundle: &Bundle) {
+    fn send_status_report_delivered(&mut self, bundle: &Bundle) {
         if !bundle
             .primary_block
             .bundle_processing_flags
@@ -448,11 +542,10 @@ impl Daemon {
             false,
             true,
             false,
-        )
-        .await;
+        );
     }
 
-    async fn send_status_report(
+    fn send_status_report(
         &mut self,
         bundle: &Bundle,
         reason: BundleStatusReason,
@@ -500,8 +593,8 @@ impl Daemon {
                         bundle_processing_flags: BundleFlags::ADMINISTRATIVE_RECORD,
                         crc: CRCType::NoCRC,
                         destination_endpoint: bundle.primary_block.report_to.clone(),
-                        source_node: self.endpoint.unwrap().clone(),
-                        report_to: self.endpoint.unwrap().clone(),
+                        source_node: self.endpoint.as_ref().unwrap().clone(),
+                        report_to: self.endpoint.as_ref().unwrap().clone(),
                         creation_timestamp: CreationTimestamp {
                             creation_time: DtnTime::now(),
                             sequence_number: 0, // TODO: Needs to increase for all of the same timestamp

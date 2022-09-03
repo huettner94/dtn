@@ -74,11 +74,12 @@ impl Handler<AddRoute> for Daemon {
                 .collect();
             debug!("New routes added to routing table for: {:?}", new_routes);
             if !new_routes.is_empty() {
-                crate::bundleprotocolagent::agent::Daemon::from_registry().do_send(
-                    NewRoutesAvailable {
-                        destinations: new_routes,
-                    },
-                );
+                // TODO
+                // crate::bundleprotocolagent::agent::Daemon::from_registry().do_send(
+                //     NewRoutesAvailable {
+                //         destinations: new_routes,
+                //     },
+                // );
             }
         }
     }

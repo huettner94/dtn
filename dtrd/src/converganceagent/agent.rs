@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, net::SocketAddr};
 
 use bp7::endpoint::Endpoint;
 use log::{error, info};
@@ -6,18 +6,19 @@ use tokio::sync::mpsc;
 
 use crate::{
     bundleprotocolagent::messages::ReceiveBundle,
-    nodeagent::messages::{EventNodeConnected, NotifyNodeDisconnected},
+    converganceagent::messages::{EventPeerConnected, EventPeerDisconnected},
+    nodeagent::messages::{NotifyNodeConnected, NotifyNodeDisconnected},
 };
 
 use super::messages::{
-    AgentConnectNode, AgentDisconnectNode, AgentForwardBundle, AgentGetNode, CLForwardBundle,
-    CLRegisterNode, CLUnregisterNode,
+    AgentConnectNode, AgentDisconnectNode, AgentForwardBundle, CLForwardBundle, CLRegisterNode,
+    CLUnregisterNode,
 };
 use actix::prelude::*;
 
 #[derive(Default)]
 pub struct Daemon {
-    connected_nodes: HashMap<Endpoint, mpsc::Sender<AgentForwardBundle>>,
+    connected_nodes: HashMap<Endpoint, Recipient<AgentForwardBundle>>,
 }
 
 impl Actor for Daemon {
@@ -36,20 +37,6 @@ impl actix::Supervised for Daemon {}
 
 impl SystemService for Daemon {}
 
-impl Handler<AgentGetNode> for Daemon {
-    type Result = Option<mpsc::Sender<AgentForwardBundle>>;
-
-    fn handle(&mut self, msg: AgentGetNode, ctx: &mut Context<Self>) -> Self::Result {
-        let AgentGetNode { destination } = msg;
-        let dst = destination.get_node_endpoint();
-        let resp = match self.connected_nodes.get(&dst) {
-            Some(sender) => Some(sender.clone()),
-            None => None,
-        };
-        resp
-    }
-}
-
 impl Handler<AgentConnectNode> for Daemon {
     type Result = ();
 
@@ -57,7 +44,7 @@ impl Handler<AgentConnectNode> for Daemon {
         let AgentConnectNode { connection_string } = msg;
         match connection_string.split_once(':') {
             Some((proto, hostport)) => match proto {
-                "tcpcl" => match hostport[2..].parse() {
+                "tcpcl" => match hostport[2..].parse::<SocketAddr>() {
                     Ok(socket) => {
                         panic!("Should now send a reqeust to the tcpcl agent");
                         /*if let Err(e) = self
@@ -98,7 +85,7 @@ impl Handler<AgentDisconnectNode> for Daemon {
         let AgentDisconnectNode { connection_string } = msg;
         match connection_string.split_once(':') {
             Some((proto, hostport)) => match proto {
-                "tcpcl" => match hostport[2..].parse() {
+                "tcpcl" => match hostport[2..].parse::<SocketAddr>() {
                     Ok(socket) => {
                         panic!("Should now send a reqeust to the tcpcl agent");
                         /*if let Err(e) = self
@@ -143,11 +130,15 @@ impl Handler<CLRegisterNode> for Daemon {
             sender,
         } = msg;
         info!("Received a registration request for node {}", node);
-        self.connected_nodes.insert(node.clone(), sender);
-        crate::nodeagent::agent::Daemon::from_registry().do_send(EventNodeConnected {
+        self.connected_nodes.insert(node.clone(), sender.clone());
+        crate::nodeagent::agent::Daemon::from_registry().do_send(NotifyNodeConnected {
             url,
             endpoint: node.clone(),
             max_bundle_size,
+        });
+        crate::bundleprotocolagent::agent::Daemon::from_registry().do_send(EventPeerConnected {
+            destination: node,
+            sender,
         });
     }
 }
@@ -162,7 +153,12 @@ impl Handler<CLUnregisterNode> for Daemon {
             node, url
         );
         if node.is_some() {
-            self.connected_nodes.remove(&node.unwrap());
+            self.connected_nodes.remove(&node.clone().unwrap());
+            crate::bundleprotocolagent::agent::Daemon::from_registry().do_send(
+                EventPeerDisconnected {
+                    destination: node.unwrap(),
+                },
+            );
         }
         crate::nodeagent::agent::Daemon::from_registry().do_send(NotifyNodeDisconnected { url });
     }
@@ -173,7 +169,8 @@ impl Handler<CLForwardBundle> for Daemon {
 
     fn handle(&mut self, msg: CLForwardBundle, ctx: &mut Context<Self>) -> Self::Result {
         let CLForwardBundle { bundle, responder } = msg;
-        crate::bundleprotocolagent::agent::Daemon::from_registry()
-            .do_send(ReceiveBundle { bundle, responder });
+        // TODO
+        // crate::bundleprotocolagent::agent::Daemon::from_registry()
+        //     .do_send(ReceiveBundle { bundle, responder });
     }
 }

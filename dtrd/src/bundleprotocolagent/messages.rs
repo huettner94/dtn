@@ -4,23 +4,22 @@ use tokio::sync::oneshot;
 
 use crate::bundlestorageagent::StoredBundle;
 
-
 #[derive(Message)]
 #[rtype(result = "")]
 pub struct NewRoutesAvailable {
-    destinations: Vec<Endpoint>,
+    pub destinations: Vec<Endpoint>,
 }
 
 #[derive(Message)]
 #[rtype(result = "")]
 pub struct ReceiveBundle {
-    bundle: Bundle,
-    responder: oneshot::Sender<Result<(), ()>>,
+    pub bundle: Bundle,
+    pub responder: oneshot::Sender<Result<(), ()>>,
 }
 
 #[derive(Message)]
 #[rtype(result = "")]
 pub struct ForwardBundleResult {
-    result: Result<(), ()>,
-    bundle: StoredBundle,
+    pub result: Result<(), ()>,
+    pub bundle: StoredBundle,
 }

@@ -15,8 +15,11 @@ mod nodeagent;
 mod routingagent;
 //mod tcpclconverganceagent;
 
-use crate::common::{agent::Daemon, settings::Settings};
-
+use crate::{
+    bundlestorageagent::messages::StoreBundle, clientagent::messages::ClientAddNode,
+    common::settings::Settings,
+};
+/*
 fn spawn_task(
     name: &str,
     mut daemon: impl Daemon + Send + 'static,
@@ -228,4 +231,31 @@ async fn runserver(
     info!("Shutdown complete. Goodbye :)");
 
     Ok(())
+}
+*/
+
+use actix::{Actor, System};
+
+#[actix_rt::main]
+async fn main() {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    info!("Starting up");
+    let settings: Settings = Settings::from_env();
+    info!("Starting with settings: {:?}", settings);
+    if let Some(tokio_tracing_port) = settings.tokio_tracing_port.clone() {
+        info!("Initializing tokio tracing on port {}", tokio_tracing_port);
+        console_subscriber::ConsoleLayer::builder()
+            .server_addr(([127, 0, 0, 1], tokio_tracing_port.parse().unwrap()))
+            .init();
+    }
+
+    let addr = clientagent::agent::Daemon::default().start();
+    addr.send(ClientAddNode {
+        url: "tcpcl://test:123".to_string(),
+    })
+    .await
+    .unwrap();
+    tokio::signal::ctrl_c().await.unwrap();
+    info!("Shutting down");
+    System::current().stop();
 }

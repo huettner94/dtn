@@ -43,27 +43,27 @@ pub struct ListNodes {}
 #[derive(Message)]
 #[rtype(result = "")]
 pub struct AddNode {
-    url: String,
+    pub url: String,
 }
 
 #[derive(Message)]
 #[rtype(result = "")]
 pub struct RemoveNode {
-    url: String,
+    pub url: String,
 }
 
 #[derive(Message)]
 #[rtype(result = "")]
-pub struct EventNodeConnected {
-    url: String,
-    endpoint: Endpoint,
-    max_bundle_size: u64,
+pub struct NotifyNodeConnected {
+    pub url: String,
+    pub endpoint: Endpoint,
+    pub max_bundle_size: u64,
 }
 
 #[derive(Message)]
 #[rtype(result = "")]
 pub struct NotifyNodeDisconnected {
-    url: String,
+    pub url: String,
 }
 
 #[derive(Message)]

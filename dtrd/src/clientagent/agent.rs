@@ -4,6 +4,7 @@ use bp7::{
     bundle::Bundle,
     bundleflags::BundleFlags,
     crc::CRCType,
+    endpoint::Endpoint,
     primaryblock::PrimaryBlock,
     time::{CreationTimestamp, DtnTime},
 };
@@ -11,6 +12,7 @@ use log::debug;
 
 use crate::{
     bundlestorageagent::messages::StoreNewBundle,
+    common::settings::Settings,
     nodeagent::messages::{AddNode, ListNodes, Node, RemoveNode},
     routingagent::messages::{AddRoute, ListRoutes, RemoveRoute, RouteStatus, RouteType},
 };
@@ -24,10 +26,15 @@ use actix::prelude::*;
 #[derive(Default)]
 pub struct Daemon {
     //TODO clients: HashMap<Endpoint, (mpsc::Sender<ListenBundlesResponse>, CancellationToken)>,
+    endpoint: Option<Endpoint>,
 }
 
 impl Actor for Daemon {
     type Context = Context<Self>;
+    fn started(&mut self, ctx: &mut Context<Self>) {
+        let settings = Settings::from_env();
+        self.endpoint = Some(Endpoint::new(&settings.my_node_id).unwrap());
+    }
 }
 
 impl actix::Supervised for Daemon {}
@@ -35,7 +42,7 @@ impl actix::Supervised for Daemon {}
 impl SystemService for Daemon {}
 
 impl Handler<ClientSendBundle> for Daemon {
-    type Result = Result<(), ()>;
+    type Result = ResponseFuture<Result<(), ()>>;
 
     fn handle(&mut self, msg: ClientSendBundle, ctx: &mut Context<Self>) -> Self::Result {
         let ClientSendBundle {
@@ -53,11 +60,11 @@ impl Handler<ClientSendBundle> for Daemon {
                     | BundleFlags::BUNDLE_DELETION_STATUS_REQUESTED,
                 crc: CRCType::NoCRC,
                 destination_endpoint: destination,
-                source_node: self.endpoint.unwrap().clone(),
-                report_to: self.endpoint.unwrap().clone(),
+                source_node: self.endpoint.as_ref().unwrap().clone(),
+                report_to: self.endpoint.as_ref().unwrap().clone(),
                 creation_timestamp: CreationTimestamp {
                     creation_time: DtnTime::now(),
-                    sequence_number: 0, // TODO: Needs to increase for all of the same timestamp
+                    sequence_number: 0,
                 },
                 lifetime,
                 fragment_offset: None,
@@ -71,7 +78,12 @@ impl Handler<ClientSendBundle> for Daemon {
             }],
         };
         debug!("Storing new bundle {:?}", &bundle.primary_block);
-        crate::bundlestorageagent::agent::Daemon::from_registry().send(StoreNewBundle { bundle })
+        Box::pin(async move {
+            crate::bundlestorageagent::agent::Daemon::from_registry()
+                .send(StoreNewBundle { bundle })
+                .await
+                .unwrap()
+        })
     }
 }
 
@@ -102,11 +114,15 @@ impl Handler<ClientSendBundle> for Daemon {
 }*/
 
 impl Handler<ClientListNodes> for Daemon {
-    type Result = Vec<Node>;
+    type Result = ResponseFuture<Vec<Node>>;
 
     fn handle(&mut self, msg: ClientListNodes, ctx: &mut Context<Self>) -> Self::Result {
-        let ClientListNodes { responder } = msg;
-        crate::nodeagent::agent::Daemon::from_registry().send(ListNodes {})
+        Box::pin(async {
+            crate::nodeagent::agent::Daemon::from_registry()
+                .send(ListNodes {})
+                .await
+                .unwrap()
+        })
     }
 }
 
@@ -125,14 +141,6 @@ impl Handler<ClientRemoveNode> for Daemon {
     fn handle(&mut self, msg: ClientRemoveNode, ctx: &mut Context<Self>) -> Self::Result {
         let ClientRemoveNode { url } = msg;
         crate::nodeagent::agent::Daemon::from_registry().do_send(RemoveNode { url });
-    }
-}
-
-impl Handler<ClientListNodes> for Daemon {
-    type Result = Vec<RouteStatus>;
-
-    fn handle(&mut self, msg: ClientListNodes, ctx: &mut Context<Self>) -> Self::Result {
-        crate::nodeagent::agent::Daemon::from_registry().send(ListRoutes {})
     }
 }
 

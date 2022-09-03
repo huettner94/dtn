@@ -6,35 +6,35 @@ use actix::prelude::*;
 #[derive(Message)]
 #[rtype(result = "")]
 pub struct EventNewBundleStored {
-    bundle: StoredBundle,
+    pub bundle: StoredBundle,
 }
 
 #[derive(Message)]
 #[rtype(result = "Result<(), ()>")]
 pub struct StoreBundle {
-    bundle: Bundle,
+    pub bundle: Bundle,
 }
 
 #[derive(Message)]
 #[rtype(result = "Result<(), ()>")]
 pub struct StoreNewBundle {
-    bundle: Bundle,
+    pub bundle: Bundle,
 }
 
 #[derive(Message)]
 #[rtype(result = "")]
 pub struct DeleteBundle {
-    bundle: StoredBundle,
+    pub bundle: StoredBundle,
 }
 
 #[derive(Message)]
 #[rtype(result = "Result<Vec<StoredBundle>, String>")]
 pub struct GetBundleForDestination {
-    destination: Endpoint,
+    pub destination: Endpoint,
 }
 
 #[derive(Message)]
 #[rtype(result = "Result<Vec<StoredBundle>, String>")]
 pub struct GetBundleForNode {
-    destination: Endpoint,
+    pub destination: Endpoint,
 }

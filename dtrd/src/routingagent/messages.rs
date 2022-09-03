@@ -26,24 +26,24 @@ pub struct NexthopInfo {
 #[derive(Message)]
 #[rtype(result = "")]
 pub struct AddRoute {
-    target: Endpoint,
-    route_type: RouteType,
-    next_hop: Endpoint,
-    max_bundle_size: Option<u64>,
+    pub target: Endpoint,
+    pub route_type: RouteType,
+    pub next_hop: Endpoint,
+    pub max_bundle_size: Option<u64>,
 }
 
 #[derive(Message)]
 #[rtype(result = "")]
 pub struct RemoveRoute {
-    target: Endpoint,
-    route_type: RouteType,
-    next_hop: Endpoint,
+    pub target: Endpoint,
+    pub route_type: RouteType,
+    pub next_hop: Endpoint,
 }
 
 #[derive(Message)]
 #[rtype(result = "Option<NexthopInfo>")]
 pub struct GetNextHop {
-    target: Endpoint,
+    pub target: Endpoint,
 }
 
 #[derive(Message)]

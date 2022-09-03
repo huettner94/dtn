@@ -8,35 +8,36 @@ use bp7::endpoint::Endpoint;
 #[derive(Message)]
 #[rtype(result = "")]
 pub struct ClientDeliverBundle {
-    bundle: StoredBundle,
-    responder: Recipient<EventBundleDelivered>,
+    pub bundle: StoredBundle,
+    pub responder: Recipient<EventBundleDelivered>,
 }
 
 #[derive(Message)]
 #[rtype(result = "")]
 pub struct EventBundleDelivered {
-    endpoint: Endpoint,
-    bundle: StoredBundle,
+    pub endpoint: Endpoint,
+    pub bundle: StoredBundle,
 }
 
 #[derive(Message)]
 #[rtype(result = "")]
 pub struct EventClientConnected {
-    destination: Endpoint,
-    sender: Recipient<ClientDeliverBundle>,
+    pub destination: Endpoint,
+    pub sender: Recipient<ClientDeliverBundle>,
 }
+
 #[derive(Message)]
 #[rtype(result = "")]
 pub struct EventClientDisconnected {
-    destination: Endpoint,
+    pub destination: Endpoint,
 }
 
 #[derive(Message)]
 #[rtype(result = "Result<(), ()>")]
 pub struct ClientSendBundle {
-    destination: Endpoint,
-    payload: Vec<u8>,
-    lifetime: u64,
+    pub destination: Endpoint,
+    pub payload: Vec<u8>,
+    pub lifetime: u64,
 }
 #[derive(Message)]
 #[rtype(result = "Vec<Node>")]
@@ -45,13 +46,13 @@ pub struct ClientListNodes {}
 #[derive(Message)]
 #[rtype(result = "")]
 pub struct ClientAddNode {
-    url: String,
+    pub url: String,
 }
 
 #[derive(Message)]
 #[rtype(result = "")]
 pub struct ClientRemoveNode {
-    url: String,
+    pub url: String,
 }
 
 #[derive(Message)]
@@ -61,13 +62,13 @@ pub struct ClientListRoutes {}
 #[derive(Message)]
 #[rtype(result = "")]
 pub struct ClientAddRoute {
-    target: Endpoint,
-    next_hop: Endpoint,
+    pub target: Endpoint,
+    pub next_hop: Endpoint,
 }
 
 #[derive(Message)]
 #[rtype(result = "")]
 pub struct ClientRemoveRoute {
-    target: Endpoint,
-    next_hop: Endpoint,
+    pub target: Endpoint,
+    pub next_hop: Endpoint,
 }
