@@ -4,6 +4,7 @@ use crate::{
 };
 use actix::prelude::*;
 use bp7::endpoint::Endpoint;
+use tokio::sync::mpsc;
 
 #[derive(Message)]
 #[rtype(result = "")]
@@ -29,6 +30,19 @@ pub struct EventClientConnected {
 #[derive(Message)]
 #[rtype(result = "")]
 pub struct EventClientDisconnected {
+    pub destination: Endpoint,
+}
+
+#[derive(Message)]
+#[rtype(result = "Result<(), String>")]
+pub struct ClientListenConnect {
+    pub destination: Endpoint,
+    pub sender: mpsc::Sender<ClientDeliverBundle>,
+}
+
+#[derive(Message)]
+#[rtype(result = "")]
+pub struct ClientListenDisconnect {
     pub destination: Endpoint,
 }
 

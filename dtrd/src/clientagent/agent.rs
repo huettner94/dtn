@@ -9,6 +9,7 @@ use bp7::{
     time::{CreationTimestamp, DtnTime},
 };
 use log::debug;
+use tokio::sync::mpsc;
 
 use crate::{
     bundlestorageagent::messages::StoreNewBundle,
@@ -18,14 +19,14 @@ use crate::{
 };
 
 use super::messages::{
-    ClientAddNode, ClientAddRoute, ClientListNodes, ClientListRoutes, ClientRemoveNode,
-    ClientRemoveRoute, ClientSendBundle,
+    ClientAddNode, ClientAddRoute, ClientDeliverBundle, ClientListNodes, ClientListRoutes,
+    ClientListenConnect, ClientListenDisconnect, ClientRemoveNode, ClientRemoveRoute,
+    ClientSendBundle, EventClientConnected, EventClientDisconnected,
 };
 use actix::prelude::*;
 
 #[derive(Default)]
 pub struct Daemon {
-    //TODO clients: HashMap<Endpoint, (mpsc::Sender<ListenBundlesResponse>, CancellationToken)>,
     endpoint: Option<Endpoint>,
 }
 
@@ -113,6 +114,46 @@ impl Handler<ClientSendBundle> for Daemon {
     }
 }*/
 
+impl Handler<ClientListenConnect> for Daemon {
+    type Result = Result<(), String>;
+
+    fn handle(&mut self, msg: ClientListenConnect, ctx: &mut Context<Self>) -> Self::Result {
+        let ClientListenConnect {
+            destination,
+            sender,
+        } = msg;
+
+        if !self.endpoint.as_ref().unwrap().matches_node(&destination) {
+            return Err("Listening endpoint does not match local node".to_string());
+        }
+
+        let response_actor = ListenBundleResponseActor {
+            client_agent: ctx.address(),
+            destination: destination.clone(),
+            sender,
+        };
+
+        let response_actor_addr = response_actor.start();
+
+        crate::bundleprotocolagent::agent::Daemon::from_registry().do_send(EventClientConnected {
+            destination,
+            sender: response_actor_addr.recipient(),
+        });
+
+        Ok(())
+    }
+}
+
+impl Handler<ClientListenDisconnect> for Daemon {
+    type Result = ();
+
+    fn handle(&mut self, msg: ClientListenDisconnect, ctx: &mut Context<Self>) -> Self::Result {
+        let ClientListenDisconnect { destination } = msg;
+
+        crate::bundleprotocolagent::agent::Daemon::from_registry()
+            .do_send(EventClientDisconnected { destination });
+    }
+}
 impl Handler<ClientListNodes> for Daemon {
     type Result = ResponseFuture<Vec<Node>>;
 
@@ -180,6 +221,37 @@ impl Handler<ClientRemoveRoute> for Daemon {
             target,
             next_hop,
             route_type: RouteType::Static,
+        });
+    }
+}
+
+pub struct ListenBundleResponseActor {
+    client_agent: Addr<Daemon>,
+    destination: Endpoint,
+    sender: mpsc::Sender<ClientDeliverBundle>,
+}
+
+impl Actor for ListenBundleResponseActor {
+    type Context = Context<Self>;
+
+    fn started(&mut self, ctx: &mut Self::Context) {
+        ctx.set_mailbox_capacity(1);
+    }
+}
+
+impl Handler<ClientDeliverBundle> for ListenBundleResponseActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: ClientDeliverBundle, ctx: &mut Self::Context) -> Self::Result {
+        self.sender.try_send(msg);
+        //TODO: handle full
+    }
+}
+
+impl Drop for ListenBundleResponseActor {
+    fn drop(&mut self) {
+        self.client_agent.do_send(ClientListenDisconnect {
+            destination: self.destination.clone(),
         });
     }
 }

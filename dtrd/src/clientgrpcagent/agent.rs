@@ -1,6 +1,6 @@
-use std::task::Poll;
+use std::task::{Poll, Waker};
 
-use actix::Addr;
+use actix::{Actor, Addr, Context, Handler, Recipient};
 use futures_util::{future::FutureExt, Stream};
 
 use adminservice::admin_service_server::{AdminService, AdminServiceServer};
@@ -14,8 +14,9 @@ use crate::{
     clientagent::{
         self,
         messages::{
-            ClientAddNode, ClientAddRoute, ClientListNodes, ClientListRoutes, ClientRemoveNode,
-            ClientRemoveRoute,
+            ClientAddNode, ClientAddRoute, ClientDeliverBundle, ClientListNodes, ClientListRoutes,
+            ClientListenConnect, ClientListenDisconnect, ClientRemoveNode, ClientRemoveRoute,
+            ClientSendBundle, EventBundleDelivered,
         },
     },
     common::settings::Settings,
@@ -32,9 +33,9 @@ mod adminservice {
     tonic::include_proto!("dtn_admin");
 }
 
-/*pub struct ListenBundleResponseTransformer {
-    rec: mpsc::Receiver<ListenBundlesResponse>,
-    canceltoken: CancellationToken,
+pub struct ListenBundleResponseTransformer {
+    client_agent: Addr<clientagent::agent::Daemon>,
+    rec: mpsc::Receiver<ClientDeliverBundle>,
 }
 
 impl Stream for ListenBundleResponseTransformer {
@@ -45,22 +46,30 @@ impl Stream for ListenBundleResponseTransformer {
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
         match self.rec.poll_recv(cx) {
-            Poll::Ready(Some(blr)) => {
+            Poll::Ready(Some(cdb)) => {
                 let lbr = bundleservice::ListenBundleResponse {
-                    source: blr.endpoint.to_string(),
-                    payload: blr.data,
+                    source: cdb
+                        .bundle
+                        .get_bundle()
+                        .primary_block
+                        .source_node
+                        .to_string(),
+                    payload: cdb.bundle.get_bundle().payload_block().data.clone(), //TODO: this seems heavy
                 };
+                cdb.responder.do_send(EventBundleDelivered {
+                    endpoint: cdb
+                        .bundle
+                        .get_bundle()
+                        .primary_block
+                        .destination_endpoint
+                        .clone(),
+                    bundle: cdb.bundle.clone(),
+                });
                 Poll::Ready(Some(Ok(lbr)))
             }
             Poll::Ready(None) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,
         }
-    }
-}
-
-impl Drop for ListenBundleResponseTransformer {
-    fn drop(&mut self) {
-        self.canceltoken.cancel();
     }
 }
 
@@ -75,21 +84,20 @@ impl BundleService for MyBundleService {
         request: tonic::Request<bundleservice::SubmitBundleRequest>,
     ) -> Result<tonic::Response<bundleservice::SubmitBundleRespone>, tonic::Status> {
         let req = request.into_inner();
+        let destination = Endpoint::new(&req.destination)
+            .ok_or_else(|| tonic::Status::invalid_argument("destination invalid"))?;
 
-        let (send_result_sender, send_result_receiver) = oneshot::channel();
-        let msg = ClientAgentRequest::ClientSendBundle {
-            destination: Endpoint::new(&req.destination)
-                .ok_or_else(|| tonic::Status::invalid_argument("destination invalid"))?,
-            payload: req.payload,
-            lifetime: req.lifetime,
-            responder: send_result_sender,
-        };
-
-        self.client_agent_sender
-            .send(msg)
+        let send_result = self
+            .client_agent
+            .send(ClientSendBundle {
+                destination,
+                payload: req.payload,
+                lifetime: req.lifetime,
+            })
+            .await
             .map_err(|e| tonic::Status::unknown(e.to_string()))?;
 
-        match send_result_receiver.await {
+        match send_result {
             Ok(_) => Ok(Response::new(bundleservice::SubmitBundleRespone {
                 success: true,
                 message: String::new(),
@@ -106,36 +114,32 @@ impl BundleService for MyBundleService {
         request: tonic::Request<bundleservice::ListenBundleRequest>,
     ) -> Result<tonic::Response<Self::ListenBundlesStream>, tonic::Status> {
         let req = request.into_inner();
+        let destination = Endpoint::new(&req.endpoint)
+            .ok_or_else(|| tonic::Status::invalid_argument("destination invalid"))?;
 
-        let (channel_sender, channel_receiver) = mpsc::channel(1);
-        let (status_sender, status_receiver) = oneshot::channel();
+        let (sender, receiver) = mpsc::channel(1);
 
-        let canceltoken = CancellationToken::new();
-
-        let msg = ClientAgentRequest::ClientListenBundles {
-            destination: Endpoint::new(&req.endpoint)
-                .ok_or_else(|| tonic::Status::invalid_argument("listen endpoint invalid"))?,
-            responder: channel_sender,
-            status: status_sender,
-            canceltoken: canceltoken.clone(),
-        };
-
-        self.client_agent_sender
-            .send(msg)
+        let result = self
+            .client_agent
+            .send(ClientListenConnect {
+                destination,
+                sender,
+            })
+            .await
             .map_err(|e| tonic::Status::unknown(e.to_string()))?;
 
-        match status_receiver.await {
-            Ok(Ok(_)) => {}
-            Ok(Err(msg)) => return Err(Status::invalid_argument(msg)),
-            Err(_) => return Err(Status::internal("Error communicating with bpa")),
+        match result {
+            Ok(_) => {
+                let response_transformer = ListenBundleResponseTransformer {
+                    client_agent: self.client_agent.clone(),
+                    rec: receiver,
+                };
+                Ok(Response::new(response_transformer))
+            }
+            Err(msg) => Err(tonic::Status::invalid_argument(msg)),
         }
-
-        return Ok(Response::new(ListenBundleResponseTransformer {
-            rec: channel_receiver,
-            canceltoken,
-        }));
     }
-}*/
+}
 
 pub struct MyAdminService {
     client_agent: Addr<clientagent::agent::Daemon>,
@@ -277,19 +281,20 @@ pub async fn main(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let settings = Settings::from_env();
     let addr = settings.grpc_clientapi_address.parse().unwrap();
-    // let bundle_service = MyBundleService {
-    //     client_agent: client_agent.clone(),
-    // };
+    let bundle_service = MyBundleService {
+        client_agent: client_agent.clone(),
+    };
     let admin_service = MyAdminService {
         client_agent: client_agent.clone(),
     };
 
     info!("Server listening on {}", addr);
     Server::builder()
-        //.add_service(BundleServiceServer::new(bundle_service))
+        .add_service(BundleServiceServer::new(bundle_service))
         .add_service(AdminServiceServer::new(admin_service))
         .serve_with_shutdown(addr, shutdown.recv().map(|_| ()))
         .await?;
+
     info!("Server has shutdown. See you");
     // _shutdown_complete_sender is explicitly dropped here
     Ok(())
