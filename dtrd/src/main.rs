@@ -291,15 +291,14 @@ async fn main() {
     // Drop final `Sender` so the `Receiver` below can complete
     drop(shutdown_complete_tx);
 
+    info!("Now stopping actor system");
+    System::current().stop();
+
     // Wait for all active connections to finish processing. As the `Sender`
     // handle held by the listener has been dropped above, the only remaining
     // `Sender` instances are held by connection handler tasks. When those drop,
     // the `mpsc` channel will close and `recv()` will return `None`.
     let _ = shutdown_complete_rx.recv().await;
-
-    info!("Now stopping actor system");
-
-    System::current().stop();
 
     info!("All done, see you");
 }

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use bp7::{
     block::{payload_block::PayloadBlock, Block, CanonicalBlock},
     blockflags::BlockFlags,
@@ -8,7 +10,7 @@ use bp7::{
     primaryblock::PrimaryBlock,
     time::{CreationTimestamp, DtnTime},
 };
-use log::debug;
+use log::{debug, info};
 use tokio::sync::mpsc;
 
 use crate::{
@@ -27,6 +29,7 @@ use actix::prelude::*;
 
 #[derive(Default)]
 pub struct Daemon {
+    connected_clients: HashMap<Endpoint, Addr<ListenBundleResponseActor>>,
     endpoint: Option<Endpoint>,
 }
 
@@ -35,6 +38,13 @@ impl Actor for Daemon {
     fn started(&mut self, ctx: &mut Context<Self>) {
         let settings = Settings::from_env();
         self.endpoint = Some(Endpoint::new(&settings.my_node_id).unwrap());
+    }
+
+    fn stopped(&mut self, ctx: &mut Self::Context) {
+        info!("Disconnecting all clients");
+        for (_, client) in self.connected_clients.drain() {
+            client.do_send(StopListenBundleResponseActor {});
+        }
     }
 }
 
@@ -127,13 +137,12 @@ impl Handler<ClientListenConnect> for Daemon {
             return Err("Listening endpoint does not match local node".to_string());
         }
 
-        let response_actor = ListenBundleResponseActor {
-            client_agent: ctx.address(),
-            destination: destination.clone(),
-            sender,
-        };
+        let response_actor = ListenBundleResponseActor { sender };
 
         let response_actor_addr = response_actor.start();
+
+        self.connected_clients
+            .insert(destination.clone(), response_actor_addr.clone());
 
         crate::bundleprotocolagent::agent::Daemon::from_registry().do_send(EventClientConnected {
             destination,
@@ -149,6 +158,10 @@ impl Handler<ClientListenDisconnect> for Daemon {
 
     fn handle(&mut self, msg: ClientListenDisconnect, ctx: &mut Context<Self>) -> Self::Result {
         let ClientListenDisconnect { destination } = msg;
+
+        if let Some(addr) = self.connected_clients.get(&destination) {
+            addr.do_send(StopListenBundleResponseActor {});
+        }
 
         crate::bundleprotocolagent::agent::Daemon::from_registry()
             .do_send(EventClientDisconnected { destination });
@@ -225,9 +238,11 @@ impl Handler<ClientRemoveRoute> for Daemon {
     }
 }
 
+#[derive(Message)]
+#[rtype(result = "")]
+struct StopListenBundleResponseActor {}
+
 pub struct ListenBundleResponseActor {
-    client_agent: Addr<Daemon>,
-    destination: Endpoint,
     sender: mpsc::Sender<ClientDeliverBundle>,
 }
 
@@ -243,15 +258,19 @@ impl Handler<ClientDeliverBundle> for ListenBundleResponseActor {
     type Result = ();
 
     fn handle(&mut self, msg: ClientDeliverBundle, ctx: &mut Self::Context) -> Self::Result {
-        self.sender.try_send(msg);
+        self.sender.try_send(msg).unwrap();
         //TODO: handle full
     }
 }
 
-impl Drop for ListenBundleResponseActor {
-    fn drop(&mut self) {
-        self.client_agent.do_send(ClientListenDisconnect {
-            destination: self.destination.clone(),
-        });
+impl Handler<StopListenBundleResponseActor> for ListenBundleResponseActor {
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        msg: StopListenBundleResponseActor,
+        ctx: &mut Self::Context,
+    ) -> Self::Result {
+        ctx.stop()
     }
 }

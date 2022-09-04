@@ -35,6 +35,7 @@ mod adminservice {
 
 pub struct ListenBundleResponseTransformer {
     client_agent: Addr<clientagent::agent::Daemon>,
+    destination: Endpoint,
     rec: mpsc::Receiver<ClientDeliverBundle>,
 }
 
@@ -70,6 +71,14 @@ impl Stream for ListenBundleResponseTransformer {
             Poll::Ready(None) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,
         }
+    }
+}
+
+impl Drop for ListenBundleResponseTransformer {
+    fn drop(&mut self) {
+        self.client_agent.do_send(ClientListenDisconnect {
+            destination: self.destination.clone(),
+        });
     }
 }
 
@@ -122,7 +131,7 @@ impl BundleService for MyBundleService {
         let result = self
             .client_agent
             .send(ClientListenConnect {
-                destination,
+                destination: destination.clone(),
                 sender,
             })
             .await
@@ -132,6 +141,7 @@ impl BundleService for MyBundleService {
             Ok(_) => {
                 let response_transformer = ListenBundleResponseTransformer {
                     client_agent: self.client_agent.clone(),
+                    destination,
                     rec: receiver,
                 };
                 Ok(Response::new(response_transformer))

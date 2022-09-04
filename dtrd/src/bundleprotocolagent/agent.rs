@@ -27,7 +27,7 @@ use crate::{
     bundleprotocolagent::messages::*,
     bundlestorageagent::{
         self,
-        messages::{EventNewBundleStored, StoreNewBundle},
+        messages::{DeleteBundle, EventNewBundleStored, StoreNewBundle},
         StoredBundle,
     },
     clientagent::messages::{
@@ -107,6 +107,10 @@ impl Handler<EventBundleDelivered> for Daemon {
             pending.retain(|e| e != bundle)
         }
         self.send_status_report_delivered(bundle.get_bundle());
+
+        crate::bundlestorageagent::agent::Daemon::from_registry().do_send(DeleteBundle { bundle });
+
+        self.deliver_local_bundles(&endpoint, ctx);
     }
 }
 
@@ -171,6 +175,10 @@ impl Handler<EventBundleForwarded> for Daemon {
             pending.retain(|e| e != bundle)
         }
         self.send_status_report_forwarded(bundle.get_bundle());
+
+        crate::bundlestorageagent::agent::Daemon::from_registry().do_send(DeleteBundle { bundle });
+
+        self.deliver_local_bundles(&endpoint, ctx);
     }
 }
 

@@ -6,7 +6,7 @@ use actix::prelude::*;
 use bp7::endpoint::Endpoint;
 use tokio::sync::mpsc;
 
-#[derive(Message)]
+#[derive(Message, Debug)]
 #[rtype(result = "")]
 pub struct ClientDeliverBundle {
     pub bundle: StoredBundle,
