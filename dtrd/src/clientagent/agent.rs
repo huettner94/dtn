@@ -18,8 +18,8 @@ use crate::{
 };
 
 use super::messages::{
-    ClientAddNode, ClientAddRoute, ClientListNodes, ClientRemoveNode, ClientRemoveRoute,
-    ClientSendBundle,
+    ClientAddNode, ClientAddRoute, ClientListNodes, ClientListRoutes, ClientRemoveNode,
+    ClientRemoveRoute, ClientSendBundle,
 };
 use actix::prelude::*;
 
@@ -141,6 +141,19 @@ impl Handler<ClientRemoveNode> for Daemon {
     fn handle(&mut self, msg: ClientRemoveNode, ctx: &mut Context<Self>) -> Self::Result {
         let ClientRemoveNode { url } = msg;
         crate::nodeagent::agent::Daemon::from_registry().do_send(RemoveNode { url });
+    }
+}
+
+impl Handler<ClientListRoutes> for Daemon {
+    type Result = ResponseFuture<Vec<RouteStatus>>;
+
+    fn handle(&mut self, msg: ClientListRoutes, ctx: &mut Context<Self>) -> Self::Result {
+        Box::pin(async {
+            crate::routingagent::agent::Daemon::from_registry()
+                .send(ListRoutes {})
+                .await
+                .unwrap()
+        })
     }
 }
 

@@ -1,5 +1,5 @@
 use futures_util::Future;
-use log::info;
+use log::{error, info};
 use tokio::{
     sync::{broadcast, mpsc},
     task::JoinHandle,
@@ -8,7 +8,7 @@ use tokio::{
 mod bundleprotocolagent;
 mod bundlestorageagent;
 mod clientagent;
-//mod clientgrpcagent;
+mod clientgrpcagent;
 mod common;
 mod converganceagent;
 mod nodeagent;
@@ -249,13 +249,57 @@ async fn main() {
             .init();
     }
 
-    let addr = clientagent::agent::Daemon::default().start();
-    addr.send(ClientAddNode {
-        url: "tcpcl://test:123".to_string(),
-    })
-    .await
-    .unwrap();
-    tokio::signal::ctrl_c().await.unwrap();
-    info!("Shutting down");
+    let (notify_shutdown, _) = broadcast::channel::<()>(1);
+    let (shutdown_complete_tx, mut shutdown_complete_rx) = mpsc::channel::<()>(1);
+
+    let clientagent_addr = clientagent::agent::Daemon::default().start();
+
+    let api_agent_task_shutdown_notifier = notify_shutdown.subscribe();
+    let api_agent_task_shutdown_complete_tx_task = shutdown_complete_tx.clone();
+    let api_agent_task = tokio::task::Builder::new()
+        .name("ApiAgent")
+        .spawn(async move {
+            match clientgrpcagent::agent::main(
+                api_agent_task_shutdown_notifier,
+                api_agent_task_shutdown_complete_tx_task,
+                clientagent_addr,
+            )
+            .await
+            {
+                Ok(_) => Ok(()),
+                Err(e) => Err(e.to_string()),
+            }
+        });
+
+    let ctrl_c = tokio::signal::ctrl_c();
+    tokio::select! {
+        res = api_agent_task => {
+            if let Ok(Err(e)) = res {
+                error!("something bad happened with the client grpc agent {:?}. Aborting...", e);
+            }
+        }
+        _ = ctrl_c => {
+            info!("Shutting down");
+        }
+    }
+
+    info!("Stopping external connections");
+    // Stolen from: https://github.com/tokio-rs/mini-redis/blob/master/src/server.rs
+    // When `notify_shutdown` is dropped, all tasks which have `subscribe`d will
+    // receive the shutdown signal and can exit
+    drop(notify_shutdown);
+    // Drop final `Sender` so the `Receiver` below can complete
+    drop(shutdown_complete_tx);
+
+    // Wait for all active connections to finish processing. As the `Sender`
+    // handle held by the listener has been dropped above, the only remaining
+    // `Sender` instances are held by connection handler tasks. When those drop,
+    // the `mpsc` channel will close and `recv()` will return `None`.
+    let _ = shutdown_complete_rx.recv().await;
+
+    info!("Now stopping actor system");
+
     System::current().stop();
+
+    info!("All done, see you");
 }

@@ -1,5 +1,6 @@
 use std::task::Poll;
 
+use actix::Addr;
 use futures_util::{future::FutureExt, Stream};
 
 use adminservice::admin_service_server::{AdminService, AdminServiceServer};
@@ -10,8 +11,15 @@ use tokio_util::sync::CancellationToken;
 use tonic::{transport::Server, Response, Status};
 
 use crate::{
-    clientagent::messages::{ClientAgentRequest, ListenBundlesResponse},
+    clientagent::{
+        self,
+        messages::{
+            ClientAddNode, ClientAddRoute, ClientListNodes, ClientListRoutes, ClientRemoveNode,
+            ClientRemoveRoute,
+        },
+    },
     common::settings::Settings,
+    nodeagent::messages::ListNodes,
     routingagent::messages::RouteType,
 };
 use bp7::endpoint::Endpoint;
@@ -24,7 +32,7 @@ mod adminservice {
     tonic::include_proto!("dtn_admin");
 }
 
-pub struct ListenBundleResponseTransformer {
+/*pub struct ListenBundleResponseTransformer {
     rec: mpsc::Receiver<ListenBundlesResponse>,
     canceltoken: CancellationToken,
 }
@@ -57,7 +65,7 @@ impl Drop for ListenBundleResponseTransformer {
 }
 
 pub struct MyBundleService {
-    client_agent_sender: mpsc::UnboundedSender<ClientAgentRequest>,
+    client_agent: Addr<clientagent::agent::Daemon>,
 }
 
 #[tonic::async_trait]
@@ -127,9 +135,10 @@ impl BundleService for MyBundleService {
             canceltoken,
         }));
     }
-}
+}*/
+
 pub struct MyAdminService {
-    client_agent_sender: mpsc::UnboundedSender<ClientAgentRequest>,
+    client_agent: Addr<clientagent::agent::Daemon>,
 }
 
 #[tonic::async_trait]
@@ -138,34 +147,26 @@ impl AdminService for MyAdminService {
         &self,
         _: tonic::Request<adminservice::ListNodesRequest>,
     ) -> Result<tonic::Response<adminservice::ListNodesResponse>, tonic::Status> {
-        let (list_nodes_sender, list_nodes_receiver) = oneshot::channel();
-        let msg = ClientAgentRequest::ClientListNodes {
-            responder: list_nodes_sender,
-        };
-
-        self.client_agent_sender
-            .send(msg)
+        let node_list = self
+            .client_agent
+            .send(ClientListNodes {})
+            .await
             .map_err(|e| tonic::Status::unknown(e.to_string()))?;
 
-        match list_nodes_receiver.await {
-            Ok(node_list) => {
-                let nodes = node_list
-                    .iter()
-                    .map(|node| adminservice::Node {
-                        url: node.url.clone(),
-                        status: node.connection_status.to_string(),
-                        endpoint: node
-                            .remote_endpoint
-                            .as_ref()
-                            .map(|e| e.to_string())
-                            .unwrap_or_else(|| "".to_string()),
-                        temporary: node.temporary,
-                    })
-                    .collect();
-                return Ok(Response::new(adminservice::ListNodesResponse { nodes }));
-            }
-            Err(_) => return Err(Status::internal("Error communicating with node agent")),
-        }
+        let nodes = node_list
+            .iter()
+            .map(|node| adminservice::Node {
+                url: node.url.clone(),
+                status: node.connection_status.to_string(),
+                endpoint: node
+                    .remote_endpoint
+                    .as_ref()
+                    .map(|e| e.to_string())
+                    .unwrap_or_else(|| "".to_string()),
+                temporary: node.temporary,
+            })
+            .collect();
+        return Ok(Response::new(adminservice::ListNodesResponse { nodes }));
     }
 
     async fn add_node(
@@ -173,11 +174,9 @@ impl AdminService for MyAdminService {
         request: tonic::Request<adminservice::AddNodeRequest>,
     ) -> Result<tonic::Response<adminservice::AddNodeResponse>, tonic::Status> {
         let req = request.into_inner();
-
-        let msg = ClientAgentRequest::ClientAddNode { url: req.url };
-
-        self.client_agent_sender
-            .send(msg)
+        self.client_agent
+            .send(ClientAddNode { url: req.url })
+            .await
             .map_err(|e| tonic::Status::unknown(e.to_string()))?;
         Ok(Response::new(adminservice::AddNodeResponse {}))
     }
@@ -187,11 +186,9 @@ impl AdminService for MyAdminService {
         request: tonic::Request<adminservice::RemoveNodeRequest>,
     ) -> Result<tonic::Response<adminservice::RemoveNodeResponse>, tonic::Status> {
         let req = request.into_inner();
-
-        let msg = ClientAgentRequest::ClientRemoveNode { url: req.url };
-
-        self.client_agent_sender
-            .send(msg)
+        self.client_agent
+            .send(ClientRemoveNode { url: req.url })
+            .await
             .map_err(|e| tonic::Status::unknown(e.to_string()))?;
         Ok(Response::new(adminservice::RemoveNodeResponse {}))
     }
@@ -200,40 +197,32 @@ impl AdminService for MyAdminService {
         &self,
         _: tonic::Request<adminservice::ListRoutesRequest>,
     ) -> Result<tonic::Response<adminservice::ListRoutesResponse>, tonic::Status> {
-        let (list_routes_sender, list_routes_receiver) = oneshot::channel();
-        let msg = ClientAgentRequest::ClientListRoutes {
-            responder: list_routes_sender,
-        };
-
-        self.client_agent_sender
-            .send(msg)
+        let route_list = self
+            .client_agent
+            .send(ClientListRoutes {})
+            .await
             .map_err(|e| tonic::Status::unknown(e.to_string()))?;
 
-        match list_routes_receiver.await {
-            Ok(route_list) => {
-                let routes = route_list
-                    .iter()
-                    .map(|route| {
-                        let route_type = match route.route_type {
-                            RouteType::Connected => 0,
-                            RouteType::Static => 1,
-                        };
-                        adminservice::RouteStatus {
-                            route: Some(adminservice::Route {
-                                target: route.target.to_string(),
-                                next_hop: route.next_hop.to_string(),
-                            }),
-                            r#type: route_type,
-                            preferred: route.preferred,
-                            available: route.available,
-                            max_bundle_size: route.max_bundle_size.unwrap_or(0),
-                        }
-                    })
-                    .collect();
-                return Ok(Response::new(adminservice::ListRoutesResponse { routes }));
-            }
-            Err(_) => return Err(Status::internal("Error communicating with route agent")),
-        }
+        let routes = route_list
+            .iter()
+            .map(|route| {
+                let route_type = match route.route_type {
+                    RouteType::Connected => 0,
+                    RouteType::Static => 1,
+                };
+                adminservice::RouteStatus {
+                    route: Some(adminservice::Route {
+                        target: route.target.to_string(),
+                        next_hop: route.next_hop.to_string(),
+                    }),
+                    r#type: route_type,
+                    preferred: route.preferred,
+                    available: route.available,
+                    max_bundle_size: route.max_bundle_size.unwrap_or(0),
+                }
+            })
+            .collect();
+        return Ok(Response::new(adminservice::ListRoutesResponse { routes }));
     }
 
     async fn add_route(
@@ -251,10 +240,9 @@ impl AdminService for MyAdminService {
         let next_hop = Endpoint::new(&route.next_hop)
             .ok_or_else(|| tonic::Status::invalid_argument("next_hop invalid"))?;
 
-        let msg = ClientAgentRequest::ClientAddRoute { target, next_hop };
-
-        self.client_agent_sender
-            .send(msg)
+        self.client_agent
+            .send(ClientAddRoute { target, next_hop })
+            .await
             .map_err(|e| tonic::Status::unknown(e.to_string()))?;
         Ok(Response::new(adminservice::AddRouteResponse {}))
     }
@@ -274,36 +262,35 @@ impl AdminService for MyAdminService {
         let next_hop = Endpoint::new(&route.next_hop)
             .ok_or_else(|| tonic::Status::invalid_argument("next_hop invalid"))?;
 
-        let msg = ClientAgentRequest::ClientRemoveRoute { target, next_hop };
-
-        self.client_agent_sender
-            .send(msg)
+        self.client_agent
+            .send(ClientRemoveRoute { target, next_hop })
+            .await
             .map_err(|e| tonic::Status::unknown(e.to_string()))?;
         Ok(Response::new(adminservice::RemoveRouteResponse {}))
     }
 }
 
 pub async fn main(
-    settings: &Settings,
     mut shutdown: broadcast::Receiver<()>,
-    _sender: mpsc::Sender<()>,
-    client_agent_sender: mpsc::UnboundedSender<ClientAgentRequest>,
+    _shutdown_complete_sender: mpsc::Sender<()>,
+    client_agent: Addr<clientagent::agent::Daemon>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let settings = Settings::from_env();
     let addr = settings.grpc_clientapi_address.parse().unwrap();
-    let bundle_service = MyBundleService {
-        client_agent_sender: client_agent_sender.clone(),
-    };
+    // let bundle_service = MyBundleService {
+    //     client_agent: client_agent.clone(),
+    // };
     let admin_service = MyAdminService {
-        client_agent_sender: client_agent_sender.clone(),
+        client_agent: client_agent.clone(),
     };
 
     info!("Server listening on {}", addr);
     Server::builder()
-        .add_service(BundleServiceServer::new(bundle_service))
+        //.add_service(BundleServiceServer::new(bundle_service))
         .add_service(AdminServiceServer::new(admin_service))
         .serve_with_shutdown(addr, shutdown.recv().map(|_| ()))
         .await?;
     info!("Server has shutdown. See you");
-    // _sender is explicitly dropped here
+    // _shutdown_complete_sender is explicitly dropped here
     Ok(())
 }
