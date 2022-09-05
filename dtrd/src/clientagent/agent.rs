@@ -98,32 +98,6 @@ impl Handler<ClientSendBundle> for Daemon {
     }
 }
 
-/* TODO impl Handler<ClientListenBundles> for Daemon {
-    type Result = Result<(), String>;
-
-    fn handle(&mut self, msg: ClientListenBundles, ctx: &mut Context<Self>) -> Self::Result {
-        let ClientListenBundles {
-            destination,
-            responder,
-            canceltoken,
-        } = msg;
-        let settings = Settings::from_env();
-        let node_id = Endpoint::new(&settings.my_node_id).unwrap();
-
-        if !node_id.matches_node(&destination) {
-            warn!("User attempted to register with endpoint not bound here.");
-            return Err("Endpoint invalid for this BundleProtocolAgent".to_string());
-        }
-
-        self.clients
-            .insert(destination.clone(), (responder.clone(), canceltoken));
-        crate::bundleprotocolagent::agent::Daemon::from_registry()
-            .do_send(NewClientConnected { destination });
-
-        Ok(())
-    }
-}*/
-
 impl Handler<ClientListenConnect> for Daemon {
     type Result = Result<(), String>;
 

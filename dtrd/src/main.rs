@@ -234,7 +234,7 @@ async fn runserver(
 }
 */
 
-use actix::{Actor, System};
+use actix::{Actor, Arbiter, System};
 
 #[actix_rt::main]
 async fn main() {
