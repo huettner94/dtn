@@ -22,6 +22,13 @@ pub struct EventBundleDelivered {
 
 #[derive(Message)]
 #[rtype(result = "")]
+pub struct EventBundleDeliveryFailed {
+    pub endpoint: Endpoint,
+    pub bundle: StoredBundle,
+}
+
+#[derive(Message)]
+#[rtype(result = "")]
 pub struct EventClientConnected {
     pub destination: Endpoint,
     pub sender: Recipient<ClientDeliverBundle>,

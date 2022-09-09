@@ -10,7 +10,7 @@ use bp7::{
     primaryblock::PrimaryBlock,
     time::{CreationTimestamp, DtnTime},
 };
-use log::{debug, info};
+use log::{debug, info, warn};
 use tokio::sync::mpsc;
 
 use crate::{
@@ -23,7 +23,7 @@ use crate::{
 use super::messages::{
     ClientAddNode, ClientAddRoute, ClientDeliverBundle, ClientListNodes, ClientListRoutes,
     ClientListenConnect, ClientListenDisconnect, ClientRemoveNode, ClientRemoveRoute,
-    ClientSendBundle, EventClientConnected, EventClientDisconnected,
+    ClientSendBundle, EventBundleDeliveryFailed, EventClientConnected, EventClientDisconnected,
 };
 use actix::prelude::*;
 
@@ -115,7 +115,10 @@ impl Handler<ClientListenConnect> for Daemon {
             return Err("Listening endpoint does not match local node".to_string());
         }
 
-        let response_actor = ListenBundleResponseActor { sender };
+        let response_actor = ListenBundleResponseActor {
+            sender,
+            endpoint: destination.clone(),
+        };
 
         let response_actor_addr = response_actor.start();
 
@@ -222,6 +225,7 @@ struct StopListenBundleResponseActor {}
 
 pub struct ListenBundleResponseActor {
     sender: mpsc::Sender<ClientDeliverBundle>,
+    endpoint: Endpoint,
 }
 
 impl Actor for ListenBundleResponseActor {
@@ -236,8 +240,25 @@ impl Handler<ClientDeliverBundle> for ListenBundleResponseActor {
     type Result = ();
 
     fn handle(&mut self, msg: ClientDeliverBundle, ctx: &mut Self::Context) -> Self::Result {
-        self.sender.try_send(msg).unwrap();
-        //TODO: handle full
+        let sender = self.sender.clone();
+        let fut = async move { sender.send(msg).await };
+        fut.into_actor(self)
+            .then(|res, act, ctx| {
+                match res {
+                    Ok(_) => {}
+                    Err(e) => {
+                        crate::bundleprotocolagent::agent::Daemon::from_registry().do_send(
+                            EventBundleDeliveryFailed {
+                                bundle: e.0.bundle,
+                                endpoint: act.endpoint.clone(),
+                            },
+                        );
+                        ctx.stop();
+                    }
+                }
+                fut::ready(())
+            })
+            .wait(ctx)
     }
 }
 

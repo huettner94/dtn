@@ -169,7 +169,6 @@ impl Handler<CLForwardBundle> for Daemon {
 
     fn handle(&mut self, msg: CLForwardBundle, ctx: &mut Context<Self>) -> Self::Result {
         let CLForwardBundle { bundle, responder } = msg;
-        // TODO
         // crate::bundleprotocolagent::agent::Daemon::from_registry()
         //     .do_send(ReceiveBundle { bundle, responder });
     }

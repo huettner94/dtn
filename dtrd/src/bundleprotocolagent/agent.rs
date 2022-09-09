@@ -31,7 +31,8 @@ use crate::{
         StoredBundle,
     },
     clientagent::messages::{
-        ClientDeliverBundle, EventBundleDelivered, EventClientConnected, EventClientDisconnected,
+        ClientDeliverBundle, EventBundleDelivered, EventBundleDeliveryFailed, EventClientConnected,
+        EventClientDisconnected,
     },
     common::settings::Settings,
     converganceagent::messages::{
@@ -111,6 +112,25 @@ impl Handler<EventBundleDelivered> for Daemon {
         crate::bundlestorageagent::agent::Daemon::from_registry().do_send(DeleteBundle { bundle });
 
         self.deliver_local_bundles(&endpoint, ctx);
+    }
+}
+
+impl Handler<EventBundleDeliveryFailed> for Daemon {
+    type Result = ();
+
+    fn handle(&mut self, msg: EventBundleDeliveryFailed, ctx: &mut Self::Context) -> Self::Result {
+        let EventBundleDeliveryFailed { endpoint, bundle } = msg;
+        warn!(
+            "Delivering local bundle to endpoint {} failed. Requeueing",
+            &endpoint
+        );
+        if let Some(pending) = self.bundles_pending_local_delivery.get_mut(&endpoint) {
+            pending.retain(|e| e != bundle)
+        }
+        self.local_bundles
+            .entry(endpoint)
+            .or_default()
+            .push_front(bundle);
     }
 }
 
