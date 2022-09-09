@@ -181,6 +181,7 @@ async fn command_bundle_listen(client: &mut Client, endpoint: String, output_mod
                     },
                     Err(e) => {
                         println!("Error receiving bundle: {:?}", e);
+                        break;
                     }
                 }
             }

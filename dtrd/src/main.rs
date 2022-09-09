@@ -1,9 +1,5 @@
-use futures_util::Future;
 use log::{error, info};
-use tokio::{
-    sync::{broadcast, mpsc},
-    task::JoinHandle,
-};
+use tokio::sync::{broadcast, mpsc};
 
 mod bundleprotocolagent;
 mod bundlestorageagent;
@@ -15,10 +11,7 @@ mod nodeagent;
 mod routingagent;
 //mod tcpclconverganceagent;
 
-use crate::{
-    bundlestorageagent::messages::StoreBundle, clientagent::messages::ClientAddNode,
-    common::settings::Settings,
-};
+use crate::common::{messages::Shutdown, settings::Settings};
 /*
 fn spawn_task(
     name: &str,
@@ -234,7 +227,7 @@ async fn runserver(
 }
 */
 
-use actix::{Actor, Arbiter, System};
+use actix::{Actor, System};
 
 #[actix_rt::main]
 async fn main() {
@@ -256,13 +249,14 @@ async fn main() {
 
     let api_agent_task_shutdown_notifier = notify_shutdown.subscribe();
     let api_agent_task_shutdown_complete_tx_task = shutdown_complete_tx.clone();
+    let api_agent_clientagent_addr = clientagent_addr.clone();
     let api_agent_task = tokio::task::Builder::new()
         .name("ApiAgent")
         .spawn(async move {
             match clientgrpcagent::agent::main(
                 api_agent_task_shutdown_notifier,
                 api_agent_task_shutdown_complete_tx_task,
-                clientagent_addr,
+                api_agent_clientagent_addr,
             )
             .await
             {
@@ -272,6 +266,7 @@ async fn main() {
         });
 
     let ctrl_c = tokio::signal::ctrl_c();
+
     tokio::select! {
         res = api_agent_task => {
             if let Ok(Err(e)) = res {
@@ -290,6 +285,9 @@ async fn main() {
     drop(notify_shutdown);
     // Drop final `Sender` so the `Receiver` below can complete
     drop(shutdown_complete_tx);
+
+    info!("Stopping individual actors");
+    clientagent_addr.do_send(Shutdown {});
 
     info!("Now stopping actor system");
     System::current().stop();

@@ -15,7 +15,7 @@ use tokio::sync::mpsc;
 
 use crate::{
     bundlestorageagent::messages::StoreNewBundle,
-    common::settings::Settings,
+    common::{messages::Shutdown, settings::Settings},
     nodeagent::messages::{AddNode, ListNodes, Node, RemoveNode},
     routingagent::messages::{AddRoute, ListRoutes, RemoveRoute, RouteStatus, RouteType},
 };
@@ -39,18 +39,22 @@ impl Actor for Daemon {
         let settings = Settings::from_env();
         self.endpoint = Some(Endpoint::new(&settings.my_node_id).unwrap());
     }
+}
 
-    fn stopped(&mut self, ctx: &mut Self::Context) {
+impl actix::Supervised for Daemon {}
+
+impl SystemService for Daemon {}
+
+impl Handler<Shutdown> for Daemon {
+    type Result = ();
+
+    fn handle(&mut self, msg: Shutdown, ctx: &mut Self::Context) -> Self::Result {
         info!("Disconnecting all clients");
         for (_, client) in self.connected_clients.drain() {
             client.do_send(StopListenBundleResponseActor {});
         }
     }
 }
-
-impl actix::Supervised for Daemon {}
-
-impl SystemService for Daemon {}
 
 impl Handler<ClientSendBundle> for Daemon {
     type Result = ResponseFuture<Result<(), ()>>;
