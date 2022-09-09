@@ -33,7 +33,7 @@ impl SystemService for Daemon {}
 impl Handler<ListNodes> for Daemon {
     type Result = Vec<Node>;
 
-    fn handle(&mut self, msg: ListNodes, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, _msg: ListNodes, _ctx: &mut Context<Self>) -> Self::Result {
         self.nodes.clone()
     }
 }
@@ -41,7 +41,7 @@ impl Handler<ListNodes> for Daemon {
 impl Handler<AddNode> for Daemon {
     type Result = ();
 
-    fn handle(&mut self, msg: AddNode, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: AddNode, _ctx: &mut Context<Self>) -> Self::Result {
         let AddNode { url } = msg;
         let mut node = Node {
             url: url.clone(),
@@ -62,7 +62,7 @@ impl Handler<AddNode> for Daemon {
 impl Handler<RemoveNode> for Daemon {
     type Result = ();
 
-    fn handle(&mut self, msg: RemoveNode, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: RemoveNode, _ctx: &mut Context<Self>) -> Self::Result {
         let RemoveNode { url } = msg;
         let node = Node {
             url: url.clone(),
@@ -90,7 +90,7 @@ impl Handler<RemoveNode> for Daemon {
 impl Handler<NotifyNodeConnected> for Daemon {
     type Result = ();
 
-    fn handle(&mut self, msg: NotifyNodeConnected, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: NotifyNodeConnected, _ctx: &mut Context<Self>) -> Self::Result {
         let NotifyNodeConnected {
             url,
             endpoint,
@@ -123,7 +123,7 @@ impl Handler<NotifyNodeConnected> for Daemon {
 impl Handler<NotifyNodeDisconnected> for Daemon {
     type Result = ();
 
-    fn handle(&mut self, msg: NotifyNodeDisconnected, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: NotifyNodeDisconnected, _ctx: &mut Context<Self>) -> Self::Result {
         let NotifyNodeDisconnected { url } = msg;
         match self.nodes.iter().position(|n| n.url == url) {
             Some(pos) => {
@@ -157,7 +157,7 @@ impl Handler<NotifyNodeDisconnected> for Daemon {
 impl Handler<TryConnect> for Daemon {
     type Result = ();
 
-    fn handle(&mut self, msg: TryConnect, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, _msg: TryConnect, _ctx: &mut Context<Self>) -> Self::Result {
         for node in &mut self.nodes {
             if node.connection_status == NodeConnectionStatus::Disconnected && !node.temporary {
                 info!("Trying to reconnect to {}", node.url);

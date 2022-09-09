@@ -7,8 +7,6 @@ use std::{
 use bp7::endpoint::Endpoint;
 use log::{debug, warn};
 
-use crate::bundleprotocolagent::messages::NewRoutesAvailable;
-
 use super::messages::{
     AddRoute, GetNextHop, ListRoutes, NexthopInfo, RemoveRoute, RouteStatus, RouteType,
 };
@@ -49,7 +47,7 @@ impl SystemService for Daemon {}
 impl Handler<AddRoute> for Daemon {
     type Result = ();
 
-    fn handle(&mut self, msg: AddRoute, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: AddRoute, _ctx: &mut Context<Self>) -> Self::Result {
         let AddRoute {
             target,
             route_type,
@@ -88,7 +86,7 @@ impl Handler<AddRoute> for Daemon {
 impl Handler<RemoveRoute> for Daemon {
     type Result = ();
 
-    fn handle(&mut self, msg: RemoveRoute, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: RemoveRoute, _ctx: &mut Context<Self>) -> Self::Result {
         let RemoveRoute {
             target,
             route_type,
@@ -116,7 +114,7 @@ impl Handler<RemoveRoute> for Daemon {
 impl Handler<GetNextHop> for Daemon {
     type Result = Option<NexthopInfo>;
 
-    fn handle(&mut self, msg: GetNextHop, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: GetNextHop, _ctx: &mut Context<Self>) -> Self::Result {
         let GetNextHop { target } = msg;
         self.routes.get(&target.get_node_endpoint()).and_then(|s| {
             let mut v = s
@@ -153,7 +151,7 @@ impl Handler<GetNextHop> for Daemon {
 impl Handler<ListRoutes> for Daemon {
     type Result = Vec<RouteStatus>;
 
-    fn handle(&mut self, msg: ListRoutes, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, _msg: ListRoutes, _ctx: &mut Context<Self>) -> Self::Result {
         let connected_routes = self.get_connected_routes();
         self.routes
             .iter()

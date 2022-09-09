@@ -10,7 +10,7 @@ use bp7::{
     primaryblock::PrimaryBlock,
     time::{CreationTimestamp, DtnTime},
 };
-use log::{debug, info, warn};
+use log::{debug, info};
 use tokio::sync::mpsc;
 
 use crate::{
@@ -35,7 +35,7 @@ pub struct Daemon {
 
 impl Actor for Daemon {
     type Context = Context<Self>;
-    fn started(&mut self, ctx: &mut Context<Self>) {
+    fn started(&mut self, _ctx: &mut Context<Self>) {
         let settings = Settings::from_env();
         self.endpoint = Some(Endpoint::new(&settings.my_node_id).unwrap());
     }
@@ -48,7 +48,7 @@ impl SystemService for Daemon {}
 impl Handler<Shutdown> for Daemon {
     type Result = ();
 
-    fn handle(&mut self, msg: Shutdown, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, _msg: Shutdown, _ctx: &mut Self::Context) -> Self::Result {
         info!("Disconnecting all clients");
         for (_, client) in self.connected_clients.drain() {
             client.do_send(StopListenBundleResponseActor {});
@@ -59,7 +59,7 @@ impl Handler<Shutdown> for Daemon {
 impl Handler<ClientSendBundle> for Daemon {
     type Result = ResponseFuture<Result<(), ()>>;
 
-    fn handle(&mut self, msg: ClientSendBundle, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: ClientSendBundle, _ctx: &mut Context<Self>) -> Self::Result {
         let ClientSendBundle {
             destination,
             payload,
@@ -105,7 +105,7 @@ impl Handler<ClientSendBundle> for Daemon {
 impl Handler<ClientListenConnect> for Daemon {
     type Result = Result<(), String>;
 
-    fn handle(&mut self, msg: ClientListenConnect, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: ClientListenConnect, _ctx: &mut Context<Self>) -> Self::Result {
         let ClientListenConnect {
             destination,
             sender,
@@ -137,7 +137,7 @@ impl Handler<ClientListenConnect> for Daemon {
 impl Handler<ClientListenDisconnect> for Daemon {
     type Result = ();
 
-    fn handle(&mut self, msg: ClientListenDisconnect, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: ClientListenDisconnect, _ctx: &mut Context<Self>) -> Self::Result {
         let ClientListenDisconnect { destination } = msg;
 
         if let Some(addr) = self.connected_clients.get(&destination) {
@@ -151,7 +151,7 @@ impl Handler<ClientListenDisconnect> for Daemon {
 impl Handler<ClientListNodes> for Daemon {
     type Result = ResponseFuture<Vec<Node>>;
 
-    fn handle(&mut self, msg: ClientListNodes, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, _msg: ClientListNodes, _ctx: &mut Context<Self>) -> Self::Result {
         Box::pin(async {
             crate::nodeagent::agent::Daemon::from_registry()
                 .send(ListNodes {})
@@ -164,7 +164,7 @@ impl Handler<ClientListNodes> for Daemon {
 impl Handler<ClientAddNode> for Daemon {
     type Result = ();
 
-    fn handle(&mut self, msg: ClientAddNode, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: ClientAddNode, _ctx: &mut Context<Self>) -> Self::Result {
         let ClientAddNode { url } = msg;
         crate::nodeagent::agent::Daemon::from_registry().do_send(AddNode { url });
     }
@@ -173,7 +173,7 @@ impl Handler<ClientAddNode> for Daemon {
 impl Handler<ClientRemoveNode> for Daemon {
     type Result = ();
 
-    fn handle(&mut self, msg: ClientRemoveNode, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: ClientRemoveNode, _ctx: &mut Context<Self>) -> Self::Result {
         let ClientRemoveNode { url } = msg;
         crate::nodeagent::agent::Daemon::from_registry().do_send(RemoveNode { url });
     }
@@ -182,7 +182,7 @@ impl Handler<ClientRemoveNode> for Daemon {
 impl Handler<ClientListRoutes> for Daemon {
     type Result = ResponseFuture<Vec<RouteStatus>>;
 
-    fn handle(&mut self, msg: ClientListRoutes, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, _msg: ClientListRoutes, _ctx: &mut Context<Self>) -> Self::Result {
         Box::pin(async {
             crate::routingagent::agent::Daemon::from_registry()
                 .send(ListRoutes {})
@@ -195,7 +195,7 @@ impl Handler<ClientListRoutes> for Daemon {
 impl Handler<ClientAddRoute> for Daemon {
     type Result = ();
 
-    fn handle(&mut self, msg: ClientAddRoute, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: ClientAddRoute, _ctx: &mut Context<Self>) -> Self::Result {
         let ClientAddRoute { target, next_hop } = msg;
         crate::routingagent::agent::Daemon::from_registry().do_send(AddRoute {
             target,
@@ -209,7 +209,7 @@ impl Handler<ClientAddRoute> for Daemon {
 impl Handler<ClientRemoveRoute> for Daemon {
     type Result = ();
 
-    fn handle(&mut self, msg: ClientRemoveRoute, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: ClientRemoveRoute, _ctx: &mut Context<Self>) -> Self::Result {
         let ClientRemoveRoute { target, next_hop } = msg;
         crate::routingagent::agent::Daemon::from_registry().do_send(RemoveRoute {
             target,
@@ -267,7 +267,7 @@ impl Handler<StopListenBundleResponseActor> for ListenBundleResponseActor {
 
     fn handle(
         &mut self,
-        msg: StopListenBundleResponseActor,
+        _msg: StopListenBundleResponseActor,
         ctx: &mut Self::Context,
     ) -> Self::Result {
         ctx.stop()

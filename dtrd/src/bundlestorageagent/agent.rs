@@ -16,12 +16,12 @@ pub struct Daemon {
 
 impl Actor for Daemon {
     type Context = Context<Self>;
-    fn started(&mut self, ctx: &mut Context<Self>) {
+    fn started(&mut self, _ctx: &mut Context<Self>) {
         let settings = Settings::from_env();
         self.endpoint = Some(Endpoint::new(&settings.my_node_id).unwrap());
     }
 
-    fn stopped(&mut self, ctx: &mut Context<Self>) {
+    fn stopped(&mut self, _ctx: &mut Context<Self>) {
         if self.bundles.len() != 0 {
             warn!(
                 "BSA had {} bundles left over, they will be gone now.",
@@ -38,7 +38,7 @@ impl SystemService for Daemon {}
 impl Handler<StoreBundle> for Daemon {
     type Result = Result<(), ()>;
 
-    fn handle(&mut self, msg: StoreBundle, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: StoreBundle, _ctx: &mut Context<Self>) -> Self::Result {
         let StoreBundle { bundle } = msg;
 
         if bundle
@@ -88,7 +88,7 @@ impl Handler<StoreBundle> for Daemon {
 impl Handler<StoreNewBundle> for Daemon {
     type Result = Result<(), ()>;
 
-    fn handle(&mut self, msg: StoreNewBundle, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: StoreNewBundle, _ctx: &mut Self::Context) -> Self::Result {
         let StoreNewBundle { mut bundle } = msg;
 
         if !bundle
@@ -139,7 +139,7 @@ impl Handler<StoreNewBundle> for Daemon {
 impl Handler<DeleteBundle> for Daemon {
     type Result = ();
 
-    fn handle(&mut self, msg: DeleteBundle, ctx: &mut Context<Self>) {
+    fn handle(&mut self, msg: DeleteBundle, _ctx: &mut Context<Self>) {
         let DeleteBundle { bundle } = msg;
         match self.bundles.iter().position(|b| b == bundle) {
             Some(idx) => {
@@ -153,7 +153,7 @@ impl Handler<DeleteBundle> for Daemon {
 impl Handler<GetBundleForDestination> for Daemon {
     type Result = Result<Vec<StoredBundle>, String>;
 
-    fn handle(&mut self, msg: GetBundleForDestination, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: GetBundleForDestination, _ctx: &mut Context<Self>) -> Self::Result {
         let GetBundleForDestination { destination } = msg;
         let mut ret = Vec::new();
         for i in 0..self.bundles.len() {
@@ -178,7 +178,7 @@ impl Handler<GetBundleForDestination> for Daemon {
 impl Handler<GetBundleForNode> for Daemon {
     type Result = Result<Vec<StoredBundle>, String>;
 
-    fn handle(&mut self, msg: GetBundleForNode, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: GetBundleForNode, _ctx: &mut Context<Self>) -> Self::Result {
         let GetBundleForNode { destination } = msg;
         let mut ret = Vec::new();
         for i in 0..self.bundles.len() {
