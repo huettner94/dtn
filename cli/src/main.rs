@@ -185,6 +185,7 @@ async fn command_bundle_listen(client: &mut Client, endpoint: String, output_mod
                     }
                 }
             }
+            println!("Server closed the connection")
         }
         Err(e) => {
             println!("Error listening for bundles: {:?}", e);
