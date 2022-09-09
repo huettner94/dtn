@@ -12,16 +12,16 @@ log = "0.4"
 tonic = "0.5.2"
 prost = "0.8"
 tokio = { version = "1.15.0", features = ["full", "tracing"] }
-tokio-stream = "0.1.7"
+tokio-stream = "0.1.9"
 tokio-util = "0.6.8"
 futures-util = "0.3.16"
 env_logger = "0.8.4"
-async-trait = "0.1.51"
 openssl = "0.10.38"
 uuid = {version = "0.8.2", features = ["v4"]}
 console-subscriber = "0.1.6"
 actix = "0.13.0"
 actix-rt = "2.7.0"
+async-stream = "0.3.3"
 
 [build-dependencies]
 tonic-build = "0.5.2"

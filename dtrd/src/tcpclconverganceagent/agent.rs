@@ -1,140 +1,149 @@
-use std::{collections::HashMap, net::SocketAddr};
-
-use async_trait::async_trait;
+use std::{collections::HashMap, io, net::SocketAddr};
 
 use bp7::endpoint::Endpoint;
 use log::{error, info, warn};
 use openssl::{pkey::PKey, x509::X509};
-use tcpcl::{errors::TransferSendErrors, session::TCPCLSession, TLSSettings};
+use tcpcl::{
+    connection_info::ConnectionInfo, errors::TransferSendErrors, session::TCPCLSession,
+    transfer::Transfer, TLSSettings,
+};
 use tokio::{
     fs::File,
     io::AsyncReadExt,
     net::{TcpListener, TcpStream},
-    sync::{mpsc, oneshot},
+    sync::{broadcast, mpsc, oneshot},
     task::JoinHandle,
 };
+use tokio_stream::wrappers::ReceiverStream;
 
 use crate::{
-    common::{settings::Settings, shutdown::Shutdown},
-    converganceagent::messages::{AgentForwardBundle, ConverganceAgentRequest},
+    common::{messages::Shutdown, settings::Settings},
+    converganceagent::messages::{AgentForwardBundle, CLRegisterNode, CLUnregisterNode},
 };
 
-use super::messages::TCPCLAgentRequest;
+use actix::{prelude::*, spawn};
 
-pub struct Daemon {
-    settings: Settings,
-    tls_settings: Option<TLSSettings>,
-    channel_receiver: Option<mpsc::UnboundedReceiver<TCPCLAgentRequest>>,
-    convergance_agent_sender: Option<mpsc::UnboundedSender<ConverganceAgentRequest>>,
-    tcpcl_sessions: Vec<JoinHandle<()>>,
-    close_channels: HashMap<SocketAddr, oneshot::Sender<()>>,
+#[derive(Message)]
+#[rtype(result = "")]
+struct NewClientConnectedOnSocket {
+    stream: TcpStream,
+    address: SocketAddr,
 }
 
-#[async_trait]
-impl crate::common::agent::Daemon for Daemon {
-    type MessageType = TCPCLAgentRequest;
+pub async fn tcpcl_listener(
+    mut shutdown: broadcast::Receiver<()>,
+    _shutdown_complete_sender: mpsc::Sender<()>,
+    tcpcl_server: Addr<TCPCLServer>,
+) -> Result<JoinHandle<()>, io::Error> {
+    let settings = Settings::from_env();
 
-    async fn new(settings: &Settings) -> Self {
-        let tls_settings = match Daemon::load_tls_settings(settings).await {
-            Ok(tls) => tls,
-            Err(e) => {
-                error!(
-                    "Error loading tls settings: {:?}. Continuing without tls support",
-                    e
-                );
-                None
-            }
-        };
+    let socket: SocketAddr = settings.tcpcl_listen_address.parse().unwrap();
 
-        Daemon {
-            settings: settings.clone(),
-            tls_settings,
-            channel_receiver: None,
-            convergance_agent_sender: None,
-            tcpcl_sessions: Vec::new(),
-            close_channels: HashMap::new(),
-        }
-    }
+    info!("Server listening on {}", socket);
 
-    fn get_agent_name(&self) -> &'static str {
-        "TCPCL Agent"
-    }
+    let listener = TcpListener::bind(&socket).await?;
 
-    fn get_channel_receiver(&mut self) -> Option<mpsc::UnboundedReceiver<Self::MessageType>> {
-        self.channel_receiver.take()
-    }
-
-    async fn main_loop(
-        &mut self,
-        shutdown: &mut Shutdown,
-        receiver: &mut mpsc::UnboundedReceiver<Self::MessageType>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let socket: SocketAddr = self.settings.tcpcl_listen_address.parse().unwrap();
-
-        info!("Server listening on {}", socket);
-
-        let listener = TcpListener::bind(&socket).await?;
+    let joinhandle = spawn(async move {
         info!("Socket open, waiting for connection");
-        while !shutdown.is_shutdown() {
+        loop {
             tokio::select! {
-                res = listener.accept() => {
-                    if self.handle_accept(res).await {
-                        warn!("we are unable to process more incoming connections. stopping tcpcl agent.");
-                        break;
-                    }
-                }
-                received = receiver.recv() => {
-                    if let Some(msg) = received {
-                        self.handle_message(msg).await;
-                    } else {
-                        info!("TCPCL Agent can no longer receive messages. Exiting");
-                        break;
+                conn = listener.accept() => {
+                    match conn {
+                        Ok((stream, address)) => {
+                            tcpcl_server.do_send(NewClientConnectedOnSocket {stream, address});
+                        },
+                        Err(e) => {
+                            error!("Something bad happend during accepting a connection for tcpcl: {:?}. Aborting...", &e);
+                        }
                     }
                 }
                 _ = shutdown.recv() => {
-                    info!("TCPCL agent received shutdown");
-                    receiver.close();
-                    info!("{} will not allow more requests to be sent", self.get_agent_name());
+                    info!("Received shutdown message, stopping the tcpcl socket");
+                    break;
                 }
-            }
+            };
         }
 
-        info!("Closing the incoming tcp listener");
-        drop(listener);
+        drop(listener); // implicitly closes the socket
 
-        Ok(())
+        info!("TCPCL socket has shutdown. See you");
+        // _shutdown_complete_sender is explicitly dropped here
+    });
+    Ok(joinhandle)
+}
+
+#[derive(Default)]
+pub struct TCPCLServer {
+    my_node_id: String,
+    tls_config: Option<TLSSettings>,
+    sessions: HashMap<SocketAddr, Addr<TCPCLSessionAgent>>,
+}
+
+impl Actor for TCPCLServer {
+    type Context = Context<Self>;
+
+    fn started(&mut self, ctx: &mut Self::Context) {
+        let settings = Settings::from_env();
+        self.my_node_id = settings.my_node_id.clone();
+
+        let fut = async move { TCPCLServer::load_tls_settings(&settings).await };
+        fut.into_actor(self)
+            .then(|res, act, ctx| {
+                match res {
+                    Ok(tls_config) => act.tls_config = tls_config,
+                    Err(e) => {
+                        error!("Error loading TLS configuration for tcpcl server: {}", e);
+                        ctx.stop();
+                    }
+                }
+                fut::ready(())
+            })
+            .wait(ctx);
     }
+}
 
-    async fn on_shutdown(&mut self) {
-        // We are explicitly not handling the message receiver here as we cant use it anymore anyway.
+impl actix::Supervised for TCPCLServer {}
 
-        info!("Closing all tcpcl sessions");
-        for close_channel in self.close_channels.drain() {
-            match close_channel.1.send(()) {
-                _ => {}
-            }
-        }
-        for jh in self.tcpcl_sessions.drain(..) {
-            match jh.await {
-                Ok(_) => {}
+impl SystemService for TCPCLServer {}
+
+impl Handler<NewClientConnectedOnSocket> for TCPCLServer {
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        msg: NewClientConnectedOnSocket,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let NewClientConnectedOnSocket { stream, address } = msg;
+        info!("New client connected from {}", address);
+        let session =
+            match TCPCLSession::new(stream, self.my_node_id.clone(), self.tls_config.clone()) {
+                Ok(s) => s,
                 Err(e) => {
-                    warn!("Session failed with error: {}", e)
+                    error!(
+                        "Error handling new incoming connection: {:?}. Connection will be dropped",
+                        e
+                    );
+                    return;
                 }
-            }
-        }
-    }
+            };
 
-    async fn handle_message(&mut self, msg: TCPCLAgentRequest) {
-        match msg {
-            TCPCLAgentRequest::ConnectRemote { socket } => {
-                self.connect_remote(socket).await;
-            }
-            TCPCLAgentRequest::DisonnectRemote { socket } => self.disconnect_remote(socket).await,
+        let sessionagent = TCPCLSessionAgent::new(session);
+        self.sessions.insert(address, sessionagent);
+    }
+}
+
+impl Handler<Shutdown> for TCPCLServer {
+    type Result = ();
+
+    fn handle(&mut self, _msg: Shutdown, _ctx: &mut Self::Context) -> Self::Result {
+        for (_, session) in self.sessions.drain() {
+            session.do_send(Shutdown {});
         }
     }
 }
 
-impl Daemon {
+impl TCPCLServer {
     async fn load_tls_settings(settings: &Settings) -> Result<Option<TLSSettings>, std::io::Error> {
         if settings.tcpcl_certificate_path.is_some()
             && settings.tcpcl_key_path.is_some()
@@ -162,16 +171,111 @@ impl Daemon {
         info!("Starting TCPCL agent without TLS Support");
         Ok(None)
     }
+}
 
-    pub fn init_channels(
-        &mut self,
-        convergance_agent_sender: mpsc::UnboundedSender<ConverganceAgentRequest>,
-    ) -> mpsc::UnboundedSender<TCPCLAgentRequest> {
-        self.convergance_agent_sender = Some(convergance_agent_sender);
-        let (channel_sender, channel_receiver) = mpsc::unbounded_channel::<TCPCLAgentRequest>();
-        self.channel_receiver = Some(channel_receiver);
-        return channel_sender;
+struct TCPCLSessionAgent {
+    close_channel: Option<oneshot::Sender<()>>,
+    send_channel: mpsc::Sender<(Vec<u8>, oneshot::Sender<Result<(), TransferSendErrors>>)>,
+}
+
+impl Actor for TCPCLSessionAgent {
+    type Context = Context<Self>;
+}
+
+impl StreamHandler<Transfer> for TCPCLSessionAgent {
+    fn handle(&mut self, item: Transfer, ctx: &mut Self::Context) {
+        todo!()
     }
+}
+
+impl Handler<AgentForwardBundle> for TCPCLSessionAgent {
+    type Result = ();
+
+    fn handle(&mut self, msg: AgentForwardBundle, ctx: &mut Self::Context) -> Self::Result {
+        todo!()
+    }
+}
+
+impl Handler<Shutdown> for TCPCLSessionAgent {
+    type Result = ();
+
+    fn handle(&mut self, _msg: Shutdown, ctx: &mut Self::Context) -> Self::Result {
+        match self.close_channel.take() {
+            Some(c) => {
+                if let Err(_) = c.send(()) {
+                    warn!("Error sending shutdown message to tcpcl session. Forcing it to die by stopping us");
+                    ctx.stop();
+                }
+            }
+            None => {}
+        };
+    }
+}
+
+impl StreamHandler<ConnectionInfo> for TCPCLSessionAgent {
+    fn handle(&mut self, item: ConnectionInfo, ctx: &mut Self::Context) {
+        match Endpoint::new(&item.peer_endpoint.as_ref().unwrap()) {
+            Some(node) => {
+                crate::converganceagent::agent::Daemon::from_registry().do_send(CLRegisterNode {
+                    url: format!("tcpcl://{}", item.peer_address),
+                    node,
+                    max_bundle_size: item
+                        .max_bundle_size
+                        .expect("We must have a bundle size if we are connected"),
+                    sender: ctx.address().recipient(),
+                });
+            }
+            None => {
+                warn!(
+                    "Peer send invalid id '{}'.",
+                    item.peer_endpoint.as_ref().unwrap()
+                );
+                ctx.stop();
+            }
+        }
+    }
+}
+
+impl TCPCLSessionAgent {
+    fn new(mut session: TCPCLSession) -> Addr<Self> {
+        TCPCLSessionAgent::create(|ctx| {
+            ctx.add_stream(ReceiverStream::new(session.get_receive_channel()));
+
+            let established_channel = session.get_established_channel();
+            ctx.add_stream(async_stream::stream! {yield established_channel.await.unwrap();});
+
+            let close_channel = session.get_close_channel();
+            let send_channel = session.get_send_channel();
+
+            let fut = async move {
+                if let Err(e) = session.manage_connection().await {
+                    warn!("Connection closed with error: {:?}", e);
+                }
+                let ci = session.get_connection_info();
+                let node = match ci.peer_endpoint {
+                    Some(endpoint) => Endpoint::new(&endpoint),
+                    None => None,
+                };
+                crate::converganceagent::agent::Daemon::from_registry().do_send(CLUnregisterNode {
+                    url: format!("tcpcl://{}", ci.peer_address),
+                    node,
+                });
+            };
+            tokio::spawn(fut); // We drop the join handle here because we never need to access it again
+
+            TCPCLSessionAgent {
+                close_channel: Some(close_channel),
+                send_channel,
+            }
+        })
+    }
+}
+
+/*
+}
+
+impl Daemon {
+
 
     async fn connect_remote(&mut self, socket: SocketAddr) {
         match TCPCLSession::connect(
@@ -207,33 +311,6 @@ impl Daemon {
         }
     }
 
-    async fn handle_accept(
-        &mut self,
-        accept: Result<(TcpStream, SocketAddr), std::io::Error>,
-    ) -> bool {
-        match accept {
-            Ok((stream, peer_addr)) => {
-                info!("New connection from {}", peer_addr);
-                match TCPCLSession::new(
-                    stream,
-                    self.settings.my_node_id.clone(),
-                    self.tls_settings.clone(),
-                ) {
-                    Ok(sess) => {
-                        self.process_socket(sess).await;
-                    }
-                    Err(e) => {
-                        warn!("Error accepint new connection: {}", e);
-                    }
-                };
-                return false;
-            }
-            Err(e) => {
-                error!("Error during accepting new connection: {}", e);
-                return true;
-            }
-        }
-    }
 
     async fn process_socket(&mut self, mut sess: TCPCLSession) {
         let close_channel = sess.get_close_channel();
@@ -242,43 +319,7 @@ impl Daemon {
 
         let send_channel = sess.get_send_channel();
 
-        let established_channel = sess.get_established_channel();
-        let established_convergane_agent_sender =
-            self.convergance_agent_sender.as_ref().unwrap().clone();
-        tokio::spawn(async move {
-            match established_channel.await {
-                Ok(ci) => match Endpoint::new(&ci.peer_endpoint.as_ref().unwrap()) {
-                    Some(node) => {
-                        let bundle_sender = get_bundle_sender(send_channel);
-                        if let Err(e) = established_convergane_agent_sender.send(
-                            ConverganceAgentRequest::CLRegisterNode {
-                                url: format!("tcpcl://{}", ci.peer_address),
-                                node,
-                                max_bundle_size: ci
-                                    .max_bundle_size
-                                    .expect("We must have a bundle size if we are connected"),
-                                sender: bundle_sender,
-                            },
-                        ) {
-                            warn!(
-                                "Error sending node registration to Convergance Agent: {:?}",
-                                e
-                            );
-                            //TODO: close the session
-                            return;
-                        };
-                    }
-                    None => {
-                        warn!(
-                            "Peer send invalid id '{}'.",
-                            ci.peer_endpoint.as_ref().unwrap()
-                        );
-                        //TODO: close the session
-                    }
-                },
-                Err(_) => {}
-            }
-        });
+
 
         let mut transfer_receiver = sess.get_receive_channel();
         let receiver_convergane_agent_sender =
@@ -326,30 +367,7 @@ impl Daemon {
             }
         });
 
-        let finished_convergane_agent_sender =
-            self.convergance_agent_sender.as_ref().unwrap().clone();
-        let jh = tokio::spawn(async move {
-            if let Err(e) = sess.manage_connection().await {
-                warn!("Connection closed with error: {:?}", e);
-            }
-            let ci = sess.get_connection_info();
-            let node = match ci.peer_endpoint {
-                Some(endpoint) => Endpoint::new(&endpoint),
-                None => None,
-            };
-            if let Err(e) =
-                finished_convergane_agent_sender.send(ConverganceAgentRequest::CLUnregisterNode {
-                    url: format!("tcpcl://{}", ci.peer_address),
-                    node,
-                })
-            {
-                warn!(
-                    "Error sending node unregistration to Convergance Agent: {:?}",
-                    e
-                );
-                return;
-            };
-        });
+
         self.tcpcl_sessions.push(jh);
     }
 }
@@ -407,3 +425,4 @@ fn get_bundle_sender(
 
     return bundle_sender;
 }
+*/
