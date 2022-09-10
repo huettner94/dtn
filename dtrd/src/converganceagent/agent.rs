@@ -8,6 +8,7 @@ use crate::{
     bundleprotocolagent::messages::ReceiveBundle,
     converganceagent::messages::{EventPeerConnected, EventPeerDisconnected},
     nodeagent::messages::{NotifyNodeConnected, NotifyNodeDisconnected},
+    tcpclconverganceagent::messages::{ConnectRemote, DisconnectRemote},
 };
 
 use super::messages::{
@@ -45,16 +46,9 @@ impl Handler<AgentConnectNode> for Daemon {
         match connection_string.split_once(':') {
             Some((proto, hostport)) => match proto {
                 "tcpcl" => match hostport[2..].parse::<SocketAddr>() {
-                    Ok(socket) => {
-                        panic!("Should now send a reqeust to the tcpcl agent");
-                        /*if let Err(e) = self
-                            .tcpcl_agent_sender
-                            .as_ref()
-                            .unwrap()
-                            .send(TCPCLAgentRequest::ConnectRemote { socket })
-                        {
-                            error!("Error sending request to tcpcl agent {:?}", e);
-                        }*/
+                    Ok(address) => {
+                        crate::tcpclconverganceagent::agent::TCPCLServer::from_registry()
+                            .do_send(ConnectRemote { address });
                     }
                     Err(e) => {
                         error!(
@@ -86,16 +80,9 @@ impl Handler<AgentDisconnectNode> for Daemon {
         match connection_string.split_once(':') {
             Some((proto, hostport)) => match proto {
                 "tcpcl" => match hostport[2..].parse::<SocketAddr>() {
-                    Ok(socket) => {
-                        panic!("Should now send a reqeust to the tcpcl agent");
-                        /*if let Err(e) = self
-                            .tcpcl_agent_sender
-                            .as_ref()
-                            .unwrap()
-                            .send(TCPCLAgentRequest::DisonnectRemote { socket })
-                        {
-                            error!("Error sending request to tcpcl agent {:?}", e);
-                        }*/
+                    Ok(address) => {
+                        crate::tcpclconverganceagent::agent::TCPCLServer::from_registry()
+                            .do_send(DisconnectRemote { address });
                     }
                     Err(e) => {
                         error!(

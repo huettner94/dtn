@@ -23,6 +23,8 @@ use crate::{
 
 use actix::{prelude::*, spawn};
 
+use super::messages::{ConnectRemote, DisconnectRemote};
+
 #[derive(Message)]
 #[rtype(result = "")]
 struct NewClientConnectedOnSocket {
@@ -130,6 +132,50 @@ impl Handler<NewClientConnectedOnSocket> for TCPCLServer {
 
         let sessionagent = TCPCLSessionAgent::new(session);
         self.sessions.insert(address, sessionagent);
+    }
+}
+
+impl Handler<ConnectRemote> for TCPCLServer {
+    type Result = ();
+
+    fn handle(&mut self, msg: ConnectRemote, ctx: &mut Self::Context) -> Self::Result {
+        let ConnectRemote { address } = msg;
+        let fut = TCPCLSession::connect(address, self.my_node_id.clone(), self.tls_config.clone());
+        fut.into_actor(self)
+            .then(move |ret, act, _ctx| {
+                match ret {
+                    Ok(session) => {
+                        let sessionagent = TCPCLSessionAgent::new(session);
+                        act.sessions.insert(address, sessionagent);
+                    }
+                    Err(e) => {
+                        error!("Error connecting to remote tcpcl: {:?}", e);
+                        crate::converganceagent::agent::Daemon::from_registry().do_send(
+                            CLUnregisterNode {
+                                url: format!("tcpcl://{}", &address),
+                                node: None,
+                            },
+                        );
+                    }
+                }
+                fut::ready(())
+            })
+            .wait(ctx);
+    }
+}
+
+impl Handler<DisconnectRemote> for TCPCLServer {
+    type Result = ();
+
+    fn handle(&mut self, msg: DisconnectRemote, _ctx: &mut Self::Context) -> Self::Result {
+        let DisconnectRemote { address } = msg;
+        match self.sessions.remove(&address) {
+            Some(sess) => {
+                info!("{}", sess.connected()); // TODO: this does not yet work, for some reason the addr is not connected
+                sess.do_send(Shutdown {});
+            }
+            None => {}
+        }
     }
 }
 
@@ -277,39 +323,6 @@ impl TCPCLSessionAgent {
 impl Daemon {
 
 
-    async fn connect_remote(&mut self, socket: SocketAddr) {
-        match TCPCLSession::connect(
-            socket,
-            self.settings.my_node_id.clone(),
-            self.tls_settings.clone(),
-        )
-        .await
-        {
-            Ok(sess) => self.process_socket(sess).await,
-            Err(e) => {
-                error!("Error connecting to requested remote {}: {:?}", socket, e);
-                if let Err(e) = self.convergance_agent_sender.as_ref().unwrap().send(
-                    ConverganceAgentRequest::CLUnregisterNode {
-                        node: None,
-                        url: format!("tcpcl://{}", &socket),
-                    },
-                ) {
-                    error!("Error sending message to convergance agent: {:?}", e);
-                }
-            }
-        };
-    }
-
-    async fn disconnect_remote(&mut self, socket: SocketAddr) {
-        match self.close_channels.remove(&socket) {
-            Some(cc) => {
-                if let Err(_) = cc.send(()) {
-                    error!("Error sending message to convergance agent");
-                };
-            }
-            None => {}
-        }
-    }
 
 
     async fn process_socket(&mut self, mut sess: TCPCLSession) {

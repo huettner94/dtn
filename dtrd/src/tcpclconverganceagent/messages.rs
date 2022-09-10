@@ -4,11 +4,11 @@ use std::net::SocketAddr;
 #[derive(Message)]
 #[rtype(result = "")]
 pub struct ConnectRemote {
-    socket: SocketAddr,
+    pub address: SocketAddr,
 }
 
 #[derive(Message)]
 #[rtype(result = "")]
-pub struct DisonnectRemote {
-    socket: SocketAddr,
+pub struct DisconnectRemote {
+    pub address: SocketAddr,
 }
