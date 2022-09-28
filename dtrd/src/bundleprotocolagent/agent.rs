@@ -36,7 +36,8 @@ use crate::{
     },
     common::settings::Settings,
     converganceagent::messages::{
-        AgentForwardBundle, EventBundleForwarded, EventPeerConnected, EventPeerDisconnected,
+        AgentForwardBundle, EventBundleForwarded, EventBundleForwardingFailed, EventPeerConnected,
+        EventPeerDisconnected,
     },
     routingagent::{self, messages::NexthopInfo},
 };
@@ -191,6 +192,7 @@ impl Handler<EventBundleForwarded> for Daemon {
 
     fn handle(&mut self, msg: EventBundleForwarded, ctx: &mut Self::Context) -> Self::Result {
         let EventBundleForwarded { endpoint, bundle } = msg;
+        let endpoint = endpoint.get_node_endpoint();
         if let Some(pending) = self.bundles_pending_forwarding.get_mut(&endpoint) {
             pending.retain(|e| e != bundle)
         }
@@ -199,6 +201,30 @@ impl Handler<EventBundleForwarded> for Daemon {
         crate::bundlestorageagent::agent::Daemon::from_registry().do_send(DeleteBundle { bundle });
 
         self.deliver_local_bundles(&endpoint, ctx);
+    }
+}
+
+impl Handler<EventBundleForwardingFailed> for Daemon {
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        msg: EventBundleForwardingFailed,
+        ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let EventBundleForwardingFailed { endpoint, bundle } = msg;
+        let endpoint = endpoint.get_node_endpoint();
+        warn!(
+            "Delivering local bundle to endpoint {} failed. Requeueing",
+            &endpoint
+        );
+        if let Some(pending) = self.bundles_pending_local_delivery.get_mut(&endpoint) {
+            pending.retain(|e| e != bundle)
+        }
+        self.local_bundles
+            .entry(endpoint)
+            .or_default()
+            .push_front(bundle);
     }
 }
 
@@ -328,7 +354,8 @@ impl Daemon {
     }
 
     fn deliver_remote_bundles(&mut self, destination: &Endpoint, ctx: &mut Context<Self>) {
-        let sender = match self.remote_connections.get(destination) {
+        let destination = destination.get_node_endpoint();
+        let sender = match self.remote_connections.get(&destination) {
             Some(s) => s,
             None => return,
         };

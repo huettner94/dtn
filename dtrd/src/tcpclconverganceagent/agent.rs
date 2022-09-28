@@ -1,7 +1,7 @@
 use std::{collections::HashMap, io, net::SocketAddr};
 
 use bp7::endpoint::Endpoint;
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use openssl::{pkey::PKey, x509::X509};
 use tcpcl::{
     connection_info::ConnectionInfo, errors::TransferSendErrors, session::TCPCLSession,
@@ -17,8 +17,12 @@ use tokio::{
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::{
+    bundlestorageagent::messages::StoreBundle,
     common::{messages::Shutdown, settings::Settings},
-    converganceagent::messages::{AgentForwardBundle, CLRegisterNode, CLUnregisterNode},
+    converganceagent::messages::{
+        AgentForwardBundle, CLRegisterNode, CLUnregisterNode, EventBundleForwarded,
+        EventBundleForwardingFailed,
+    },
 };
 
 use actix::{prelude::*, spawn};
@@ -243,7 +247,24 @@ impl Actor for TCPCLSessionAgent {
 
 impl StreamHandler<Transfer> for TCPCLSessionAgent {
     fn handle(&mut self, item: Transfer, ctx: &mut Self::Context) {
-        todo!()
+        match item.data.try_into() {
+            Ok(bundle) => {
+                let transferid = item.id;
+                crate::bundlestorageagent::agent::Daemon::from_registry()
+                    .send(StoreBundle { bundle })
+                    .into_actor(self)
+                    .then(move |res, _act, _ctx| {
+                        match res.unwrap() {
+                            Ok(_) => {debug!("Successfully received transfer {}", transferid)},
+                            Err(_) => {error!("Error storing transfered bundle with id {}. It would have been better if we did not ack it", transferid)},
+                        };
+                        fut::ready(())})
+                    .spawn(ctx);
+            }
+            Err(e) => {
+                error!("Error deserializing bundle from remote: {:?}", e);
+            }
+        };
     }
 }
 
@@ -251,7 +272,53 @@ impl Handler<AgentForwardBundle> for TCPCLSessionAgent {
     type Result = ();
 
     fn handle(&mut self, msg: AgentForwardBundle, ctx: &mut Self::Context) -> Self::Result {
-        todo!()
+        let AgentForwardBundle { bundle, responder } = msg;
+        let (result_sender, result_receiver) = oneshot::channel();
+
+        let bundle_data = match bundle.get_bundle().try_into() {
+            Ok(bundle_data) => bundle_data,
+            Err(e) => {
+                error!("Error serializing bundle: {:?}", e);
+                return;
+            }
+        };
+        let bundle_endpoint = bundle
+            .get_bundle()
+            .primary_block
+            .destination_endpoint
+            .clone();
+
+        let channel = self.send_channel.clone();
+        let fut = async move { channel.send((bundle_data, result_sender)).await };
+        fut.into_actor(self)
+            .then(|res, _act, ctx| {
+                if let Err(_) = res {
+                    error!("Error sending bundle to tcpcl connection. Killing the connection");
+                    ctx.stop();
+                } else {
+                    let listener = async move {
+                        let send_result = result_receiver.await.unwrap();
+                        match send_result {
+                            Ok(_) => responder.do_send(EventBundleForwarded {
+                                endpoint: bundle_endpoint,
+                                bundle,
+                            }),
+                            Err(e) => {
+                                error!("Error during sending of bundle: {:?}", e);
+                                crate::bundleprotocolagent::agent::Daemon::from_registry().do_send(
+                                    EventBundleForwardingFailed {
+                                        endpoint: bundle_endpoint,
+                                        bundle,
+                                    },
+                                )
+                            }
+                        }
+                    };
+                    tokio::spawn(listener); // We drop the join handle here because we never need to access it again
+                }
+                fut::ready(())
+            })
+            .wait(ctx);
     }
 }
 

@@ -59,15 +59,21 @@ impl Handler<StoreBundle> for Daemon {
                 self.bundles.push(sb.clone());
 
                 if local {
-                    match self.try_defragment_bundle(&sb) {
-                        Some(defragmented) => {
-                            crate::bundleprotocolagent::agent::Daemon::from_registry().do_send(
-                                EventNewBundleStored {
-                                    bundle: defragmented,
-                                },
-                            );
+                    match sb.get_bundle().primary_block.fragment_offset.is_some() {
+                        true => match self.try_defragment_bundle(&sb) {
+                            Some(defragmented) => {
+                                crate::bundleprotocolagent::agent::Daemon::from_registry().do_send(
+                                    EventNewBundleStored {
+                                        bundle: defragmented,
+                                    },
+                                );
+                            }
+                            None => {}
+                        },
+                        false => {
+                            crate::bundleprotocolagent::agent::Daemon::from_registry()
+                                .do_send(EventNewBundleStored { bundle: sb });
                         }
-                        None => {}
                     }
                 } else {
                     crate::bundleprotocolagent::agent::Daemon::from_registry()

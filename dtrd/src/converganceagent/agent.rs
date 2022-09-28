@@ -2,18 +2,15 @@ use std::{collections::HashMap, net::SocketAddr};
 
 use bp7::endpoint::Endpoint;
 use log::{error, info};
-use tokio::sync::mpsc;
 
 use crate::{
-    bundleprotocolagent::messages::ReceiveBundle,
     converganceagent::messages::{EventPeerConnected, EventPeerDisconnected},
     nodeagent::messages::{NotifyNodeConnected, NotifyNodeDisconnected},
     tcpclconverganceagent::messages::{ConnectRemote, DisconnectRemote},
 };
 
 use super::messages::{
-    AgentConnectNode, AgentDisconnectNode, AgentForwardBundle, CLForwardBundle, CLRegisterNode,
-    CLUnregisterNode,
+    AgentConnectNode, AgentDisconnectNode, AgentForwardBundle, CLRegisterNode, CLUnregisterNode,
 };
 use actix::prelude::*;
 
@@ -25,7 +22,7 @@ pub struct Daemon {
 impl Actor for Daemon {
     type Context = Context<Self>;
 
-    fn stopped(&mut self, ctx: &mut Context<Self>) {
+    fn stopped(&mut self, _ctx: &mut Context<Self>) {
         info!("Closing all Convergance agent channels");
         for (node_endpoint, node_sender) in self.connected_nodes.drain() {
             drop(node_sender);
@@ -41,7 +38,7 @@ impl SystemService for Daemon {}
 impl Handler<AgentConnectNode> for Daemon {
     type Result = ();
 
-    fn handle(&mut self, msg: AgentConnectNode, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: AgentConnectNode, _ctx: &mut Context<Self>) -> Self::Result {
         let AgentConnectNode { connection_string } = msg;
         match connection_string.split_once(':') {
             Some((proto, hostport)) => match proto {
@@ -75,7 +72,7 @@ impl Handler<AgentConnectNode> for Daemon {
 impl Handler<AgentDisconnectNode> for Daemon {
     type Result = ();
 
-    fn handle(&mut self, msg: AgentDisconnectNode, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: AgentDisconnectNode, _ctx: &mut Context<Self>) -> Self::Result {
         let AgentDisconnectNode { connection_string } = msg;
         match connection_string.split_once(':') {
             Some((proto, hostport)) => match proto {
@@ -109,7 +106,7 @@ impl Handler<AgentDisconnectNode> for Daemon {
 impl Handler<CLRegisterNode> for Daemon {
     type Result = ();
 
-    fn handle(&mut self, msg: CLRegisterNode, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: CLRegisterNode, _ctx: &mut Context<Self>) -> Self::Result {
         let CLRegisterNode {
             url,
             node,
@@ -133,7 +130,7 @@ impl Handler<CLRegisterNode> for Daemon {
 impl Handler<CLUnregisterNode> for Daemon {
     type Result = ();
 
-    fn handle(&mut self, msg: CLUnregisterNode, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: CLUnregisterNode, _ctx: &mut Context<Self>) -> Self::Result {
         let CLUnregisterNode { url, node } = msg;
         info!(
             "Received an unregistration request for node {:?} at url {}",
@@ -148,15 +145,5 @@ impl Handler<CLUnregisterNode> for Daemon {
             );
         }
         crate::nodeagent::agent::Daemon::from_registry().do_send(NotifyNodeDisconnected { url });
-    }
-}
-
-impl Handler<CLForwardBundle> for Daemon {
-    type Result = ();
-
-    fn handle(&mut self, msg: CLForwardBundle, ctx: &mut Context<Self>) -> Self::Result {
-        let CLForwardBundle { bundle, responder } = msg;
-        // crate::bundleprotocolagent::agent::Daemon::from_registry()
-        //     .do_send(ReceiveBundle { bundle, responder });
     }
 }

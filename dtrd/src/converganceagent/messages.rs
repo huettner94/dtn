@@ -1,6 +1,5 @@
 use actix::prelude::*;
-use bp7::{bundle::Bundle, endpoint::Endpoint};
-use tokio::sync::oneshot;
+use bp7::endpoint::Endpoint;
 
 use crate::bundlestorageagent::StoredBundle;
 
@@ -14,6 +13,13 @@ pub struct AgentForwardBundle {
 #[derive(Message)]
 #[rtype(result = "")]
 pub struct EventBundleForwarded {
+    pub endpoint: Endpoint,
+    pub bundle: StoredBundle,
+}
+
+#[derive(Message)]
+#[rtype(result = "")]
+pub struct EventBundleForwardingFailed {
     pub endpoint: Endpoint,
     pub bundle: StoredBundle,
 }
@@ -54,10 +60,4 @@ pub struct CLRegisterNode {
 pub struct CLUnregisterNode {
     pub url: String,
     pub node: Option<Endpoint>,
-}
-#[derive(Message)]
-#[rtype(result = "")]
-pub struct CLForwardBundle {
-    pub bundle: Bundle,
-    pub responder: oneshot::Sender<Result<(), ()>>,
 }
