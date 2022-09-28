@@ -232,8 +232,8 @@ impl Actor for TCPCLSessionAgent {
         // about the connection using StreamHandler<ConnectionInfo>. However
         // the stream is closed afterwards. Actix treats this as a reason to stop
         // the whole actor. With this pice of code we only stop when we actually
-        // want to.
-        if self.close_channel.is_some() {
+        // want to or if the connection got finished by the remote (send_channel)
+        if self.close_channel.is_some() && !self.send_channel.is_closed() {
             Running::Continue
         } else {
             Running::Stop
