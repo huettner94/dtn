@@ -284,38 +284,29 @@ impl TCPCLSession {
     pub async fn manage_connection(&mut self) -> Result<(), ErrorType> {
         self.last_received_keepalive = Instant::now();
 
-        let mut close_channel = self
-            .close_channel
-            .1
-            .take()
-            .expect("can not manage the connection > 1 time");
         let mut send_channel_receiver = self
             .send_channel
             .1
             .take()
             .expect("can not manage the connection > 1 time");
 
-        loop {
-            tokio::select! {
-                out = self.drive_statemachine(&mut send_channel_receiver) => {
-                    if out.is_err() {
-                        if let Err(e) = self.stream.as_mut().unwrap().shutdown().await {
-                            warn!("error shuting down the socket: {:?} during handling of error {:?}", e, out.unwrap_err());
-                            return Err(e.into());
-                        }
-                        let e = out.unwrap_err();
-                        warn!("Connection completed with error {:?}", e);
-                        return Err(e);
-                    } else {
-                        debug!("Connection has completed");
-                    }
-                    return Ok(());
-                }
-                _ = (&mut close_channel), if !self.statemachine.connection_closing() && self.statemachine.is_established() => {
-                    self.statemachine.close_connection(Some(ReasonCode::ResourceExhaustion));
-                }
+        let out = self.drive_statemachine(&mut send_channel_receiver).await;
+        if out.is_err() {
+            if let Err(e) = self.stream.as_mut().unwrap().shutdown().await {
+                warn!(
+                    "error shuting down the socket: {:?} during handling of error {:?}",
+                    e,
+                    out.unwrap_err()
+                );
+                return Err(e.into());
             }
+            let e = out.unwrap_err();
+            warn!("Connection completed with error {:?}", e);
+            return Err(e);
+        } else {
+            debug!("Connection has completed");
         }
+        return Ok(());
     }
 
     async fn drive_statemachine(
@@ -323,6 +314,13 @@ impl TCPCLSession {
         scr: &mut mpsc::Receiver<TransferRequest>,
     ) -> Result<(), ErrorType> {
         let mut send_channel_receiver = Some(scr);
+
+        let mut close_channel = self
+            .close_channel
+            .1
+            .take()
+            .expect("can not manage the connection > 1 time");
+
         let mut keepalive_timer: Option<Interval> = Some(tokio::time::interval(
             Duration::from_secs(STARTUP_IDLE_INTERVAL.into()),
         ));
@@ -467,6 +465,9 @@ impl TCPCLSession {
                     if self.initialized_keepalive {
                         self.statemachine.send_keepalive();
                     }
+                }
+                _ = (&mut close_channel), if !self.statemachine.connection_closing() && self.statemachine.is_established() => {
+                    self.statemachine.close_connection(Some(ReasonCode::ResourceExhaustion));
                 }
             }
         }

@@ -171,7 +171,6 @@ impl Handler<DisconnectRemote> for TCPCLServer {
         let DisconnectRemote { address } = msg;
         match self.sessions.remove(&address) {
             Some(sess) => {
-                info!("{}", sess.connected()); // TODO: this does not yet work, for some reason the addr is not connected
                 sess.do_send(Shutdown {});
             }
             None => {}
@@ -226,6 +225,20 @@ struct TCPCLSessionAgent {
 
 impl Actor for TCPCLSessionAgent {
     type Context = Context<Self>;
+
+    fn stopping(&mut self, _ctx: &mut Self::Context) -> Running {
+        // This isn't what it looks like :)
+        // when we finish establishing the tcpcl session we get the information
+        // about the connection using StreamHandler<ConnectionInfo>. However
+        // the stream is closed afterwards. Actix treats this as a reason to stop
+        // the whole actor. With this pice of code we only stop when we actually
+        // want to.
+        if self.close_channel.is_some() {
+            Running::Continue
+        } else {
+            Running::Stop
+        }
+    }
 }
 
 impl StreamHandler<Transfer> for TCPCLSessionAgent {
