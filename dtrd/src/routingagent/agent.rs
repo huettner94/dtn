@@ -7,9 +7,9 @@ use std::{
 use bp7::endpoint::Endpoint;
 use log::{debug, warn};
 
-use super::messages::{
-    AddRoute, GetNextHop, ListRoutes, NexthopInfo, RemoveRoute, RouteStatus, RouteType,
-};
+use crate::routingagent::messages::EventRoutingTableUpdate;
+
+use super::messages::{AddRoute, ListRoutes, NexthopInfo, RemoveRoute, RouteStatus, RouteType};
 
 #[derive(Debug, Eq)]
 struct RouteEntry {
@@ -34,6 +34,7 @@ impl PartialEq for RouteEntry {
 #[derive(Default)]
 pub struct Daemon {
     routes: HashMap<Endpoint, HashSet<RouteEntry>>,
+    last_routing_table: Option<HashMap<Endpoint, NexthopInfo>>,
 }
 
 impl Actor for Daemon {
@@ -54,7 +55,6 @@ impl Handler<AddRoute> for Daemon {
             next_hop,
             max_bundle_size,
         } = msg;
-        let prev_routes = self.get_available_routes();
         if self
             .routes
             .entry(target.clone())
@@ -65,20 +65,7 @@ impl Handler<AddRoute> for Daemon {
                 max_bundle_size,
             })
         {
-            let available_routes = self.get_available_routes();
-            let new_routes: Vec<Endpoint> = available_routes
-                .difference(&prev_routes)
-                .map(|e| e.clone())
-                .collect();
-            debug!("New routes added to routing table for: {:?}", new_routes);
-            if !new_routes.is_empty() {
-                // TODO
-                // crate::bundleprotocolagent::agent::Daemon::from_registry().do_send(
-                //     NewRoutesAvailable {
-                //         destinations: new_routes,
-                //     },
-                // );
-            }
+            self.send_route_update();
         }
     }
 }
@@ -102,49 +89,15 @@ impl Handler<RemoveRoute> for Daemon {
             max_bundle_size: None, // irrelevant as this is not part of Eq
         };
         match endpoint_routes.remove(&entry_to_remove) {
-            true => debug!(
-                "Removed route for {} over {} from routing table",
-                target, next_hop
-            ),
+            true => {
+                debug!(
+                    "Removed route for {} over {} from routing table",
+                    target, next_hop
+                );
+                self.send_route_update();
+            }
             false => warn!("No route found to remove for {} over {}", target, next_hop),
         }
-    }
-}
-
-impl Handler<GetNextHop> for Daemon {
-    type Result = Option<NexthopInfo>;
-
-    fn handle(&mut self, msg: GetNextHop, _ctx: &mut Context<Self>) -> Self::Result {
-        let GetNextHop { target } = msg;
-        self.routes.get(&target.get_node_endpoint()).and_then(|s| {
-            let mut v = s
-                .into_iter()
-                .filter(|r| {
-                    if r.route_type == RouteType::Connected {
-                        true
-                    } else {
-                        self.routes
-                            .get(&r.next_hop)
-                            .and_then(|s| {
-                                Some(
-                                    s.into_iter()
-                                        .any(|re| re.route_type == RouteType::Connected),
-                                )
-                            })
-                            .unwrap_or(false)
-                    }
-                })
-                .collect::<Vec<&RouteEntry>>();
-            v.sort_unstable_by_key(|e| e.route_type);
-            if v.len() == 0 {
-                None
-            } else {
-                Some(NexthopInfo {
-                    next_hop: v[0].next_hop.clone(),
-                    max_size: v[0].max_bundle_size,
-                })
-            }
-        })
     }
 }
 
@@ -152,6 +105,40 @@ impl Handler<ListRoutes> for Daemon {
     type Result = Vec<RouteStatus>;
 
     fn handle(&mut self, _msg: ListRoutes, _ctx: &mut Context<Self>) -> Self::Result {
+        self.get_routes()
+    }
+}
+
+impl Daemon {
+    fn send_route_update(&self) {
+        let routes: HashMap<Endpoint, NexthopInfo> = self
+            .get_routes()
+            .into_iter()
+            .filter_map(|rs| match rs.preferred {
+                true => Some((
+                    rs.target,
+                    NexthopInfo {
+                        next_hop: rs.next_hop,
+                        max_size: rs.max_bundle_size,
+                    },
+                )),
+                false => None,
+            })
+            .collect();
+
+        if let Some(lrt) = &self.last_routing_table {
+            if lrt == &routes {
+                // This is not one if because of https://github.com/rust-lang/rust/issues/53667
+                return;
+            }
+        }
+
+        debug!("Routing table changed, sending update.");
+        crate::bundleprotocolagent::agent::Daemon::from_registry()
+            .do_send(EventRoutingTableUpdate { routes });
+    }
+
+    fn get_routes(&self) -> Vec<RouteStatus> {
         let connected_routes = self.get_connected_routes();
         self.routes
             .iter()
@@ -179,28 +166,6 @@ impl Handler<ListRoutes> for Daemon {
             })
             .flatten()
             .collect()
-    }
-}
-
-impl Daemon {
-    fn get_available_routes(&self) -> HashSet<Endpoint> {
-        let mut connected_routes = self.get_connected_routes();
-
-        let other_routes: HashSet<Endpoint> = self
-            .routes
-            .iter()
-            .filter_map(|(target, routes)| {
-                if routes.into_iter().any(|r| {
-                    r.route_type != RouteType::Connected && connected_routes.contains(&r.next_hop)
-                }) {
-                    Some(target.clone())
-                } else {
-                    None
-                }
-            })
-            .collect();
-        connected_routes.extend(other_routes);
-        connected_routes
     }
 
     fn get_connected_routes(&self) -> HashSet<Endpoint> {

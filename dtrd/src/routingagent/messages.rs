@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use actix::prelude::*;
 use bp7::endpoint::Endpoint;
 
@@ -7,7 +9,7 @@ pub enum RouteType {
     Static = 1,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct RouteStatus {
     pub target: Endpoint,
     pub next_hop: Endpoint,
@@ -17,10 +19,16 @@ pub struct RouteStatus {
     pub max_bundle_size: Option<u64>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct NexthopInfo {
     pub next_hop: Endpoint,
     pub max_size: Option<u64>,
+}
+
+#[derive(Message)]
+#[rtype(result = "")]
+pub struct EventRoutingTableUpdate {
+    pub routes: HashMap<Endpoint, NexthopInfo>,
 }
 
 #[derive(Message)]
@@ -38,12 +46,6 @@ pub struct RemoveRoute {
     pub target: Endpoint,
     pub route_type: RouteType,
     pub next_hop: Endpoint,
-}
-
-#[derive(Message)]
-#[rtype(result = "Option<NexthopInfo>")]
-pub struct GetNextHop {
-    pub target: Endpoint,
 }
 
 #[derive(Message)]

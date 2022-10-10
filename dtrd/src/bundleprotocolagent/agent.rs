@@ -1,5 +1,24 @@
-use std::collections::{HashMap, VecDeque};
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    mem,
+};
 
+use crate::{
+    bundlestorageagent::{
+        messages::{DeleteBundle, EventNewBundleStored, StoreNewBundle},
+        StoredBundle,
+    },
+    clientagent::messages::{
+        ClientDeliverBundle, EventBundleDelivered, EventBundleDeliveryFailed, EventClientConnected,
+        EventClientDisconnected,
+    },
+    common::settings::Settings,
+    converganceagent::messages::{
+        AgentForwardBundle, EventBundleForwarded, EventBundleForwardingFailed, EventPeerConnected,
+        EventPeerDisconnected,
+    },
+    routingagent::messages::{EventRoutingTableUpdate, NexthopInfo},
+};
 use bp7::{
     administrative_record::{
         bundle_status_report::{
@@ -17,37 +36,9 @@ use bp7::{
     primaryblock::PrimaryBlock,
     time::{CreationTimestamp, DtnTime},
 };
-use log::{debug, error, info, warn};
-use tokio::sync::{
-    mpsc::{self, error::TrySendError},
-    oneshot,
-};
-
-use crate::{
-    bundleprotocolagent::messages::*,
-    bundlestorageagent::{
-        self,
-        messages::{DeleteBundle, EventNewBundleStored, StoreNewBundle},
-        StoredBundle,
-    },
-    clientagent::messages::{
-        ClientDeliverBundle, EventBundleDelivered, EventBundleDeliveryFailed, EventClientConnected,
-        EventClientDisconnected,
-    },
-    common::settings::Settings,
-    converganceagent::messages::{
-        AgentForwardBundle, EventBundleForwarded, EventBundleForwardingFailed, EventPeerConnected,
-        EventPeerDisconnected,
-    },
-    routingagent::{self, messages::NexthopInfo},
-};
+use log::{debug, warn};
 
 use actix::prelude::*;
-
-enum BundleProcessing {
-    RETRY,
-    FINISHED,
-}
 
 #[derive(Default)]
 pub struct Daemon {
@@ -58,14 +49,12 @@ pub struct Daemon {
     remote_bundles: HashMap<Endpoint, VecDeque<StoredBundle>>,
     local_connections: HashMap<Endpoint, Recipient<ClientDeliverBundle>>,
     remote_connections: HashMap<Endpoint, Recipient<AgentForwardBundle>>,
-    remote_routes: HashMap<Endpoint, Endpoint>,
+    remote_routes: HashMap<Endpoint, NexthopInfo>,
 }
-
-//TODO: add routing
 
 impl Actor for Daemon {
     type Context = Context<Self>;
-    fn started(&mut self, ctx: &mut Context<Self>) {
+    fn started(&mut self, _ctx: &mut Context<Self>) {
         let settings = Settings::from_env();
         self.endpoint = Some(Endpoint::new(&settings.my_node_id).unwrap());
     }
@@ -91,6 +80,7 @@ impl Handler<EventNewBundleStored> for Daemon {
                 .push_back(bundle);
             self.deliver_local_bundles(&destination, ctx)
         } else {
+            self.send_status_report_received(bundle.get_bundle());
             self.remote_bundles
                 .entry(destination.get_node_endpoint())
                 .or_default()
@@ -119,7 +109,7 @@ impl Handler<EventBundleDelivered> for Daemon {
 impl Handler<EventBundleDeliveryFailed> for Daemon {
     type Result = ();
 
-    fn handle(&mut self, msg: EventBundleDeliveryFailed, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: EventBundleDeliveryFailed, _ctx: &mut Self::Context) -> Self::Result {
         let EventBundleDeliveryFailed { endpoint, bundle } = msg;
         warn!(
             "Delivering local bundle to endpoint {} failed. Requeueing",
@@ -154,7 +144,7 @@ impl Handler<EventClientConnected> for Daemon {
 impl Handler<EventClientDisconnected> for Daemon {
     type Result = ();
 
-    fn handle(&mut self, msg: EventClientDisconnected, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: EventClientDisconnected, _ctx: &mut Self::Context) -> Self::Result {
         let EventClientDisconnected { destination } = msg;
         self.local_connections.remove(&destination);
     }
@@ -180,7 +170,7 @@ impl Handler<EventPeerConnected> for Daemon {
 impl Handler<EventPeerDisconnected> for Daemon {
     type Result = ();
 
-    fn handle(&mut self, msg: EventPeerDisconnected, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: EventPeerDisconnected, _ctx: &mut Self::Context) -> Self::Result {
         let EventPeerDisconnected { destination } = msg;
         assert!(destination.get_node_endpoint() == destination);
         self.remote_connections.remove(&destination);
@@ -210,101 +200,47 @@ impl Handler<EventBundleForwardingFailed> for Daemon {
     fn handle(
         &mut self,
         msg: EventBundleForwardingFailed,
-        ctx: &mut Self::Context,
+        _ctx: &mut Self::Context,
     ) -> Self::Result {
         let EventBundleForwardingFailed { endpoint, bundle } = msg;
         let endpoint = endpoint.get_node_endpoint();
         warn!(
-            "Delivering local bundle to endpoint {} failed. Requeueing",
+            "Forwarding bundle to endpoint {} failed. Requeueing",
             &endpoint
         );
-        if let Some(pending) = self.bundles_pending_local_delivery.get_mut(&endpoint) {
+        if let Some(pending) = self.bundles_pending_forwarding.get_mut(&endpoint) {
             pending.retain(|e| e != bundle)
         }
-        self.local_bundles
+        self.remote_bundles
             .entry(endpoint)
             .or_default()
             .push_front(bundle);
     }
 }
 
-/*
-impl Handler<NewRoutesAvailable> for Daemon {
+impl Handler<EventRoutingTableUpdate> for Daemon {
     type Result = ();
 
-    fn handle(&mut self, msg: NewRoutesAvailable, ctx: &mut Context<Self>) {
-        let NewRoutesAvailable { destinations } = msg;
-        for destination in destinations {
-            let (response_sender, response_receiver) = oneshot::channel();
-            if let Err(e) = self
-                .bsa_sender
-                .as_ref()
-                .unwrap()
-                .send(BSARequest::GetBundleForNode {
-                    destination,
-                    bundles: response_sender,
-                })
-            {
-                error!("Error sending request to bsa {:?}", e);
-            };
-
-            match response_receiver.await {
-                Ok(Ok(bundles)) => {
-                    for bundle in bundles {
-                        self.todo_bundles.push_back(bundle);
-                    }
-                }
-                Ok(Err(e)) => {
-                    error!("Error receiving response from bsa {:?}", e);
-                }
-                Err(e) => {
-                    error!("Error receiving response from bsa {:?}", e);
-                }
-            }
+    fn handle(&mut self, msg: EventRoutingTableUpdate, ctx: &mut Self::Context) -> Self::Result {
+        debug!("Updating routing table");
+        let old_routes = mem::replace(&mut self.remote_routes, msg.routes);
+        let old_route_targets: HashSet<Endpoint> = old_routes.keys().map(|k| k.clone()).collect();
+        let new_route_targets: HashSet<Endpoint> =
+            self.remote_routes.keys().map(|k| k.clone()).collect();
+        let added_routes: HashSet<&Endpoint> =
+            new_route_targets.difference(&old_route_targets).collect();
+        let updated_routes: HashSet<&Endpoint> =
+            new_route_targets.intersection(&old_route_targets).collect();
+        for added_route in added_routes {
+            debug!("New route available for {}", added_route);
+            self.deliver_remote_bundles(added_route, ctx);
+        }
+        for updated_route in updated_routes {
+            debug!("Updated route available for {}", updated_route);
+            self.deliver_remote_bundles(updated_route, ctx);
         }
     }
 }
-
-impl Handler<ReceiveBundle> for Daemon {
-    type Result = Result<(), ()>;
-
-    fn handle(&mut self, msg: ReceiveBundle, ctx: &mut Context<Self>) -> Self::Result {
-        let ReceiveBundle { bundle, responder } = msg;
-        debug!("Recived bundle: {:?}", bundle.primary_block);
-        let res = match bundlestorageagent::client::store_bundle(
-            self.bsa_sender.as_ref().unwrap(),
-            bundle,
-        )
-        .await
-        {
-            Ok(sb) => {
-                self.send_status_report_received(sb.get_bundle()).await;
-                //TODO: Check crc or drop otherwise
-                //TODO: CHeck extensions or do other stuff
-                self.todo_bundles.push_back(sb);
-                Ok(())
-            }
-            Err(_) => Err(()),
-        };
-        res
-    }
-}
-
-impl Handler<ForwardBundleResult> for Daemon {
-    type Result = ();
-
-    fn handle(&mut self, msg: ForwardBundleResult, ctx: &mut Context<Self>) {
-        let ForwardBundleResult { result, bundle } = msg;
-        match result {
-            Ok(_) => {
-                self.send_status_report_forwarded(bundle.get_bundle()).await;
-                bundlestorageagent::client::delete_bundle(self.bsa_sender.as_ref().unwrap(), bundle)
-                    .await
-            }
-            Err(_) => {}
-        }
-    }
-}*/
 
 impl Daemon {
     fn deliver_local_bundles(&mut self, destination: &Endpoint, ctx: &mut Context<Self>) {
@@ -339,7 +275,7 @@ impl Daemon {
                                 queue.push_back(bundle);
                                 return;
                             }
-                            SendError::Closed(e) => {
+                            SendError::Closed(_) => {
                                 warn!("Client for endpoint {} disconnected while sending bundles. Queueing...", destination);
                                 queue.push_back(bundle);
                                 self.local_connections.remove(&destination);
@@ -355,9 +291,25 @@ impl Daemon {
 
     fn deliver_remote_bundles(&mut self, destination: &Endpoint, ctx: &mut Context<Self>) {
         let destination = destination.get_node_endpoint();
-        let sender = match self.remote_connections.get(&destination) {
+        let route = match self.remote_routes.get(&destination) {
+            Some(n) => n,
+            None => return,
+        };
+        let sender = match self.remote_connections.get(&route.next_hop) {
             Some(s) => s,
             None => return,
+        };
+        let sender_route = match self.remote_routes.get(&route.next_hop) {
+            Some(n) => n,
+            None => return,
+        };
+        // This gets the smaller max_bundle_size for both of them, ignoring any Nones
+        let max_bundle_size = match route.max_size {
+            Some(ms) => Some(match sender_route.max_size {
+                Some(s_ms) => ms.min(s_ms),
+                None => ms,
+            }),
+            None => sender_route.max_size,
         };
 
         match self.remote_bundles.get_mut(&destination) {
@@ -369,7 +321,12 @@ impl Daemon {
                         destination
                     );
 
-                    //TODO: fragment
+                    debug!("{:?}", route);
+                    if max_bundle_size.is_some()
+                        && bundle.get_bundle_size() > max_bundle_size.unwrap()
+                    {
+                        panic!("Need to fragment now");
+                    }
 
                     match sender.try_send(AgentForwardBundle {
                         bundle: bundle.clone(),
@@ -386,7 +343,7 @@ impl Daemon {
                                 queue.push_back(bundle);
                                 return;
                             }
-                            SendError::Closed(e) => {
+                            SendError::Closed(_) => {
                                 warn!("Peer for endpoint {} disconnected while forwarding bundles. Queueing...", destination);
                                 queue.push_back(bundle);
                                 self.remote_connections.remove(&destination);
@@ -398,206 +355,6 @@ impl Daemon {
             }
             None => {}
         }
-    }
-
-    /*async fn forward_bundle(&mut self, bundle: &StoredBundle) -> BundleProcessing {
-        debug!("forwarding bundle {:?}", bundle.get_bundle().primary_block);
-
-        match routingagent::client::get_next_hop(
-            self.routing_agent_sender.as_ref().unwrap(),
-            bundle
-                .get_bundle()
-                .primary_block
-                .destination_endpoint
-                .clone(),
-        )
-        .await
-        {
-            Some(NexthopInfo { next_hop, max_size }) => {
-                debug!(
-                    "Forwarding bundle destined for {} to {} with max bundle size of {:?}",
-                    bundle.get_bundle().primary_block.destination_endpoint,
-                    next_hop,
-                    max_size
-                );
-                if max_size.is_some() && max_size.unwrap() < bundle.get_bundle_size() {
-                    debug!("Fragmenting bundle to size {}", max_size.unwrap());
-                    match bundle.get_bundle().clone().fragment(max_size.unwrap()) {
-                        Ok(fragments) => {
-                            debug!("Fragmented bundle into {} fragments", fragments.len());
-                            for fragment in fragments {
-                                let res = match bundlestorageagent::client::store_bundle(
-                                    self.bsa_sender.as_ref().unwrap(),
-                                    fragment,
-                                )
-                                .await
-                                {
-                                    Ok(sb) => {
-                                        self.todo_bundles.push_back(sb);
-                                        Ok(())
-                                    }
-                                    Err(_) => Err(()),
-                                };
-                                if res.is_err() {
-                                    return BundleProcessing::RETRY;
-                                }
-                            }
-                            return BundleProcessing::FINISHED;
-                        }
-                        Err(e) => {
-                            error!(
-                                "Error fragmenting bundle to size {}: {:?}",
-                                max_size.unwrap(),
-                                e
-                            );
-                            return BundleProcessing::RETRY;
-                        }
-                    }
-                }
-                if let Some(sender) = self.get_connected_node(next_hop).await {
-                    let (send_result_sender, send_result_receiver) = oneshot::channel();
-                    let result = sender.try_send(AgentForwardBundle {
-                        bundle: bundle.clone(),
-                        responder: send_result_sender,
-                    });
-                    match result {
-                        Ok(_) => {
-                            // since this might take arbitrary long we do not want to block
-                            let sender = self.channel_sender.as_ref().unwrap().clone();
-                            let cloned_bundle = bundle.clone();
-                            tokio::task::spawn(async move {
-                                match send_result_receiver.await {
-                                    Ok(result) => match result {
-                                        Ok(_) => {
-                                            debug!("Bundle forwarded to remote node");
-                                            if let Err(e) =
-                                                sender.send(BPARequest::ForwardBundleResult {
-                                                    result: Ok(()),
-                                                    bundle: cloned_bundle,
-                                                })
-                                            {
-                                                error!(
-                                                    "Error sending forward result to bpa {:?}",
-                                                    e
-                                                );
-                                            };
-                                            return;
-                                        }
-                                        Err(_) => {
-                                            warn!("Error during bundle forwarding");
-                                        }
-                                    },
-                                    Err(_) => {
-                                        warn!("Error receiving sending result");
-                                    }
-                                }
-                                if let Err(e) = sender.send(BPARequest::ForwardBundleResult {
-                                    result: Err(()),
-                                    bundle: cloned_bundle,
-                                }) {
-                                    error!("Error sending forward result to bpa {:?}", e);
-                                };
-                            });
-                            return BundleProcessing::FINISHED;
-                        }
-                        Err(TrySendError::Full(_)) => {
-                            warn!("Queue to Convergance Layer Agent is full. Trying again later");
-                            return BundleProcessing::RETRY;
-                        }
-                        Err(_) => {
-                            info!("Remote node not available. Bundle queued.");
-                        }
-                    }
-                } else {
-                    info!("No remote node registered for endpoint. Bundle queued.");
-                    return BundleProcessing::FINISHED;
-                }
-            }
-            None => {
-                info!("No next hop found. Bundle queued.");
-                return BundleProcessing::FINISHED;
-            }
-        }
-        return BundleProcessing::RETRY;
-    }
-
-    async fn get_connected_node(
-        &self,
-        endpoint: Endpoint,
-    ) -> Option<mpsc::Sender<AgentForwardBundle>> {
-        let (responder_sender, responder_receiver) =
-            oneshot::channel::<Option<mpsc::Sender<AgentForwardBundle>>>();
-
-        let convergance_agent = self.convergance_agent_sender.as_ref().unwrap();
-        if let Err(e) = convergance_agent.send(ConverganceAgentRequest::AgentGetNode {
-            destination: endpoint,
-            responder: responder_sender,
-        }) {
-            error!("Error sending request to Convergance Agent: {:?}", e);
-            return None;
-        }
-
-        match responder_receiver.await {
-            Ok(s) => s,
-            Err(e) => {
-                error!("Error receiving response from Convergance Agent: {:?}", e);
-                None
-            }
-        }
-    }*/
-
-    fn send_status_report_received(&mut self, bundle: &Bundle) {
-        if !bundle
-            .primary_block
-            .bundle_processing_flags
-            .contains(BundleFlags::BUNDLE_RECEIPTION_STATUS_REQUESTED)
-        {
-            return;
-        }
-        self.send_status_report(
-            bundle,
-            BundleStatusReason::NoAdditionalInformation,
-            true,
-            false,
-            false,
-            false,
-        );
-    }
-
-    fn send_status_report_forwarded(&mut self, bundle: &Bundle) {
-        if !bundle
-            .primary_block
-            .bundle_processing_flags
-            .contains(BundleFlags::BUNDLE_FORWARDING_STATUS_REQUEST)
-        {
-            return;
-        }
-        self.send_status_report(
-            bundle,
-            BundleStatusReason::NoAdditionalInformation,
-            false,
-            true,
-            false,
-            false,
-        );
-    }
-
-    fn send_status_report_delivered(&mut self, bundle: &Bundle) {
-        if !bundle
-            .primary_block
-            .bundle_processing_flags
-            .contains(BundleFlags::BUNDLE_DELIVERY_STATUS_REQUESTED)
-        {
-            return;
-        }
-        self.send_status_report(
-            bundle,
-            BundleStatusReason::NoAdditionalInformation,
-            false,
-            false,
-            true,
-            false,
-        );
     }
 
     fn send_status_report(
@@ -676,5 +433,59 @@ impl Daemon {
                 warn!("Error serializing bundle status report: {:?}", e)
             }
         };
+    }
+
+    fn send_status_report_delivered(&mut self, bundle: &Bundle) {
+        if !bundle
+            .primary_block
+            .bundle_processing_flags
+            .contains(BundleFlags::BUNDLE_DELIVERY_STATUS_REQUESTED)
+        {
+            return;
+        }
+        self.send_status_report(
+            bundle,
+            BundleStatusReason::NoAdditionalInformation,
+            false,
+            false,
+            true,
+            false,
+        );
+    }
+
+    fn send_status_report_forwarded(&mut self, bundle: &Bundle) {
+        if !bundle
+            .primary_block
+            .bundle_processing_flags
+            .contains(BundleFlags::BUNDLE_FORWARDING_STATUS_REQUEST)
+        {
+            return;
+        }
+        self.send_status_report(
+            bundle,
+            BundleStatusReason::NoAdditionalInformation,
+            false,
+            true,
+            false,
+            false,
+        );
+    }
+
+    fn send_status_report_received(&mut self, bundle: &Bundle) {
+        if !bundle
+            .primary_block
+            .bundle_processing_flags
+            .contains(BundleFlags::BUNDLE_RECEIPTION_STATUS_REQUESTED)
+        {
+            return;
+        }
+        self.send_status_report(
+            bundle,
+            BundleStatusReason::NoAdditionalInformation,
+            true,
+            false,
+            false,
+            false,
+        );
     }
 }
