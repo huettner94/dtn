@@ -23,6 +23,13 @@ pub struct StoreNewBundle {
 
 #[derive(Message)]
 #[rtype(result = "")]
+pub struct FragmentBundle {
+    pub bundle: StoredBundle,
+    pub target_size: u64,
+}
+
+#[derive(Message)]
+#[rtype(result = "")]
 pub struct DeleteBundle {
     pub bundle: StoredBundle,
 }

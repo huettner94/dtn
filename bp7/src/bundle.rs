@@ -165,9 +165,12 @@ impl Bundle {
         panic!("All Bundles MUST contain a payload block");
     }
 
-    pub fn fragment(self, max_size: u64) -> Result<Vec<Bundle>, FragmentationError> {
+    pub fn fragment(self, max_size: u64) -> Result<(Vec<Bundle>, u64, u64), FragmentationError> {
         if Vec::<u8>::try_from(&self)?.len() as u64 <= max_size {
-            return Ok(vec![self]);
+            panic!(
+                "Fragmentation not needed, bundle already smaller than {}",
+                max_size
+            );
         }
         if self
             .primary_block
@@ -205,7 +208,9 @@ impl Bundle {
             }
         }
         if first_fragment_min_size > max_size || fragment_min_size > max_size {
-            return Err(FragmentationError::CanNotFragmentThatSmall);
+            return Err(FragmentationError::CanNotFragmentThatSmall(
+                first_fragment_min_size,
+            ));
         }
 
         let mut fragments = Vec::new();
@@ -300,7 +305,7 @@ impl Bundle {
             current_payload_offset += payload_length_for_fragment;
         }
 
-        return Ok(fragments);
+        return Ok((fragments, first_fragment_min_size, fragment_min_size));
     }
 
     pub fn reassemble(mut self, mut other: Bundle) -> Self {
@@ -472,7 +477,7 @@ mod tests {
 
     #[test]
     fn fragment_bundle() -> Result<(), FragmentationError> {
-        let fragments = get_test_bundle().fragment(256)?;
+        let fragments = get_test_bundle().fragment(256)?.0;
         let mut current_offset = 0;
         for fragment in &fragments {
             assert!(fragment
@@ -497,10 +502,10 @@ mod tests {
 
     #[test]
     fn double_fragment_bundle() -> Result<(), FragmentationError> {
-        let mut fragments_first = get_test_bundle().fragment(750)?;
+        let mut fragments_first = get_test_bundle().fragment(750)?.0;
         let fragments: Vec<Bundle> = fragments_first
             .drain(0..fragments_first.len())
-            .map(|f| f.fragment(600).unwrap())
+            .map(|f| f.fragment(600).unwrap().0)
             .flatten()
             .collect();
 
@@ -523,7 +528,7 @@ mod tests {
 
     #[test]
     fn reassembly_bundle_2_frags() -> Result<(), FragmentationError> {
-        let mut fragments = get_test_bundle().fragment(800)?;
+        let mut fragments = get_test_bundle().fragment(800)?.0;
         assert_eq!(fragments.len(), 2);
 
         let reassembled = fragments
@@ -544,10 +549,10 @@ mod tests {
 
     #[test]
     fn reassmeble_double_fragment_bundle() -> Result<(), FragmentationError> {
-        let mut fragments_first = get_test_bundle().fragment(750)?;
+        let mut fragments_first = get_test_bundle().fragment(750)?.0;
         let mut fragments: Vec<Bundle> = fragments_first
             .drain(0..fragments_first.len())
-            .map(|f| f.fragment(600).unwrap())
+            .map(|f| f.fragment(600).unwrap().0)
             .flatten()
             .collect();
 

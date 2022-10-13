@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     bundlestorageagent::{
-        messages::{DeleteBundle, EventNewBundleStored, StoreNewBundle},
+        messages::{DeleteBundle, EventNewBundleStored, FragmentBundle, StoreNewBundle},
         StoredBundle,
     },
     clientagent::messages::{
@@ -314,18 +314,40 @@ impl Daemon {
 
         match self.remote_bundles.get_mut(&destination) {
             Some(queue) => {
+                let mut visited: HashSet<uuid::Uuid> = HashSet::new();
                 while let Some(bundle) = queue.pop_front() {
+                    if visited.contains(&bundle.get_id()) {
+                        break;
+                    }
                     debug!(
                         "forwarding bundle {:?} to {:?}",
                         &bundle.get_bundle().primary_block,
                         destination
                     );
 
-                    debug!("{:?}", route);
                     if max_bundle_size.is_some()
                         && bundle.get_bundle_size() > max_bundle_size.unwrap()
                     {
-                        panic!("Need to fragment now");
+                        if bundle
+                            .get_bundle()
+                            .primary_block
+                            .bundle_processing_flags
+                            .contains(BundleFlags::MUST_NOT_FRAGMENT)
+                            || bundle.get_bundle_min_size().is_some()
+                                && bundle.get_bundle_min_size().unwrap() > max_bundle_size.unwrap()
+                        {
+                            debug!("Bundle can not be fragmented as we can not get it that small. Queueing it");
+                            visited.insert(bundle.get_id());
+                            queue.push_back(bundle);
+                        } else {
+                            crate::bundlestorageagent::agent::Daemon::from_registry().do_send(
+                                FragmentBundle {
+                                    bundle,
+                                    target_size: max_bundle_size.unwrap(),
+                                },
+                            );
+                        }
+                        continue;
                     }
 
                     match sender.try_send(AgentForwardBundle {
@@ -339,6 +361,7 @@ impl Daemon {
                             .push(bundle),
                         Err(e) => match e {
                             SendError::Full(afb) => {
+                                debug!("Can not continue forwarding to {}. Waiting for some space in the queue", route.next_hop);
                                 let AgentForwardBundle { bundle, .. } = afb;
                                 queue.push_back(bundle);
                                 return;

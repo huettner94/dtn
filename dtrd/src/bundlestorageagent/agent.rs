@@ -49,45 +49,7 @@ impl Handler<StoreBundle> for Daemon {
             panic!("Received a StoreBundle message but with us as the source node. Use StoreNewBundle instead!")
         }
 
-        debug!("Storing Bundle {:?} for later", bundle.primary_block);
-        let local = bundle
-            .primary_block
-            .destination_endpoint
-            .matches_node(&self.endpoint.as_ref().unwrap());
-        let res: Result<(), ()> = match TryInto::<StoredBundle>::try_into(bundle) {
-            Ok(sb) => {
-                self.bundles.push(sb.clone());
-
-                if local {
-                    match sb.get_bundle().primary_block.fragment_offset.is_some() {
-                        true => match self.try_defragment_bundle(&sb) {
-                            Some(defragmented) => {
-                                crate::bundleprotocolagent::agent::Daemon::from_registry().do_send(
-                                    EventNewBundleStored {
-                                        bundle: defragmented,
-                                    },
-                                );
-                            }
-                            None => {}
-                        },
-                        false => {
-                            crate::bundleprotocolagent::agent::Daemon::from_registry()
-                                .do_send(EventNewBundleStored { bundle: sb });
-                        }
-                    }
-                } else {
-                    crate::bundleprotocolagent::agent::Daemon::from_registry()
-                        .do_send(EventNewBundleStored { bundle: sb });
-                }
-
-                Ok(())
-            }
-            Err(e) => {
-                error!("Error converting bundle to StoredBundle: {:?}", e);
-                Err(())
-            }
-        };
-        res
+        self.store_bundle(bundle, None)
     }
 }
 
@@ -139,6 +101,53 @@ impl Handler<StoreNewBundle> for Daemon {
             }
         };
         res
+    }
+}
+
+impl Handler<FragmentBundle> for Daemon {
+    type Result = ();
+
+    fn handle(&mut self, msg: FragmentBundle, _ctx: &mut Self::Context) -> Self::Result {
+        let FragmentBundle {
+            bundle,
+            target_size,
+        } = msg;
+        match self.bundles.iter().position(|b| b == bundle) {
+            Some(idx) => {
+                self.bundles.remove(idx);
+            }
+            None => {
+                warn!("Trying to fragment bundle, but could not find it. Not fragmenting it.");
+                return;
+            }
+        }
+
+        // TODO: this is more cloning than probably necessary
+        match bundle.get_bundle().clone().fragment(target_size) {
+            Ok((bundles, first_min_size, min_size)) => {
+                let mut iterator = bundles.into_iter();
+                self.store_bundle(iterator.next().unwrap(), Some(first_min_size))
+                    .unwrap();
+                for bundle in iterator {
+                    self.store_bundle(bundle, Some(min_size)).unwrap();
+                }
+            }
+            Err(e) => match e {
+                bp7::FragmentationError::SerializationError(e) => {
+                    panic!("Error fragmenting bundle: {:?}", e)
+                }
+                bp7::FragmentationError::CanNotFragmentThatSmall(min_size) => {
+                    let real_bundle = bundle.get_bundle().clone();
+                    self.store_bundle(real_bundle, Some(min_size)).unwrap();
+                }
+                bp7::FragmentationError::MustNotFragment => {
+                    panic!("Attempted to fragment a bundle that must not be fragmented")
+                }
+                bp7::FragmentationError::BundleInvalid => {
+                    panic!("Attempted to fragment a invalid bundle")
+                }
+            },
+        }
     }
 }
 
@@ -207,6 +216,49 @@ impl Handler<GetBundleForNode> for Daemon {
 }
 
 impl Daemon {
+    fn store_bundle(&mut self, bundle: Bundle, min_size: Option<u64>) -> Result<(), ()> {
+        debug!("Storing Bundle {:?} for later", bundle.primary_block);
+        let local = bundle
+            .primary_block
+            .destination_endpoint
+            .matches_node(&self.endpoint.as_ref().unwrap());
+        let res: Result<(), ()> = match TryInto::<StoredBundle>::try_into(bundle) {
+            Ok(mut sb) => {
+                sb.min_size = min_size;
+                self.bundles.push(sb.clone());
+
+                if local {
+                    match sb.get_bundle().primary_block.fragment_offset.is_some() {
+                        true => match self.try_defragment_bundle(&sb) {
+                            Some(defragmented) => {
+                                crate::bundleprotocolagent::agent::Daemon::from_registry().do_send(
+                                    EventNewBundleStored {
+                                        bundle: defragmented,
+                                    },
+                                );
+                            }
+                            None => {}
+                        },
+                        false => {
+                            crate::bundleprotocolagent::agent::Daemon::from_registry()
+                                .do_send(EventNewBundleStored { bundle: sb });
+                        }
+                    }
+                } else {
+                    crate::bundleprotocolagent::agent::Daemon::from_registry()
+                        .do_send(EventNewBundleStored { bundle: sb });
+                }
+
+                Ok(())
+            }
+            Err(e) => {
+                error!("Error converting bundle to StoredBundle: {:?}", e);
+                Err(())
+            }
+        };
+        res
+    }
+
     fn try_defragment_bundle(&mut self, bundle: &StoredBundle) -> Option<StoredBundle> {
         let requested_primary_block = bundle.get_bundle().primary_block.clone();
         let mut i = 0;

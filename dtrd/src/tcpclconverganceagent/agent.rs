@@ -297,20 +297,23 @@ impl Handler<AgentForwardBundle> for TCPCLSessionAgent {
                     ctx.stop();
                 } else {
                     let listener = async move {
-                        let send_result = result_receiver.await.unwrap();
-                        match send_result {
-                            Ok(_) => responder.do_send(EventBundleForwarded {
-                                endpoint: bundle_endpoint,
-                                bundle,
-                            }),
-                            Err(e) => {
-                                error!("Error during sending of bundle: {:?}", e);
-                                crate::bundleprotocolagent::agent::Daemon::from_registry().do_send(
-                                    EventBundleForwardingFailed {
-                                        endpoint: bundle_endpoint,
-                                        bundle,
-                                    },
-                                )
+                        match result_receiver.await {
+                            Ok(send_result) => match send_result {
+                                Ok(_) => responder.do_send(EventBundleForwarded {
+                                    endpoint: bundle_endpoint,
+                                    bundle,
+                                }),
+                                Err(e) => {
+                                    error!("Error during sending of bundle: {:?}", e);
+                                    crate::bundleprotocolagent::agent::Daemon::from_registry()
+                                        .do_send(EventBundleForwardingFailed {
+                                            endpoint: bundle_endpoint,
+                                            bundle,
+                                        })
+                                }
+                            },
+                            Err(_) => {
+                                error!("Error during receiving bundle status results.");
                             }
                         }
                     };

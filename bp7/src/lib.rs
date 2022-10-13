@@ -27,7 +27,7 @@ impl From<serde_cbor::Error> for SerializationError {
 #[derive(Debug)]
 pub enum FragmentationError {
     SerializationError(SerializationError),
-    CanNotFragmentThatSmall,
+    CanNotFragmentThatSmall(u64),
     MustNotFragment,
     BundleInvalid,
 }

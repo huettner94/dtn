@@ -11,15 +11,23 @@ pub struct StoredBundle {
     bundle: Arc<Bundle>,
     id: Uuid,
     size: u64,
+    min_size: Option<u64>,
 }
 
 impl StoredBundle {
+    pub fn get_id(&self) -> Uuid {
+        return self.id;
+    }
     pub fn get_bundle(&self) -> &Bundle {
         return &self.bundle;
     }
 
     pub fn get_bundle_size(&self) -> u64 {
         self.size
+    }
+
+    pub fn get_bundle_min_size(&self) -> Option<u64> {
+        self.min_size
     }
 }
 
@@ -29,6 +37,7 @@ impl Clone for StoredBundle {
             bundle: self.bundle.clone(),
             id: self.id,
             size: self.size,
+            min_size: self.min_size,
         }
     }
 }
@@ -55,6 +64,7 @@ impl TryFrom<Bundle> for StoredBundle {
             bundle: Arc::new(bundle),
             id: Uuid::new_v4(),
             size,
+            min_size: None,
         })
     }
 }
