@@ -299,17 +299,24 @@ impl Handler<AgentForwardBundle> for TCPCLSessionAgent {
                     let listener = async move {
                         match result_receiver.await {
                             Ok(send_result) => match send_result {
-                                Ok(_) => responder.do_send(EventBundleForwarded {
-                                    endpoint: bundle_endpoint,
-                                    bundle,
-                                }),
-                                Err(e) => {
-                                    error!("Error during sending of bundle: {:?}", e);
-                                    crate::bundleprotocolagent::agent::Daemon::from_registry()
-                                        .do_send(EventBundleForwardingFailed {
+                                Ok(_) => {
+                                    responder
+                                        .send(EventBundleForwarded {
                                             endpoint: bundle_endpoint,
                                             bundle,
                                         })
+                                        .await
+                                        .unwrap();
+                                }
+                                Err(e) => {
+                                    error!("Error during sending of bundle: {:?}", e);
+                                    crate::bundleprotocolagent::agent::Daemon::from_registry()
+                                        .send(EventBundleForwardingFailed {
+                                            endpoint: bundle_endpoint,
+                                            bundle,
+                                        })
+                                        .await
+                                        .unwrap();
                                 }
                             },
                             Err(_) => {
@@ -399,126 +406,3 @@ impl TCPCLSessionAgent {
         })
     }
 }
-
-/*
-}
-
-impl Daemon {
-
-
-
-
-    async fn process_socket(&mut self, mut sess: TCPCLSession) {
-        let close_channel = sess.get_close_channel();
-        self.close_channels
-            .insert(sess.get_connection_info().peer_address, close_channel);
-
-        let send_channel = sess.get_send_channel();
-
-
-
-        let mut transfer_receiver = sess.get_receive_channel();
-        let receiver_convergane_agent_sender =
-            self.convergance_agent_sender.as_ref().unwrap().clone();
-        tokio::spawn(async move {
-            loop {
-                match transfer_receiver.recv().await {
-                    Some(t) => {
-                        info!("Received transfer id {}", t.id);
-                        match t.data.try_into() {
-                            Ok(bundle) => {
-                                let (forward_response_sender, forward_response_receiver) =
-                                    oneshot::channel();
-                                match receiver_convergane_agent_sender.send(
-                                    ConverganceAgentRequest::CLForwardBundle {
-                                        bundle,
-                                        responder: forward_response_sender,
-                                    },
-                                ) {
-                                    Ok(_) => {
-                                        match forward_response_receiver.await {
-                                            Ok(_) => {}
-                                            Err(_) => {
-                                                // TODO: don't drop it here but send and error to remote
-                                                warn!("Error saving received bundle. Dropping now");
-                                            }
-                                        }
-                                    }
-                                    Err(e) => {
-                                        // TODO: don't drop it here but send and error to remote
-                                        warn!(
-                                        "Error sending received bundle to Convergance Agent. Dropping now: {:?}",
-                                        e
-                                    );
-                                    }
-                                };
-                            }
-                            Err(e) => {
-                                warn!("Remote send invalid bundle. Dropping...: {:?}", e);
-                            }
-                        }
-                    }
-                    None => break,
-                }
-            }
-        });
-
-
-        self.tcpcl_sessions.push(jh);
-    }
-}
-
-fn get_bundle_sender(
-    send_channel: mpsc::Sender<(Vec<u8>, oneshot::Sender<Result<(), TransferSendErrors>>)>,
-) -> mpsc::Sender<crate::converganceagent::messages::AgentForwardBundle> {
-    let (bundle_sender, mut bundle_receiver) = mpsc::channel::<AgentForwardBundle>(32);
-
-    tokio::spawn(async move {
-        loop {
-            match bundle_receiver.recv().await {
-                Some(afb) => {
-                    match afb.bundle.get_bundle().try_into() {
-                        Ok(bundle_data) => {
-                            let (status_sender, status_receiver) = oneshot::channel();
-                            match send_channel.send((bundle_data, status_sender)).await {
-                                Ok(_) => {}
-                                Err(e) => {
-                                    error!("Error sending bundle to tcpcl connection. {}", e);
-                                }
-                            }
-                            match status_receiver.await {
-                                Ok(status) => {
-                                    match status {
-                                        Ok(_) => {
-                                            info!("Bundle successfully sent");
-                                            if let Err(_) = afb.responder.send(Ok(())) {
-                                                error!("Error notifying bpa of successfull sent bundle");
-                                            };
-                                            continue;
-                                        }
-                                        Err(e) => {
-                                            error!("Error sending bundle because of {:?}", e);
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    error!("We could not receive a bundle status: {:?}", e);
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            error!("Error converting bundle to bytes: {:?}", e);
-                        }
-                    };
-                    if let Err(_) = afb.responder.send(Err(())) {
-                        error!("Error notifying bpa of failed sent bundle");
-                    };
-                }
-                None => return,
-            }
-        }
-    });
-
-    return bundle_sender;
-}
-*/

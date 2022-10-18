@@ -190,7 +190,7 @@ impl Handler<EventBundleForwarded> for Daemon {
 
         crate::bundlestorageagent::agent::Daemon::from_registry().do_send(DeleteBundle { bundle });
 
-        self.deliver_local_bundles(&endpoint, ctx);
+        self.deliver_remote_bundles(&endpoint, ctx);
     }
 }
 
