@@ -147,6 +147,8 @@ pub struct TCPCLSession {
     initialized_tls: bool,
 
     transfer_result_sender: Option<oneshot::Sender<Result<(), TransferSendErrors>>>,
+
+    minimum_read_bytes: usize,
 }
 
 impl TCPCLSession {
@@ -202,6 +204,7 @@ impl TCPCLSession {
             initialized_keepalive: false,
             initialized_tls: false,
             transfer_result_sender: None,
+            minimum_read_bytes: 0,
         })
     }
 
@@ -246,6 +249,7 @@ impl TCPCLSession {
             initialized_keepalive: false,
             initialized_tls: false,
             transfer_result_sender: None,
+            minimum_read_bytes: 0,
         })
     }
 
@@ -390,11 +394,20 @@ impl TCPCLSession {
             if !self.writer.is_empty() {
                 stream_interest |= Interest::WRITABLE;
             }
-            if stream_interest == Interest::READABLE && self.reader.left() > 0 {
+            if stream_interest == Interest::READABLE && self.reader.left() > self.minimum_read_bytes
+            {
                 match self.read_message().await {
-                    Ok(_) => continue,
-                    Err(ErrorType::TCPCLError(Errors::MessageTooShort)) => {}
-                    Err(e) => return Err(e),
+                    Ok(_) => {
+                        self.minimum_read_bytes = 0;
+                        continue;
+                    }
+                    Err(ErrorType::TCPCLError(Errors::MessageTooShort)) => {
+                        self.minimum_read_bytes = self.reader.left() + 1;
+                    }
+                    Err(e) => {
+                        self.minimum_read_bytes = 0;
+                        return Err(e);
+                    }
                 }
             }
 
@@ -415,7 +428,12 @@ impl TCPCLSession {
                         Ok(_) => {
                             drop(read_stream);
                             drop(write_stream);
-                            self.read_message().await?;
+                            match self.read_message().await {
+                                Ok(_) => {self.minimum_read_bytes=0;},
+                                Err(ErrorType::TCPCLError(Errors::MessageTooShort)) => {
+                                    self.minimum_read_bytes = self.reader.left() + 1;}
+                                Err(e) => {return Err(e)},
+                            };
                         }
                         Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
                         Err(e) => {
@@ -562,6 +580,7 @@ impl TCPCLSession {
             }
             Err(Errors::MessageTooShort) => {
                 debug!("Message was too short, retrying later");
+                return Err(Errors::MessageTooShort.into());
             }
             e @ Err(Errors::InvalidHeader) => {
                 warn!("Header invalid");
