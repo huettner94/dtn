@@ -2,6 +2,7 @@ use std::{
     cmp::min,
     convert::{TryFrom, TryInto},
     fmt::Write,
+    ops::ControlFlow,
 };
 
 use binascii::hex2bin;
@@ -308,65 +309,9 @@ impl Bundle {
         return Ok((fragments, first_fragment_min_size, fragment_min_size));
     }
 
-    pub fn reassemble(mut self, mut other: Bundle) -> Self {
-        if !self
-            .primary_block
-            .bundle_processing_flags
-            .contains(BundleFlags::FRAGMENT)
-            || !other
-                .primary_block
-                .bundle_processing_flags
-                .contains(BundleFlags::FRAGMENT)
-        {
-            panic!("Attempted to defragment a bundle that is not a fragment");
-        }
-
-        if self.primary_block.total_data_length != other.primary_block.total_data_length {
-            panic!("Attempted to defragment bundles with different total data lengths");
-        }
-
-        if !self
-            .primary_block
-            .equals_ignoring_fragment_offset(&other.primary_block)
-        {
-            panic!("Attempted to defragment bundles with different primary blocks. They probably belong to different bundles");
-        }
-
-        let self_data_end =
-            self.primary_block.fragment_offset.unwrap() + self.payload_block().data.len() as u64;
-
-        if self_data_end != other.primary_block.fragment_offset.unwrap() {
-            panic!("Attempted to defragment bundles that are not contiguous. We end at {} and the other starts at {}", self_data_end, other.primary_block.fragment_offset.unwrap());
-        }
-
-        let mut other_data = other
-            .blocks
-            .drain(0..other.blocks.len())
-            .find_map(|b| match b.block {
-                Block::Payload(p) => Some(p),
-                _ => None,
-            })
-            .unwrap()
-            .data;
-        self.mut_payload_block().data.append(&mut other_data);
-
-        if self.primary_block.fragment_offset.unwrap() == 0
-            && self.primary_block.total_data_length.unwrap()
-                == self.payload_block().data.len() as u64
-        {
-            self.primary_block
-                .bundle_processing_flags
-                .remove(BundleFlags::FRAGMENT);
-            self.primary_block.fragment_offset = None;
-            self.primary_block.total_data_length = None;
-        }
-
-        self
-    }
-
-    pub fn reassemble_bundles(mut bundles: Vec<Bundle>) -> Vec<Bundle> {
+    pub fn can_reassemble_bundles(bundles: &mut Vec<Bundle>) -> bool {
         if bundles.len() == 0 {
-            return bundles;
+            return false;
         }
         let first = &bundles[0];
         if !first
@@ -385,27 +330,71 @@ impl Bundle {
             panic!("Tried to reassemble bundles with different primary blocks. They probably belong to different bundles");
         }
 
+        let total_data_length = bundles[0].primary_block.total_data_length.unwrap();
+
         bundles.sort_by(|a, b| {
             a.primary_block
                 .fragment_offset
                 .unwrap()
                 .cmp(&b.primary_block.fragment_offset.unwrap())
         });
-        let mut i = 0;
-        while i < bundles.len() - 1 {
-            let first_data_end = bundles[i].primary_block.fragment_offset.unwrap()
-                + bundles[i].payload_block().data.len() as u64;
-            if bundles[i + 1].primary_block.fragment_offset.unwrap() == first_data_end {
-                let mut to_merge: Vec<Bundle> = bundles.drain(i..i + 2).collect();
-                let first = to_merge.remove(0);
-                let second = to_merge.remove(0);
-                bundles.insert(i, first.reassemble(second));
-            } else {
-                i = i + 1;
+        if bundles[0].primary_block.fragment_offset.unwrap() != 0 {
+            return false;
+        }
+        let is_continiuous = match bundles
+            .iter()
+            .map(|b| {
+                (
+                    b.primary_block.fragment_offset.unwrap(),
+                    b.payload_block().data.len() as u64,
+                )
+            })
+            .try_fold(0, |acc, (offset, len)| {
+                if acc != offset {
+                    ControlFlow::Break(false)
+                } else {
+                    ControlFlow::Continue(offset + len)
+                }
+            }) {
+            ControlFlow::Continue(len) => len == total_data_length,
+            ControlFlow::Break(_) => false,
+        };
+        if !is_continiuous {
+            return false;
+        }
+
+        return true;
+    }
+
+    pub fn reassemble_bundles(mut bundles: Vec<Bundle>) -> Vec<Bundle> {
+        if !Bundle::can_reassemble_bundles(&mut bundles) {
+            return bundles;
+        }
+
+        let total_data_length = bundles[0].primary_block.total_data_length.unwrap();
+
+        let mut main_bundle = bundles.drain(0..1).next().unwrap();
+        main_bundle
+            .primary_block
+            .bundle_processing_flags
+            .remove(BundleFlags::FRAGMENT);
+        main_bundle.primary_block.fragment_offset = None;
+        main_bundle.primary_block.total_data_length = None;
+
+        let payload_block = main_bundle.mut_payload_block();
+        payload_block
+            .data
+            .reserve_exact((total_data_length as usize) - payload_block.data.len());
+        for mut bundle in bundles {
+            for block in bundle.blocks.drain(..) {
+                match block.block {
+                    Block::Payload(p) => payload_block.data.extend(p.data),
+                    _ => {}
+                }
             }
         }
 
-        bundles
+        vec![main_bundle]
     }
 }
 
@@ -528,12 +517,10 @@ mod tests {
 
     #[test]
     fn reassembly_bundle_2_frags() -> Result<(), FragmentationError> {
-        let mut fragments = get_test_bundle().fragment(800)?.0;
+        let fragments = get_test_bundle().fragment(800)?.0;
         assert_eq!(fragments.len(), 2);
 
-        let reassembled = fragments
-            .swap_remove(0)
-            .reassemble(fragments.swap_remove(0));
+        let reassembled = &Bundle::reassemble_bundles(fragments)[0];
 
         assert!(!reassembled
             .primary_block
