@@ -261,36 +261,31 @@ impl Daemon {
 
     fn try_defragment_bundle(&mut self, bundle: &StoredBundle) -> Option<StoredBundle> {
         let requested_primary_block = bundle.get_bundle().primary_block.clone();
+
         let mut i = 0;
-        let mut fragments: Vec<Bundle> = Vec::new();
+        let mut fragments: Vec<StoredBundle> = Vec::new();
         while i < self.bundles.len() {
             if self.bundles[i]
                 .bundle
                 .primary_block
                 .equals_ignoring_fragment_info(&requested_primary_block)
             {
-                fragments.push(self.bundles.remove(i).bundle.as_ref().clone()); // TODO: This is a full clone and probably bad
+                fragments.push(self.bundles.remove(i));
             } else {
                 i += 1;
             }
         }
-        let mut reassembled: Vec<StoredBundle> = Bundle::reassemble_bundles(fragments)
-            .into_iter()
-            .map(|frag| frag.try_into().expect("This can not happen"))
-            .collect();
-        if reassembled.len() == 1
-            && reassembled[0]
-                .get_bundle()
-                .primary_block
-                .fragment_offset
-                .is_none()
-        {
-            let reassembled_bundle = reassembled.drain(0..1).next().unwrap();
-            self.bundles.push(reassembled_bundle.clone());
-            Some(reassembled_bundle)
-        } else {
-            self.bundles.append(&mut reassembled);
-            None
+        let fragments_ref = fragments.iter().map(|b| b.bundle.as_ref()).collect();
+        match Bundle::reassemble_bundles(fragments_ref) {
+            Some(bundle) => {
+                let sb: StoredBundle = bundle.try_into().expect("This can not happen");
+                self.bundles.push(sb.clone());
+                Some(sb)
+            }
+            None => {
+                self.bundles.append(&mut fragments);
+                None
+            }
         }
     }
 }

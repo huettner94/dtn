@@ -309,7 +309,7 @@ impl Bundle {
         return Ok((fragments, first_fragment_min_size, fragment_min_size));
     }
 
-    pub fn can_reassemble_bundles(bundles: &mut Vec<Bundle>) -> bool {
+    pub fn can_reassemble_bundles(bundles: &mut Vec<&Bundle>) -> bool {
         if bundles.len() == 0 {
             return false;
         }
@@ -350,6 +350,9 @@ impl Bundle {
                 )
             })
             .try_fold(0, |acc, (offset, len)| {
+                if offset < acc {
+                    panic!("Seems like we have something overlapping. We do not support that yet");
+                }
                 if acc != offset {
                     ControlFlow::Break(false)
                 } else {
@@ -366,14 +369,14 @@ impl Bundle {
         return true;
     }
 
-    pub fn reassemble_bundles(mut bundles: Vec<Bundle>) -> Vec<Bundle> {
+    pub fn reassemble_bundles(mut bundles: Vec<&Bundle>) -> Option<Bundle> {
         if !Bundle::can_reassemble_bundles(&mut bundles) {
-            return bundles;
+            return None;
         }
 
         let total_data_length = bundles[0].primary_block.total_data_length.unwrap();
 
-        let mut main_bundle = bundles.drain(0..1).next().unwrap();
+        let mut main_bundle = bundles.drain(0..1).next().unwrap().clone();
         main_bundle
             .primary_block
             .bundle_processing_flags
@@ -385,16 +388,13 @@ impl Bundle {
         payload_block
             .data
             .reserve_exact((total_data_length as usize) - payload_block.data.len());
-        for mut bundle in bundles {
-            for block in bundle.blocks.drain(..) {
-                match block.block {
-                    Block::Payload(p) => payload_block.data.extend(p.data),
-                    _ => {}
-                }
-            }
+        for bundle in bundles {
+            payload_block
+                .data
+                .extend_from_slice(&bundle.payload_block().data);
         }
 
-        vec![main_bundle]
+        Some(main_bundle)
     }
 }
 
@@ -519,8 +519,9 @@ mod tests {
     fn reassembly_bundle_2_frags() -> Result<(), FragmentationError> {
         let fragments = get_test_bundle().fragment(800)?.0;
         assert_eq!(fragments.len(), 2);
+        let fragments_ref = fragments.iter().map(|b| b).collect();
 
-        let reassembled = &Bundle::reassemble_bundles(fragments)[0];
+        let reassembled = &Bundle::reassemble_bundles(fragments_ref).unwrap();
 
         assert!(!reassembled
             .primary_block
@@ -561,10 +562,11 @@ mod tests {
         // just to test reordering
         fragments.swap(0, 2);
         fragments.swap(1, 3);
+        let fragments_ref = fragments.iter().map(|b| b).collect();
 
-        let reassembled_bundles = Bundle::reassemble_bundles(fragments);
-        assert_eq!(reassembled_bundles.len(), 1);
-        let reassembled = reassembled_bundles.first().unwrap();
+        let reassembled_bundles = Bundle::reassemble_bundles(fragments_ref);
+        assert!(reassembled_bundles.is_some());
+        let reassembled = reassembled_bundles.unwrap();
         assert!(reassembled.primary_block.fragment_offset.is_none());
         assert!(reassembled.primary_block.total_data_length.is_none());
         assert_eq!(reassembled.payload_block().data.len(), 1024);
