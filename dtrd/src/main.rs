@@ -49,7 +49,8 @@ async fn main() {
                 Ok(_) => Ok(()),
                 Err(e) => Err(e.to_string()),
             }
-        });
+        })
+        .unwrap();
 
     let tcpcl_server_addr = tcpclconverganceagent::agent::TCPCLServer::default().start();
 
