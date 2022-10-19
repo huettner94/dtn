@@ -1,5 +1,5 @@
 use std::{
-    cmp::min,
+    cmp::{max, min},
     convert::{TryFrom, TryInto},
     fmt::Write,
     ops::ControlFlow,
@@ -351,7 +351,8 @@ impl Bundle {
             })
             .try_fold(0, |acc, (offset, len)| {
                 if offset < acc {
-                    panic!("Seems like we have something overlapping. We do not support that yet");
+                    // We have some range duplicated, but that should not be an issue
+                    return ControlFlow::Continue(max(acc, offset + len));
                 }
                 if acc != offset {
                     ControlFlow::Break(false)
@@ -388,10 +389,17 @@ impl Bundle {
         payload_block
             .data
             .reserve_exact((total_data_length as usize) - payload_block.data.len());
+        let mut current_len = payload_block.data.len();
         for bundle in bundles {
+            let fragment_offset = bundle.primary_block.fragment_offset.unwrap() as usize;
+            if fragment_offset + bundle.payload_block().data.len() < current_len {
+                continue;
+            }
+            let start = current_len - fragment_offset;
             payload_block
                 .data
-                .extend_from_slice(&bundle.payload_block().data);
+                .extend_from_slice(&bundle.payload_block().data[start..]);
+            current_len = payload_block.data.len();
         }
 
         Some(main_bundle)
@@ -567,6 +575,29 @@ mod tests {
         let reassembled_bundles = Bundle::reassemble_bundles(fragments_ref);
         assert!(reassembled_bundles.is_some());
         let reassembled = reassembled_bundles.unwrap();
+        assert!(reassembled.primary_block.fragment_offset.is_none());
+        assert!(reassembled.primary_block.total_data_length.is_none());
+        assert_eq!(reassembled.payload_block().data.len(), 1024);
+        assert_eq!(reassembled.payload_block().data, get_bundle_data());
+
+        Ok(())
+    }
+
+    #[test]
+    fn reassembly_bundle_overlap() -> Result<(), FragmentationError> {
+        let mut fragments = get_test_bundle().fragment(800)?.0;
+        assert_eq!(fragments.len(), 2);
+        let tmpdata = fragments[1].payload_block().data[0];
+        fragments[0].mut_payload_block().data.push(tmpdata);
+
+        let fragments_ref = fragments.iter().map(|b| b).collect();
+
+        let reassembled = &Bundle::reassemble_bundles(fragments_ref).unwrap();
+
+        assert!(!reassembled
+            .primary_block
+            .bundle_processing_flags
+            .contains(BundleFlags::FRAGMENT));
         assert!(reassembled.primary_block.fragment_offset.is_none());
         assert!(reassembled.primary_block.total_data_length.is_none());
         assert_eq!(reassembled.payload_block().data.len(), 1024);
