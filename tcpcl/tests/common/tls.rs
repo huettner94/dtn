@@ -4,7 +4,7 @@ use openssl::{
     nid::Nid,
     pkey::{PKey, Private},
     rsa::Rsa,
-    x509::{extension::SubjectAlternativeName, X509Name, X509},
+    x509::{X509Extension, X509Name, X509},
 };
 
 fn get_cert_with_san(sanname: &str) -> (PKey<Private>, X509) {
@@ -21,10 +21,14 @@ fn get_cert_with_san(sanname: &str) -> (PKey<Private>, X509) {
     builder.set_subject_name(&name).unwrap();
     builder.set_issuer_name(&name).unwrap();
 
-    let subject_alternative_name = SubjectAlternativeName::new()
-        .other_name(&format!("1.3.6.1.5.5.7.8.11;IA5STRING:{}", sanname))
-        .build(&builder.x509v3_context(None, None))
-        .unwrap();
+    #[allow(deprecated)] // Depending on https://github.com/sfackler/rust-openssl/issues/1911 to fix
+    let subject_alternative_name = X509Extension::new_nid(
+        None,
+        Some(&builder.x509v3_context(None, None)),
+        Nid::SUBJECT_ALT_NAME,
+        &format!("otherName:1.3.6.1.5.5.7.8.11;IA5STRING:{}", sanname),
+    )
+    .unwrap();
     builder.append_extension(subject_alternative_name).unwrap();
 
     builder
