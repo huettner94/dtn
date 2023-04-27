@@ -1,19 +1,13 @@
 use openssl::error::ErrorStack;
 
-use crate::v4::messages::MessageType;
+use crate::v4::messages::{self, MessageType};
 
 #[derive(Debug)]
 pub enum Errors {
-    MessageTooShort,
-    InvalidHeader,
-    NodeIdInvalid,
-    UnkownCriticalSessionExtension(u16),
-    UnkownCriticalTransferExtension(u16),
-    UnkownMessageType,
     MessageTypeInappropriate(MessageType),
     RemoteRejected,
     TLSNameMissmatch(String),
-    SegmentTooLong,
+    MessageError(messages::Errors),
 }
 
 #[derive(Debug)]
@@ -44,6 +38,18 @@ impl From<openssl::ssl::Error> for ErrorType {
 impl From<Errors> for ErrorType {
     fn from(e: Errors) -> Self {
         ErrorType::TCPCLError(e)
+    }
+}
+
+impl From<messages::Errors> for ErrorType {
+    fn from(value: messages::Errors) -> Self {
+        ErrorType::TCPCLError(Errors::MessageError(value))
+    }
+}
+
+impl From<messages::Errors> for Errors {
+    fn from(value: messages::Errors) -> Self {
+        Errors::MessageError(value)
     }
 }
 

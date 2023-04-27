@@ -4,6 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use futures_util::StreamExt;
 use log::{debug, error, info, warn};
 use openssl::{
     error::ErrorStack,
@@ -11,12 +12,13 @@ use openssl::{
     x509::{store::X509StoreBuilder, X509},
 };
 use tokio::{
-    io::{self, AsyncRead, AsyncWrite, AsyncWriteExt, Interest},
+    io::{AsyncRead, AsyncWrite, AsyncWriteExt},
     net::TcpStream,
     sync::{mpsc, oneshot},
     time::Interval,
 };
 use tokio_openssl::SslStream;
+use tokio_util::codec::{FramedRead, FramedWrite};
 use x509_parser::{
     extensions::{GeneralName, ParsedExtension},
     prelude::X509Certificate,
@@ -28,93 +30,66 @@ use crate::{
     errors::{ErrorType, Errors, TransferSendErrors},
     transfer::Transfer,
     v4::{
-        messages::{sess_term::ReasonCode, xfer_segment, Messages},
-        reader::Reader,
+        messages::{self, sess_term::ReasonCode, xfer_segment, Codec, Messages},
         statemachine::StateMachine,
     },
     TLSSettings,
 };
 
+pub trait AsyncReadWrite: AsyncRead + AsyncWrite + Send {}
+impl<T> AsyncReadWrite for T where T: AsyncRead + AsyncWrite + Send {}
+
 struct Stream {
-    tcp_read: Option<tokio::io::ReadHalf<TcpStream>>,
-    tcp_write: Option<tokio::io::WriteHalf<TcpStream>>,
-    tls_read: Option<tokio::io::ReadHalf<SslStream<TcpStream>>>,
-    tls_write: Option<tokio::io::WriteHalf<SslStream<TcpStream>>>,
+    read: FramedRead<tokio::io::ReadHalf<Pin<Box<dyn AsyncReadWrite>>>, Codec>,
+    write: FramedWrite<tokio::io::WriteHalf<Pin<Box<dyn AsyncReadWrite>>>, Codec>,
+    peer_cert: Option<X509>,
 }
 
 impl Stream {
     fn from_tcp_stream(ts: TcpStream) -> Self {
-        let (tcp_read, tcp_write) = tokio::io::split(ts);
+        let boxed_stream: Pin<Box<dyn AsyncReadWrite>> = Box::pin(ts);
+        let (read, write) = tokio::io::split(boxed_stream);
         Stream {
-            tcp_read: Some(tcp_read),
-            tcp_write: Some(tcp_write),
-            tls_read: None,
-            tls_write: None,
+            read: FramedRead::new(read, Codec::default()),
+            write: FramedWrite::new(write, Codec::default()),
+            peer_cert: None,
         }
     }
 
-    fn from_tls_stream(ssl_stream: SslStream<TcpStream>) -> Self {
-        let (tls_read, tls_write) = tokio::io::split(ssl_stream);
-        Stream {
-            tcp_read: None,
-            tcp_write: None,
-            tls_read: Some(tls_read),
-            tls_write: Some(tls_write),
+    async fn upgrade_tls(self, ssl: Ssl, is_server: bool) -> Result<Self, ErrorType> {
+        let decoder = self.read.decoder().clone(); // need to clone this to keep the state, not relevant for writing since we dont use states there
+        let stream = self.read.into_inner().unsplit(self.write.into_inner());
+        let mut ssl_stream = SslStream::new(ssl, stream)?;
+        if is_server {
+            Pin::new(&mut ssl_stream).accept().await?;
+        } else {
+            Pin::new(&mut ssl_stream).connect().await?;
         }
+        let peer_cert = ssl_stream.ssl().peer_certificate().clone();
+        let boxed_stream: Pin<Box<dyn AsyncReadWrite>> = Box::pin(ssl_stream);
+        let (read, write) = tokio::io::split(boxed_stream);
+        Ok(Stream {
+            read: FramedRead::new(read, decoder),
+            write: FramedWrite::new(write, Codec::default()),
+            peer_cert,
+        })
     }
 
-    fn get_tcp_stream(self) -> TcpStream {
-        if self.tcp_read.is_none() {
-            panic!("Cant get tcp stream if we dont have one");
-        }
-        self.tcp_read.unwrap().unsplit(self.tcp_write.unwrap())
-    }
-
-    fn get_peer_certificate(&mut self) -> Option<X509> {
-        if self.tls_read.is_none() {
-            panic!("Cant get tcp stream if we dont have one");
-        }
-
-        // Need to do this dance here as we cant get the ssl details otherwise
-        let tls = self
-            .tls_read
-            .take()
-            .unwrap()
-            .unsplit(self.tls_write.take().unwrap());
-        let x509 = tls.ssl().peer_certificate();
-
-        let (tls_read, tls_write) = tokio::io::split(tls);
-        self.tls_read = Some(tls_read);
-        self.tls_write = Some(tls_write);
-
-        x509
+    fn get_peer_certificate(&mut self) -> Option<&X509> {
+        self.peer_cert.as_ref()
     }
 
     fn as_split(
         &mut self,
     ) -> (
-        Box<dyn AsyncRead + Unpin + Send + '_>,
-        Box<dyn AsyncWrite + Unpin + Send + '_>,
+        &mut FramedRead<tokio::io::ReadHalf<Pin<Box<dyn AsyncReadWrite>>>, Codec>,
+        &mut FramedWrite<tokio::io::WriteHalf<Pin<Box<dyn AsyncReadWrite>>>, Codec>,
     ) {
-        if self.tcp_write.is_some() {
-            (
-                Box::new(self.tcp_read.as_mut().unwrap()),
-                Box::new(self.tcp_write.as_mut().unwrap()),
-            )
-        } else {
-            (
-                Box::new(self.tls_read.as_mut().unwrap()),
-                Box::new(self.tls_write.as_mut().unwrap()),
-            )
-        }
+        (&mut self.read, &mut self.write)
     }
 
-    async fn shutdown(&mut self) -> Result<(), std::io::Error> {
-        if self.tcp_write.is_some() {
-            self.tcp_write.as_mut().unwrap().shutdown().await
-        } else {
-            self.tls_write.as_mut().unwrap().shutdown().await
-        }
+    async fn shutdown(self) -> Result<(), std::io::Error> {
+        self.write.into_inner().shutdown().await
     }
 }
 
@@ -126,8 +101,6 @@ pub struct TCPCLSession {
     is_server: bool,
     stream: Option<Stream>,
     ssl_context: Option<SslContext>,
-    reader: Reader,
-    writer: Vec<u8>,
     statemachine: StateMachine,
     receiving_transfer: Option<Transfer>,
     connection_info: ConnectionInfo,
@@ -147,8 +120,6 @@ pub struct TCPCLSession {
     initialized_tls: bool,
 
     transfer_result_sender: Option<oneshot::Sender<Result<(), TransferSendErrors>>>,
-
-    minimum_read_bytes: usize,
 }
 
 impl TCPCLSession {
@@ -187,8 +158,6 @@ impl TCPCLSession {
             is_server: true,
             stream: Some(Stream::from_tcp_stream(stream)),
             ssl_context,
-            reader: Reader::new(),
-            writer: Vec::new(),
             statemachine: StateMachine::new_passive(node_id, can_tls),
             receiving_transfer: None,
             connection_info: ConnectionInfo {
@@ -204,7 +173,6 @@ impl TCPCLSession {
             initialized_keepalive: false,
             initialized_tls: false,
             transfer_result_sender: None,
-            minimum_read_bytes: 0,
         })
     }
 
@@ -232,8 +200,6 @@ impl TCPCLSession {
             is_server: false,
             stream: Some(Stream::from_tcp_stream(stream)),
             ssl_context,
-            reader: Reader::new(),
-            writer: Vec::new(),
             statemachine: StateMachine::new_active(node_id, can_tls),
             receiving_transfer: None,
             connection_info: ConnectionInfo {
@@ -249,7 +215,6 @@ impl TCPCLSession {
             initialized_keepalive: false,
             initialized_tls: false,
             transfer_result_sender: None,
-            minimum_read_bytes: 0,
         })
     }
 
@@ -296,16 +261,14 @@ impl TCPCLSession {
 
         let out = self.drive_statemachine(&mut send_channel_receiver).await;
         if out.is_err() {
-            if let Err(e) = self.stream.as_mut().unwrap().shutdown().await {
-                warn!(
-                    "error shuting down the socket: {:?} during handling of error {:?}",
-                    e,
-                    out.unwrap_err()
-                );
-                return Err(e.into());
-            }
             let e = out.unwrap_err();
             warn!("Connection completed with error {:?}", e);
+            if self.stream.is_some() {
+                if let Err(e) = self.stream.take().unwrap().shutdown().await {
+                    warn!("error shuting down the socket: {:?}", e);
+                    return Err(e.into());
+                }
+            }
             return Err(e);
         } else {
             debug!("Connection has completed");
@@ -333,15 +296,14 @@ impl TCPCLSession {
             debug!("We are now at statemachine state {:?}", self.statemachine);
             if !self.initialized_tls && self.statemachine.contact_header_done() {
                 if self.statemachine.should_use_tls() {
-                    let stream = self.stream.take().unwrap().get_tcp_stream();
                     let ssl = Ssl::new(self.ssl_context.as_ref().unwrap())?;
-                    let mut ssl_stream = SslStream::new(ssl, stream)?;
-                    if self.is_server {
-                        Pin::new(&mut ssl_stream).accept().await?;
-                    } else {
-                        Pin::new(&mut ssl_stream).connect().await?;
-                    }
-                    self.stream = Some(Stream::from_tls_stream(ssl_stream));
+                    self.stream = Some(
+                        self.stream
+                            .take()
+                            .unwrap()
+                            .upgrade_tls(ssl, self.is_server)
+                            .await?,
+                    );
                 }
                 self.initialized_tls = true;
             }
@@ -386,78 +348,34 @@ impl TCPCLSession {
 
             if self.statemachine.should_close() {
                 debug!("We are done. Closing connection");
-                self.stream.as_mut().unwrap().shutdown().await?;
+                self.stream.take().unwrap().shutdown().await?;
                 return Ok(());
             }
 
-            let mut stream_interest = self.statemachine.get_interests();
-            if !self.writer.is_empty() {
-                stream_interest |= Interest::WRITABLE;
-            }
-            if stream_interest == Interest::READABLE && self.reader.left() > self.minimum_read_bytes
-            {
-                match self.read_message().await {
-                    Ok(_) => {
-                        self.minimum_read_bytes = 0;
-                        continue;
-                    }
-                    Err(ErrorType::TCPCLError(Errors::MessageTooShort)) => {
-                        self.minimum_read_bytes = self.reader.left() + 1;
-                    }
-                    Err(e) => {
-                        self.minimum_read_bytes = 0;
-                        return Err(e);
-                    }
-                }
-            }
-
-            if self.writer.is_empty() && stream_interest.is_writable() {
-                self.statemachine.send_message(&mut self.writer);
-            }
-
             let stream = self.stream.as_mut().unwrap();
-            let (mut read_stream, mut write_stream) = stream.as_split();
+            let (read_stream, write_stream) = stream.as_split();
+
+            let stream_interest = self.statemachine.get_interests();
 
             tokio::select! {
-                read_out = async { self.reader.read(&mut read_stream).await }, if stream_interest.is_readable() => {
+                read_out = async { read_stream.next().await }, if stream_interest.is_readable() => {
                     match read_out {
-                        Ok(0) => {
+                        None => {
                             debug!("Connection closed by peer");
                             return Ok(());
                         }
-                        Ok(_) => {
+                        Some(message) => {
                             drop(read_stream);
                             drop(write_stream);
-                            match self.read_message().await {
-                                Ok(_) => {self.minimum_read_bytes=0;},
-                                Err(ErrorType::TCPCLError(Errors::MessageTooShort)) => {
-                                    self.minimum_read_bytes = self.reader.left() + 1;}
+                            match self.read_message(message).await {
+                                Ok(_) => {},
                                 Err(e) => {return Err(e)},
                             };
                         }
-                        Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
-                        Err(e) => {
-                            return Err(e.into());
-                        }
                     }
                 }
-                write_out = async { write_stream.write(&self.writer).await }, if stream_interest.is_writable() => {
-                    match write_out {
-                        Ok(0) => {
-                            debug!("Connection closed");
-                            return Ok(());
-                        }
-                        Ok(n) => {
-                            if self.writer.len() == n {
-                                self.writer.clear();
-                                self.statemachine.send_complete();
-                            } else {
-                                self.writer.drain(0..n);
-                                debug!("write incomplete. Trying again");
-                            }
-                        }
-                        Err(_) => {}
-                    }
+                res = async { self.statemachine.send_message(write_stream).await }, if stream_interest.is_writable() => {
+                    res?
                 }
                 transfer = async { send_channel_receiver.as_mut().unwrap().recv().await }, if send_channel_receiver.is_some() && self.statemachine.could_send_transfer() => {
                     match transfer {
@@ -491,8 +409,11 @@ impl TCPCLSession {
         }
     }
 
-    async fn read_message(&mut self) -> Result<(), ErrorType> {
-        let msg = self.statemachine.decode_message(&mut self.reader);
+    async fn read_message(
+        &mut self,
+        message: Result<Messages, messages::Errors>,
+    ) -> Result<(), ErrorType> {
+        let msg = self.statemachine.decode_message(message);
         match msg {
             Ok(Messages::ContactHeader(h)) => {
                 debug!("Got contact header: {:?}", h);
@@ -578,33 +499,35 @@ impl TCPCLSession {
                 info!("Got msg reject: {:?}. Will close the connection now", m);
                 return Err(Errors::RemoteRejected.into());
             }
-            Err(Errors::MessageTooShort) => {
-                debug!("Message was too short, retrying later");
-                return Err(Errors::MessageTooShort.into());
-            }
-            e @ Err(Errors::InvalidHeader) => {
+            e @ Err(Errors::MessageError(messages::Errors::InvalidHeader)) => {
                 warn!("Header invalid");
                 return Err(e.unwrap_err().into());
             }
-            e @ Err(Errors::NodeIdInvalid) => {
+            e @ Err(Errors::MessageError(messages::Errors::NodeIdInvalid)) => {
                 warn!("Remote Node-Id was invalid");
                 return Err(e.unwrap_err().into());
             }
-            Err(Errors::UnkownCriticalSessionExtension(ext)) => {
+            Err(Errors::MessageError(messages::Errors::UnkownCriticalSessionExtension(ext))) => {
                 warn!(
                     "Remote send critical session extension {} that we dont know",
                     ext
                 );
-                return Err(Errors::UnkownCriticalSessionExtension(ext).into());
+                return Err(Errors::MessageError(
+                    messages::Errors::UnkownCriticalSessionExtension(ext),
+                )
+                .into());
             }
-            Err(Errors::UnkownCriticalTransferExtension(ext)) => {
+            Err(Errors::MessageError(messages::Errors::UnkownCriticalTransferExtension(ext))) => {
                 warn!(
                     "Remote send critical transfer extension {} that we dont know",
                     ext
                 );
-                return Err(Errors::UnkownCriticalTransferExtension(ext).into());
+                return Err(Errors::MessageError(
+                    messages::Errors::UnkownCriticalTransferExtension(ext),
+                )
+                .into());
             }
-            Err(Errors::UnkownMessageType) => {
+            Err(Errors::MessageError(messages::Errors::InvalidMessageType(_))) => {
                 warn!("Received a unkown message type");
             }
             Err(Errors::MessageTypeInappropriate(mt)) => {
@@ -619,8 +542,12 @@ impl TCPCLSession {
             Err(Errors::TLSNameMissmatch(_)) => {
                 warn!("In the tls name missmatch state");
             }
-            e @ Err(Errors::SegmentTooLong) => {
+            e @ Err(Errors::MessageError(messages::Errors::SegmentTooLong)) => {
                 warn!("We received a segment longer than our Segment MRU");
+                return Err(e.unwrap_err().into());
+            }
+            e @ Err(Errors::MessageError(messages::Errors::IoError(_))) => {
+                warn!("We had some io error {:?}", e);
                 return Err(e.unwrap_err().into());
             }
         }
@@ -628,7 +555,7 @@ impl TCPCLSession {
     }
 }
 
-fn validate_peer_certificate(peer_node_id: String, x509: Option<X509>) -> Result<(), ()> {
+fn validate_peer_certificate(peer_node_id: String, x509: Option<&X509>) -> Result<(), ()> {
     match x509 {
         Some(cert) => {
             let cert_bytes = cert.to_der().map_err(|_| ())?;

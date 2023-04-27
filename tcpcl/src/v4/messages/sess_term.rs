@@ -1,13 +1,13 @@
 use std::convert::TryInto;
 
+use bytes::Buf;
+use bytes::BufMut;
+use bytes::BytesMut;
 use num_enum::IntoPrimitive;
 use num_enum::TryFromPrimitive;
 
 use bitflags::bitflags;
 
-use crate::errors::Errors;
-use crate::v4::reader::Reader;
-use crate::v4::transform::Transform;
 
 bitflags! {
     struct MessageFlags: u8 {
@@ -40,28 +40,24 @@ impl SessTerm {
         };
         SessTerm { flags, reason }
     }
-}
 
-impl Transform for SessTerm {
-    fn read(reader: &mut Reader) -> Result<Self, Errors>
-    where
-        Self: Sized,
-    {
-        if reader.left() < 2 {
-            return Err(Errors::MessageTooShort);
+    pub fn decode(src: &mut BytesMut) -> Result<Option<Self>, crate::v4::messages::Errors> {
+        if src.remaining() < 2 {
+            return Ok(None);
         }
-        let flags = reader.read_u8();
-        let reason = reader.read_u8();
 
-        Ok(SessTerm {
+        let flags = src.get_u8();
+        let reason = src.get_u8();
+
+        Ok(Some(SessTerm {
             flags: MessageFlags::from_bits_truncate(flags),
-            reason: reason.try_into().or(Ok(ReasonCode::Unkown))?,
-        })
+            reason: reason.try_into().unwrap_or(ReasonCode::Unkown),
+        }))
     }
 
-    fn write(&self, target: &mut Vec<u8>) {
-        target.reserve(2);
-        target.push(self.flags.bits);
-        target.push(self.reason.into());
+    pub fn encode(&self, dst: &mut BytesMut) {
+        dst.reserve(2);
+        dst.put_u8(self.flags.bits());
+        dst.put_u8(self.reason.into());
     }
 }

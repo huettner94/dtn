@@ -1,7 +1,4 @@
-use crate::{
-    errors::Errors,
-    v4::{reader::Reader, transform::Transform},
-};
+use bytes::BytesMut;
 
 #[derive(Debug)]
 pub struct Keepalive {}
@@ -10,15 +7,10 @@ impl Keepalive {
     pub fn new() -> Self {
         Keepalive {}
     }
-}
 
-impl Transform for Keepalive {
-    fn read(_reader: &mut Reader) -> Result<Self, Errors>
-    where
-        Self: Sized,
-    {
-        Ok(Keepalive {})
+    pub fn decode(_src: &mut BytesMut) -> Result<Option<Self>, crate::v4::messages::Errors> {
+        Ok(Some(Keepalive {}))
     }
 
-    fn write(&self, _target: &mut Vec<u8>) {}
+    pub fn encode(&self, _dst: &mut BytesMut) {}
 }

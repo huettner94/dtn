@@ -27,7 +27,10 @@ async fn test_unkown_message_type() -> Result<(), ErrorType> {
     .await?;
 
     let ret = session.manage_connection().await;
-    if let Err(ErrorType::TCPCLError(Errors::SegmentTooLong)) = ret {
+    if let Err(ErrorType::TCPCLError(Errors::MessageError(
+        tcpcl::v4::messages::Errors::SegmentTooLong,
+    ))) = ret
+    {
         assert!(true);
     } else {
         assert!(false);

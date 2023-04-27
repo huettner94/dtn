@@ -1,7 +1,8 @@
-use crate::errors::Errors;
-use crate::v4::{messages::xfer_segment::MessageFlags, reader::Reader, transform::Transform};
+use bytes::{Buf, BufMut, BytesMut};
 
-#[derive(Debug, PartialEq, Eq)]
+use crate::v4::messages::xfer_segment::MessageFlags;
+
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct XferAck {
     flags: MessageFlags,
     pub transfer_id: u64,
@@ -16,31 +17,27 @@ impl XferAck {
             acknowleged_length,
         }
     }
-}
 
-impl Transform for XferAck {
-    fn read(reader: &mut Reader) -> Result<Self, Errors>
-    where
-        Self: Sized,
-    {
-        if reader.left() < 9 {
-            return Err(Errors::MessageTooShort);
+    pub fn decode(src: &mut BytesMut) -> Result<Option<Self>, crate::v4::messages::Errors> {
+        if src.remaining() < 9 {
+            return Ok(None);
         }
-        let flags = reader.read_u8();
-        let transfer_id = reader.read_u64();
-        let acknowleged_length = reader.read_u64();
 
-        Ok(XferAck {
+        let flags = src.get_u8();
+        let transfer_id = src.get_u64();
+        let acknowleged_length = src.get_u64();
+
+        Ok(Some(XferAck {
             flags: MessageFlags::from_bits_truncate(flags),
             transfer_id,
             acknowleged_length,
-        })
+        }))
     }
 
-    fn write(&self, target: &mut Vec<u8>) {
-        target.reserve(9);
-        target.push(self.flags.bits());
-        target.extend_from_slice(&self.transfer_id.to_be_bytes());
-        target.extend_from_slice(&self.acknowleged_length.to_be_bytes());
+    pub fn encode(&self, dst: &mut BytesMut) {
+        dst.reserve(9);
+        dst.put_u8(self.flags.bits());
+        dst.put_u64(self.transfer_id);
+        dst.put_u64(self.acknowleged_length);
     }
 }

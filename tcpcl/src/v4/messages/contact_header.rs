@@ -1,9 +1,5 @@
 use bitflags::bitflags;
-
-use crate::{
-    errors::Errors,
-    v4::{reader::Reader, transform::Transform},
-};
+use bytes::{Buf, BufMut, BytesMut};
 
 bitflags! {
     pub struct ContactHeaderFields: u8 {
@@ -36,34 +32,30 @@ impl ContactHeader {
     pub fn can_tls(&self) -> bool {
         self.flags.contains(ContactHeaderFields::CAN_TLS)
     }
-}
 
-impl Transform for ContactHeader {
-    fn read(reader: &mut Reader) -> Result<Self, Errors>
-    where
-        Self: Sized,
-    {
-        if reader.left() < 6 {
-            return Err(Errors::MessageTooShort);
+    pub fn decode(src: &mut BytesMut) -> Result<Option<Self>, crate::v4::messages::Errors> {
+        if src.remaining() < 6 {
+            return Ok(None);
         }
-        let mut magic: [u8; 4] = [0; 4];
-        reader.read_u8_array(&mut magic, 4);
+
+        let magic: [u8; 4] = src.get(0..4).unwrap().try_into().unwrap();
+        src.advance(4);
         if magic != DTN_MAGIC_BYTES {
-            return Err(Errors::InvalidHeader);
+            return Err(crate::v4::messages::Errors::InvalidHeader);
         }
-        let version = reader.read_u8();
-        let flags = reader.read_u8();
-        Ok(ContactHeader {
-            magic,
+        let version = src.get_u8();
+        let flags = src.get_u8();
+        Ok(Some(ContactHeader {
+            magic: magic.clone(),
             version,
             flags: ContactHeaderFields::from_bits_truncate(flags),
-        })
+        }))
     }
 
-    fn write(&self, target: &mut Vec<u8>) {
-        target.reserve(6);
-        target.extend_from_slice(&self.magic);
-        target.push(self.version);
-        target.push(self.flags.bits);
+    pub fn encode(&self, dst: &mut BytesMut) {
+        dst.reserve(6);
+        dst.put_slice(&self.magic);
+        dst.put_u8(self.version);
+        dst.put_u8(self.flags.bits);
     }
 }

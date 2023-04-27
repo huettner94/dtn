@@ -1,10 +1,7 @@
 use std::fmt::Debug;
 
 use bitflags::bitflags;
-
-use crate::errors::Errors;
-use crate::v4::reader::Reader;
-use crate::v4::transform::Transform;
+use bytes::{Buf, BufMut, BytesMut};
 
 use super::xfer_ack::XferAck;
 
@@ -21,23 +18,15 @@ pub struct TransferExtension {
     value: Vec<u8>,
 }
 
-impl Transform for TransferExtension {
-    fn read(reader: &mut Reader) -> Result<Self, Errors>
-    where
-        Self: Sized,
-    {
-        if reader.left() < 5 {
-            return Err(Errors::MessageTooShort);
-        }
-        let flags = reader.read_u8();
-        let extension_type = reader.read_u16();
+impl TransferExtension {
+    pub fn decode(src: &mut BytesMut) -> Result<Self, crate::v4::messages::Errors> {
+        let flags = src.get_u8();
+        let extension_type = src.get_u16();
 
-        let value_length = reader.read_u16();
-        if reader.left() < value_length.into() {
-            return Err(Errors::MessageTooShort);
-        }
+        let value_length = src.get_u16();
+        assert!(src.remaining() >= value_length.into());
         let mut value: Vec<u8> = vec![0; value_length as usize];
-        reader.read_u8_array(&mut value[..], value_length.into());
+        value.put(src.take(value_length.into()));
 
         Ok(TransferExtension {
             flags: TransferExtensionFlags::from_bits_truncate(flags),
@@ -93,71 +82,87 @@ impl XferSegment {
     pub fn to_xfer_ack(&self, acknowleged_length: u64) -> XferAck {
         XferAck::new(self.flags, self.transfer_id, acknowleged_length)
     }
-}
 
-impl Transform for XferSegment {
-    fn read(reader: &mut Reader) -> Result<Self, Errors>
-    where
-        Self: Sized,
-    {
-        if reader.left() < 17 {
-            return Err(Errors::MessageTooShort);
+    pub fn decode(src: &mut BytesMut) -> Result<Option<Self>, crate::v4::messages::Errors> {
+        if src.remaining() < 10 {
+            return Ok(None);
         }
-        let flags = MessageFlags::from_bits_truncate(reader.read_u8());
-        let transfer_id = reader.read_u64();
+
+        // We can not use get here, since we MUST NOT advance the cursor of `src` until we are sure
+        // we can read a full frame
+        let flags = MessageFlags::from_bits_truncate(src[0]);
+
+        // This is just to ensure we have the full frame
+        let mut min_size: usize = 1 + 8 + 8;
+        if flags.contains(MessageFlags::START) {
+            min_size += 4; // for the transfer extension items length
+            min_size += u32::from_be_bytes(src[9..13].try_into().unwrap()) as usize;
+            if src.remaining() < min_size {
+                return Ok(None);
+            }
+        }
+        let data_length =
+            u64::from_be_bytes(src[min_size - 8..min_size].try_into().unwrap()) as usize;
+        if data_length > super::sess_init::MAX_SEGMENT_MRU as usize {
+            return Err(crate::v4::messages::Errors::SegmentTooLong);
+        }
+
+        min_size += data_length;
+        if src.remaining() < min_size {
+            return Ok(None);
+        }
+        src.advance(1);
+
+        // from now on we can assume we have a full frame and the cursor is directly after the message flags
+        let transfer_id = src.get_u64();
 
         let mut transfer_extensions: Vec<TransferExtension> = Vec::new();
         if flags.contains(MessageFlags::START) {
-            if reader.left() < 12 {
-                return Err(Errors::MessageTooShort);
-            }
-            let transfer_extensions_length = reader.read_u32();
-            if reader.left() < transfer_extensions_length as usize {
-                return Err(Errors::MessageTooShort);
-            }
-            let target_reader_pos = reader.current_pos() + transfer_extensions_length as usize;
-            while reader.current_pos() < target_reader_pos {
-                let se = TransferExtension::read(reader)?;
+            assert!(src.remaining() >= 12);
+            let transfer_extensions_length = src.get_u32();
+            assert!(src.remaining() >= transfer_extensions_length as usize);
+            let target_remaining = src.remaining() - transfer_extensions_length as usize;
+            while src.remaining() > target_remaining {
+                let se = TransferExtension::decode(src)?;
                 if se.flags.contains(TransferExtensionFlags::CRITICAL) {
-                    return Err(Errors::UnkownCriticalTransferExtension(se.extension_type));
+                    return Err(
+                        crate::v4::messages::Errors::UnkownCriticalTransferExtension(
+                            se.extension_type,
+                        ),
+                    );
                 }
                 transfer_extensions.push(se);
             }
         }
 
-        let data_length = reader.read_u64();
-        if data_length > super::sess_init::MAX_SEGMENT_MRU {
-            return Err(Errors::SegmentTooLong);
-        }
-        if reader.left() < (data_length as usize) {
-            return Err(Errors::MessageTooShort);
-        }
-        let mut data: Vec<u8> = vec![0; data_length as usize];
-        reader.read_u8_array(&mut data[..], data_length as usize);
+        src.advance(8); // for data length we read above
+        assert!(src.remaining() >= data_length);
+        let mut data = vec![0; data_length];
+        src.copy_to_slice(&mut data);
 
-        Ok(XferSegment {
+        Ok(Some(XferSegment {
             flags,
             transfer_id,
             transfer_extensions,
             data,
-        })
+        }))
     }
 
-    fn write(&self, target: &mut Vec<u8>) {
-        target.reserve(21 + self.data.len() + self.transfer_extensions.len() * 5);
-        target.push(self.flags.bits);
-        target.extend_from_slice(&self.transfer_id.to_be_bytes());
+    pub fn encode(&self, dst: &mut BytesMut) {
+        dst.reserve(21 + self.data.len() + self.transfer_extensions.len() * 5);
+        dst.put_u8(self.flags.bits);
+        dst.put_u64(self.transfer_id);
 
         if self.flags.contains(MessageFlags::START) {
             let mut transfer_extension_bytes: Vec<u8> = Vec::new();
             for transfer_extension in &self.transfer_extensions {
                 transfer_extension.write(&mut transfer_extension_bytes);
             }
-            target.extend_from_slice(&(transfer_extension_bytes.len() as u32).to_be_bytes());
-            target.extend_from_slice(&transfer_extension_bytes);
+            dst.put_u32(transfer_extension_bytes.len().try_into().unwrap());
+            dst.extend_from_slice(&transfer_extension_bytes);
         }
 
-        target.extend_from_slice(&(self.data.len() as u64).to_be_bytes());
-        target.extend_from_slice(&self.data);
+        dst.put_u64(self.data.len().try_into().unwrap());
+        dst.extend_from_slice(&self.data);
     }
 }

@@ -1,11 +1,8 @@
 use std::convert::TryInto;
 
+use bytes::{Buf, BufMut, BytesMut};
 use num_enum::IntoPrimitive;
 use num_enum::TryFromPrimitive;
-
-use crate::errors::Errors;
-use crate::v4::reader::Reader;
-use crate::v4::transform::Transform;
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy, TryFromPrimitive, IntoPrimitive)]
 #[repr(u8)]
@@ -32,28 +29,28 @@ impl XferRefuse {
             transfer_id,
         }
     }
-}
 
-impl Transform for XferRefuse {
-    fn read(reader: &mut Reader) -> Result<Self, Errors>
-    where
-        Self: Sized,
-    {
-        if reader.left() < 5 {
-            return Err(Errors::MessageTooShort);
+    pub fn decode(src: &mut BytesMut) -> Result<Option<Self>, crate::v4::messages::Errors> {
+        if src.remaining() < 5 {
+            return Ok(None);
         }
-        let reason = reader.read_u8();
-        let transfer_id = reader.read_u64();
 
-        Ok(XferRefuse {
-            reason: reason.try_into().or(Ok(ReasonCode::Unkown))?,
+        let reason = src
+            .get_u8()
+            .try_into()
+            .or::<()>(Ok(ReasonCode::Unkown))
+            .unwrap();
+        let transfer_id = src.get_u64();
+
+        Ok(Some(XferRefuse {
+            reason,
             transfer_id,
-        })
+        }))
     }
 
-    fn write(&self, target: &mut Vec<u8>) {
-        target.reserve(5);
-        target.push(self.reason.into());
-        target.extend_from_slice(&self.transfer_id.to_be_bytes());
+    pub fn encode(&self, dst: &mut BytesMut) {
+        dst.reserve(5);
+        dst.put_u8(self.reason.into());
+        dst.put_u64(self.transfer_id);
     }
 }

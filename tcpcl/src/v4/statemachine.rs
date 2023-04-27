@@ -1,26 +1,26 @@
-use std::{cmp::min, convert::TryInto, mem};
+use std::{cmp::min, mem, pin::Pin};
 
 use log::{info, warn};
-use tokio::io::Interest;
+use tokio::io::{Interest, WriteHalf};
+use tokio_util::codec::FramedWrite;
 
 use crate::{
     errors::{Errors, TransferSendErrors},
+    session::AsyncReadWrite,
     transfer::Transfer,
 };
+use futures_util::SinkExt;
 
-use super::{
-    messages::{
-        contact_header::ContactHeader,
-        keepalive::Keepalive,
-        msg_reject::{self, MsgReject},
-        sess_init::SessInit,
-        sess_term::{ReasonCode, SessTerm},
-        xfer_ack::XferAck,
-        xfer_segment::{self, XferSegment},
-        MessageType, Messages,
-    },
-    reader::Reader,
-    transform::Transform,
+use super::messages::{
+    self,
+    contact_header::ContactHeader,
+    keepalive::Keepalive,
+    msg_reject::{self, MsgReject},
+    sess_init::SessInit,
+    sess_term::{ReasonCode, SessTerm},
+    xfer_ack::XferAck,
+    xfer_segment::{self, XferSegment},
+    Codec, MessageType, Messages,
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -107,34 +107,34 @@ impl StateMachine {
         }
     }
 
-    pub fn send_message(&mut self, writer: &mut Vec<u8>) {
+    pub async fn send_message(
+        &mut self,
+        writer: &mut FramedWrite<WriteHalf<Pin<Box<dyn AsyncReadWrite>>>, Codec>,
+    ) -> Result<(), std::io::Error> {
         match &mut self.state {
             States::ActiveSendContactHeader | States::PassiveSendContactHeader => {
                 let ch = ContactHeader::new(self.can_tls);
                 self.my_contact_header = Some(ch.clone());
-                ch.write(writer);
+                writer.send(Messages::ContactHeader(ch)).await?;
             }
             States::ActiveSendSessInit | States::PassiveSendSessInit => {
                 let si = SessInit::new(self.my_node_id.clone());
                 self.my_sess_init = Some(si.clone());
-                writer.push(MessageType::SessInit.into());
-                si.write(writer);
+                writer.send(Messages::SessInit(si)).await?;
             }
             States::SendXferAck(xfer_ack) | States::SendXferSegmentsAndAck(_, xfer_ack) => {
-                writer.push(MessageType::XferAck.into());
-                xfer_ack.write(writer);
+                writer.send(Messages::XferAck(xfer_ack.clone())).await?;
             }
             States::SendSessTerm(r) => {
                 let st = SessTerm::new(r.unwrap_or(ReasonCode::Unkown), self.terminating);
-                writer.push(MessageType::SessTerm.into());
-                st.write(writer);
+                writer.send(Messages::SessTerm(st)).await?;
             }
             States::SendXferSegments(tt) => {
                 let mru = self.peer_sess_init.as_ref().unwrap().segment_mru;
                 let end_pos = min(tt.pos + mru as usize, tt.transfer.data.len());
                 if tt.pos == tt.transfer.data.len() {
                     warn!("We should not try to send a transfer if we already sent all data. We just dont do anything");
-                    return;
+                    return Ok(());
                 }
                 let mut data = Vec::with_capacity(end_pos - tt.pos);
                 data.extend_from_slice(&tt.transfer.data[tt.pos..end_pos]);
@@ -148,17 +148,16 @@ impl StateMachine {
                 }
 
                 let xfer_seg = XferSegment::new(flags, tt.transfer.id, data);
-                writer.push(MessageType::XferSegment.into());
-                xfer_seg.write(writer);
+                writer.send(Messages::XferSegment(xfer_seg)).await?;
                 tt.pos = end_pos;
             }
             States::SendKeepalive(_) => {
-                writer.push(MessageType::Keepalive.into());
-                Keepalive::new().write(writer);
+                let ka = Keepalive::new();
+                writer.send(Messages::Keepalive(ka)).await?;
             }
             States::SendMsgReject(r, t) => {
-                writer.push(MessageType::MsgReject.into());
-                MsgReject::new(*r, *t).write(writer);
+                let mr = MsgReject::new(*r, *t);
+                writer.send(Messages::MsgReject(mr)).await?;
             }
             _ => {
                 panic!(
@@ -167,29 +166,26 @@ impl StateMachine {
                 );
             }
         }
+        self.send_complete();
+        Ok(())
     }
 
-    pub fn decode_message(&mut self, reader: &mut Reader) -> Result<Messages, Errors> {
-        let out = self.decode_message_inner(reader);
-        if out.is_ok() {
-            reader.consume();
-        } else {
-            reader.reset_read();
-        }
-        return out;
-    }
-
-    fn decode_message_inner(&mut self, reader: &mut Reader) -> Result<Messages, Errors> {
+    pub fn decode_message(
+        &mut self,
+        message: Result<Messages, messages::Errors>,
+    ) -> Result<Messages, Errors> {
         match self.state {
             States::PassiveWaitContactHeader | States::ActiveWaitContactHeader => {
-                let ch = ContactHeader::read(reader)?;
+                let ch = match &message {
+                    Ok(Messages::ContactHeader(ch)) => ch,
+                    _ => panic!("no idea"),
+                };
                 self.peer_contact_header = Some(ch.clone());
                 if self.state == States::PassiveWaitContactHeader {
                     self.state = States::PassiveSendContactHeader;
                 } else {
                     self.state = States::ActiveSendSessInit;
                 }
-                Ok(Messages::ContactHeader(ch))
             }
             States::ActiveWaitSessInit
             | States::PassiveWaitSessInit
@@ -198,110 +194,86 @@ impl StateMachine {
             | States::SendXferSegments(_)
             | States::SendXferSegmentsAndAck(_, _)
             | States::SendKeepalive(_) => {
-                if reader.left() < 1 {
-                    return Err(Errors::MessageTooShort);
+                match message {
+                    Err(messages::Errors::InvalidMessageType(message_type_num)) => {
+                        self.state = States::SendMsgReject(
+                            msg_reject::ReasonCode::MessageTypeUnkown,
+                            message_type_num,
+                        );
+                        return message.map_err(|e| e.into());
+                    }
+                    _ => {}
                 }
-                let message_type_num = reader.read_u8();
-                let message_type: MessageType = message_type_num.try_into().map_err(|_| {
-                    self.state = States::SendMsgReject(
-                        msg_reject::ReasonCode::MessageTypeUnkown,
-                        message_type_num,
-                    );
-                    Errors::UnkownMessageType
-                })?;
-                match message_type {
-                    MessageType::SessInit if self.state == States::ActiveWaitSessInit => {
-                        let si = SessInit::read(reader)?;
+                match &message {
+                    Ok(Messages::SessInit(si)) if self.state == States::ActiveWaitSessInit => {
                         self.peer_sess_init = Some(si.clone());
                         self.state = States::SessionEstablished;
-                        Ok(Messages::SessInit(si))
                     }
-                    MessageType::SessInit if self.state == States::PassiveWaitSessInit => {
-                        let si = SessInit::read(reader)?;
+                    Ok(Messages::SessInit(si)) if self.state == States::PassiveWaitSessInit => {
                         self.peer_sess_init = Some(si.clone());
                         self.state = States::PassiveSendSessInit;
-                        Ok(Messages::SessInit(si))
                     }
-                    MessageType::SessTerm if self.state == States::WaitSessTerm => {
-                        let st = SessTerm::read(reader)?;
+                    Ok(Messages::SessTerm(_)) if self.state == States::WaitSessTerm => {
                         self.state = States::ConnectionClose;
-                        Ok(Messages::SessTerm(st))
                     }
-                    MessageType::SessTerm
+                    Ok(Messages::SessTerm(st))
                         if self.state == States::SessionEstablished
                             || matches!(self.state, States::SendXferSegments(_))
                             || matches!(self.state, States::SendXferSegmentsAndAck(_, _)) =>
                     {
-                        let st = SessTerm::read(reader)?;
                         self.state = States::SendSessTerm(Some(st.reason));
                         self.terminating = true;
-                        Ok(Messages::SessTerm(st))
                     }
-                    MessageType::XferSegment
+                    Ok(Messages::XferSegment(_))
                         if self.state == States::SessionEstablished
                             || matches!(self.state, States::SendXferSegments(_))
-                            || matches!(self.state, States::SendXferSegmentsAndAck(_, _)) =>
-                    {
-                        let xs = XferSegment::read(reader)?;
-                        Ok(Messages::XferSegment(xs))
-                    }
-                    MessageType::Keepalive => {
-                        let k = Keepalive::read(reader)?;
-                        Ok(Messages::Keepalive(k))
-                    }
-                    MessageType::XferAck => {
-                        let xa = XferAck::read(reader)?;
-                        match &mut self.state {
-                            States::SendXferSegments(tt)
-                            | States::SendXferSegmentsAndAck(tt, _) => {
-                                if tt.transfer.id != xa.transfer_id {
-                                    panic!("Remote send ack for transfer {}, but we are currently sending {}", xa.transfer_id, tt.transfer.id);
-                                }
-                                tt.pos_acked = xa.acknowleged_length as usize;
-                                if tt.pos_acked == tt.transfer.data.len() {
-                                    info!("Transfer {} finished (sent and acked)", tt.transfer.id);
-                                    let state =
-                                        mem::replace(&mut self.state, States::ShouldNeverExist);
-                                    match state {
-                                        States::SendXferSegments(_) => {
-                                            self.state = States::SessionEstablished;
-                                        }
-                                        States::SendXferSegmentsAndAck(_, ack) => {
-                                            self.state = States::SendXferAck(ack);
-                                        }
-                                        _ => panic!("Invalid state {:?}", state),
-                                    }
-                                }
-                                Ok(Messages::XferAck(xa))
+                            || matches!(self.state, States::SendXferSegmentsAndAck(_, _)) => {}
+                    Ok(Messages::Keepalive(_)) => {}
+                    Ok(Messages::XferAck(xa)) => match &mut self.state {
+                        States::SendXferSegments(tt) | States::SendXferSegmentsAndAck(tt, _) => {
+                            if tt.transfer.id != xa.transfer_id {
+                                panic!("Remote send ack for transfer {}, but we are currently sending {}", xa.transfer_id, tt.transfer.id);
                             }
-                            _ => {
-                                warn!(
-                                    "Received inappropriate message type {:?} while in state {:?}",
-                                    message_type, self.state
-                                );
-                                self.state = States::SendMsgReject(
-                                    msg_reject::ReasonCode::MessageUnexpected,
-                                    MessageType::XferAck.into(),
-                                );
-                                Err(Errors::MessageTypeInappropriate(MessageType::XferAck))
+                            tt.pos_acked = xa.acknowleged_length as usize;
+                            if tt.pos_acked == tt.transfer.data.len() {
+                                info!("Transfer {} finished (sent and acked)", tt.transfer.id);
+                                let state = mem::replace(&mut self.state, States::ShouldNeverExist);
+                                match state {
+                                    States::SendXferSegments(_) => {
+                                        self.state = States::SessionEstablished;
+                                    }
+                                    States::SendXferSegmentsAndAck(_, ack) => {
+                                        self.state = States::SendXferAck(ack);
+                                    }
+                                    _ => panic!("Invalid state {:?}", state),
+                                }
                             }
                         }
-                    }
-                    MessageType::MsgReject => {
-                        let rej = MsgReject::read(reader)?;
-                        Ok(Messages::MsgReject(rej))
-                    }
-                    _ => {
+                        _ => {
+                            warn!(
+                                "Received inappropriate message type {:?} while in state {:?}",
+                                message, self.state
+                            );
+                            self.state = States::SendMsgReject(
+                                msg_reject::ReasonCode::MessageUnexpected,
+                                MessageType::XferAck.into(),
+                            );
+                            return Err(Errors::MessageTypeInappropriate(MessageType::XferAck));
+                        }
+                    },
+                    Ok(Messages::MsgReject(_)) => {}
+                    Ok(m) => {
                         warn!(
                             "Received inappropriate message type {:?} while in state {:?}",
-                            message_type, self.state
+                            m, self.state
                         );
                         self.state = States::SendMsgReject(
                             msg_reject::ReasonCode::MessageUnexpected,
-                            message_type.into(),
+                            m.get_message_type().into(),
                         );
-                        Err(Errors::MessageTypeInappropriate(message_type))
+                        return Err(Errors::MessageTypeInappropriate(m.get_message_type()));
                     }
+                    Err(_) => {}
                 }
             }
             _ => {
@@ -311,6 +283,7 @@ impl StateMachine {
                 );
             }
         }
+        message.map_err(|e| e.into())
     }
 
     pub fn get_interests(&self) -> Interest {
