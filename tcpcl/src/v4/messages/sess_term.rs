@@ -8,7 +8,6 @@ use num_enum::TryFromPrimitive;
 
 use bitflags::bitflags;
 
-
 bitflags! {
     struct MessageFlags: u8 {
         const REPLY = 0x01;
