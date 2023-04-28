@@ -1,7 +1,7 @@
 ####################################################################################################
 ## Builder
 ####################################################################################################
-FROM rust:1.58 AS builder
+FROM rust:1.69 AS builder
 
 RUN rustup target add x86_64-unknown-linux-musl
 RUN apt update && apt install -y musl-tools musl-dev
@@ -31,7 +31,7 @@ RUN cargo build --release
 ####################################################################################################
 ## Final image
 ####################################################################################################
-FROM rust:1.58
+FROM rust:1.69
 
 # Import from builder.
 COPY --from=builder /etc/passwd /etc/passwd
