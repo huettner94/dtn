@@ -8,7 +8,7 @@ use openssl::{
 };
 
 fn get_cert_with_san(sanname: &str) -> (PKey<Private>, X509) {
-    let cert_rsa = Rsa::generate(1024).unwrap();
+    let cert_rsa = Rsa::generate(2048).unwrap();
     let pkey = PKey::from_rsa(cert_rsa).unwrap();
 
     let mut name = X509Name::builder().unwrap();
