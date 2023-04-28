@@ -9,7 +9,7 @@ edition = "2021"
 bitflags = "1.2.1"
 tokio = { version = "1.28.0", features = ["fs", "io-util", "net", "macros", "sync", "rt", "time"] }
 tokio-openssl = "0.6.3"
-openssl = "0.10.38"
+openssl = "0.10.52"
 log = "0.4"
 num_enum = "0.6.1"
 x509-parser = "0.12.0"
