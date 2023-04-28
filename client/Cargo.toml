@@ -10,7 +10,7 @@ resolver = "2"
 log = "0.4"
 tonic = "0.5.2"
 prost = "0.8"
-futures-util = "0.3.16"
+futures-util = "0.3.28"
 maybe-async = "0.2.7"
 
 [build-dependencies]
