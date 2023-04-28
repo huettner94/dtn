@@ -83,7 +83,7 @@ impl From<DtnTime> for DateTime<Utc> {
 impl From<&DtnTime> for DateTime<Utc> {
     fn from(dtn: &DtnTime) -> Self {
         let millis = (dtn.timestamp as i64) + 946684800000; // 946684800 seconds between 1970-01-01 and 2000-01-01
-        return Utc.timestamp_millis(millis);
+        Utc.timestamp_millis_opt(millis).unwrap()
     }
 }
 
