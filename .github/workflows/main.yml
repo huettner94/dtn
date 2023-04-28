@@ -24,12 +24,11 @@ jobs:
           rustup set auto-self-update disable
           rustup toolchain install stable --profile minimal
 
-      - uses: ./
-        with:
-          workspaces: tests
-
-      - run: |
-          cargo check
-          cargo test
-          cargo fmt --all -- --check
-        working-directory: tests
+      - uses: Swatinem/rust-cache@v2
+      
+      - name: Cargo check
+        run: cargo check
+      - name: Cargo test
+        run: cargo test
+      - name: Cargo fmt
+        run: cargo fmt --all -- --check
