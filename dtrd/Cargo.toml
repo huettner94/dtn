@@ -11,7 +11,7 @@ tcpcl = {path = "../tcpcl"}
 log = "0.4"
 tonic = "0.5.2"
 prost = "0.8"
-tokio = { version = "1.15.0", features = ["full", "tracing"] }
+tokio = { version = "1.28.0", features = ["full", "tracing"] }
 tokio-stream = "0.1.9"
 tokio-util = "0.7.8"
 futures-util = "0.3.16"
