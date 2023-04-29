@@ -14,4 +14,4 @@ futures-util = "0.3.28"
 maybe-async = "0.2.7"
 
 [build-dependencies]
-tonic-build = "0.5.2"
+tonic-build = "0.9.2"
