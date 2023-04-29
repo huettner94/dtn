@@ -465,7 +465,7 @@ dependencies = [
  "futures-util",
  "log",
  "openssl",
- "prost 0.8.0",
+ "prost 0.11.9",
  "tcpcl",
  "tokio",
  "tokio-stream",
@@ -493,7 +493,7 @@ dependencies = [
  "futures-util",
  "log",
  "maybe-async",
- "prost 0.8.0",
+ "prost 0.11.9",
  "tonic 0.5.2",
  "tonic-build",
 ]
