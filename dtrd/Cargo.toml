@@ -9,7 +9,7 @@ edition = "2021"
 bp7 = {path = "../bp7"}
 tcpcl = {path = "../tcpcl"}
 log = "0.4"
-tonic = "0.5.2"
+tonic = "0.9.2"
 prost = "0.8"
 tokio = { version = "1.28.0", features = ["full", "tracing"] }
 tokio-stream = "0.1.14"
