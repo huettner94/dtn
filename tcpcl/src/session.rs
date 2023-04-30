@@ -21,8 +21,7 @@ use tokio_openssl::SslStream;
 use tokio_util::codec::{FramedRead, FramedWrite};
 use x509_parser::{
     extensions::{GeneralName, ParsedExtension},
-    prelude::X509Certificate,
-    traits::FromDer,
+    prelude::{FromDer, X509Certificate},
 };
 
 use crate::{
