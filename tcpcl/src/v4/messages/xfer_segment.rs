@@ -6,6 +6,7 @@ use bytes::{Buf, BufMut, BytesMut};
 use super::xfer_ack::XferAck;
 
 bitflags! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     struct TransferExtensionFlags: u8 {
         const CRITICAL = 0x01;
     }
@@ -37,7 +38,7 @@ impl TransferExtension {
 
     fn write(&self, target: &mut Vec<u8>) {
         target.reserve(5 + self.value.len());
-        target.push(self.flags.bits);
+        target.push(self.flags.bits());
         target.extend_from_slice(&self.extension_type.to_be_bytes());
         target.extend_from_slice(&(self.value.len() as u16).to_be_bytes());
         target.extend_from_slice(&self.value);
@@ -45,6 +46,7 @@ impl TransferExtension {
 }
 
 bitflags! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     pub struct MessageFlags: u8 {
         const END = 0x01;
         const START = 0x02;
@@ -150,7 +152,7 @@ impl XferSegment {
 
     pub fn encode(&self, dst: &mut BytesMut) {
         dst.reserve(21 + self.data.len() + self.transfer_extensions.len() * 5);
-        dst.put_u8(self.flags.bits);
+        dst.put_u8(self.flags.bits());
         dst.put_u64(self.transfer_id);
 
         if self.flags.contains(MessageFlags::START) {

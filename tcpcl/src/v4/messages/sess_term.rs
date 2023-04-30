@@ -9,6 +9,7 @@ use num_enum::TryFromPrimitive;
 use bitflags::bitflags;
 
 bitflags! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     struct MessageFlags: u8 {
         const REPLY = 0x01;
     }

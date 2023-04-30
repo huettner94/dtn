@@ -2,6 +2,7 @@ use bitflags::bitflags;
 use bytes::{Buf, BufMut, BytesMut};
 
 bitflags! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     pub struct ContactHeaderFields: u8 {
         const CAN_TLS = 0x01;
     }
@@ -56,6 +57,6 @@ impl ContactHeader {
         dst.reserve(6);
         dst.put_slice(&self.magic);
         dst.put_u8(self.version);
-        dst.put_u8(self.flags.bits);
+        dst.put_u8(self.flags.bits());
     }
 }

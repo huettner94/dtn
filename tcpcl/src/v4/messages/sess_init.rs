@@ -9,6 +9,7 @@ pub const MAX_SEGMENT_MRU: u64 = 100 * 1024;
 pub const MAX_TRANSFER_MRU: u64 = 1 * 1024 * 1024;
 
 bitflags! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     struct SessionExtensionFlags: u8 {
         const CRITICAL = 0x01;
     }
@@ -39,7 +40,7 @@ impl SessionExtension {
 
     fn write(&self, target: &mut Vec<u8>) {
         target.reserve(5 + self.value.len());
-        target.push(self.flags.bits);
+        target.push(self.flags.bits());
         target.extend_from_slice(&self.extension_type.to_be_bytes());
         target.extend_from_slice(&(self.value.len() as u16).to_be_bytes());
         target.extend_from_slice(&self.value);

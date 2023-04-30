@@ -4,6 +4,7 @@ use serde::{de::Visitor, Deserialize, Serialize};
 use crate::Validate;
 
 bitflags! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     pub struct BlockFlags: u64 {
         const MUST_REPLICATE_TO_ALL_FRAGMENTS = 0x01;
         const STATUS_REPORT_REQUESTED_WHEN_NOT_PROCESSABLE = 0x02;

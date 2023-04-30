@@ -4,6 +4,7 @@ use serde::{de::Visitor, Deserialize, Serialize};
 use crate::Validate;
 
 bitflags! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     pub struct BundleFlags: u64 {
         const FRAGMENT = 0x000001;
         const ADMINISTRATIVE_RECORD = 0x000002;
