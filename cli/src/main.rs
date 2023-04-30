@@ -1,6 +1,6 @@
 use std::io::Write;
 
-use clap::{ArgEnum, ErrorKind, IntoApp, Parser, Subcommand};
+use clap::{error::ErrorKind, CommandFactory, Parser, Subcommand, ValueEnum};
 use dtrd_client::Client;
 use futures_util::StreamExt;
 use tokio::fs;
@@ -22,7 +22,7 @@ struct Cli {
     command: Commands,
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ArgEnum)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
 enum OutputMode {
     Parse,
     Hex,
@@ -61,7 +61,7 @@ enum BundleCommands {
     Listen {
         #[clap(short, long, help = "The endpoint to listen on")]
         endpoint: String,
-        #[clap(arg_enum,
+        #[clap(value_enum,
             short,
             long,
             help = "Parse the bundles and prette-print them",
