@@ -29,6 +29,8 @@ jobs:
       - run: |
           rustup set auto-self-update disable
           rustup toolchain install stable --profile minimal
+          apt update
+          apt install protobuf-compiler -y
 
       - uses: Swatinem/rust-cache@v2
       
