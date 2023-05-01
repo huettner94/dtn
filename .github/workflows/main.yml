@@ -29,6 +29,9 @@ jobs:
       - run: |
           rustup set auto-self-update disable
           rustup toolchain install stable --profile minimal
+          
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v1
 
       - uses: Swatinem/rust-cache@v2
       
