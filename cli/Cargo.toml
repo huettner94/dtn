@@ -8,6 +8,6 @@ edition = "2021"
 [dependencies]
 bp7 = {path = "../bp7"}
 dtrd_client = {path = "../client"}
-tokio = { version = "1.28.0", features = ["macros", "rt-multi-thread", "fs"] }
+tokio = { version = "1.28.1", features = ["macros", "rt-multi-thread", "fs"] }
 futures-util = "0.3.28"
 clap = { version = "4.2.7", features = ["derive"] }
