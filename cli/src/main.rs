@@ -3,6 +3,7 @@ use std::io::Write;
 use clap::{error::ErrorKind, CommandFactory, Parser, Subcommand, ValueEnum};
 use dtrd_client::Client;
 use futures_util::StreamExt;
+use tabular::{row, Table};
 use tokio::fs;
 
 #[derive(Parser)]
@@ -34,6 +35,10 @@ enum Commands {
     Bundle {
         #[clap(subcommand)]
         command: BundleCommands,
+    },
+    Node {
+        #[clap(subcommand)]
+        command: NodeCommands,
     },
 }
 
@@ -77,6 +82,19 @@ enum BundleCommands {
     },
 }
 
+#[derive(Subcommand)]
+enum NodeCommands {
+    List,
+    Add {
+        #[clap(short, long, help = "The remote address of the target node")]
+        address: String,
+    },
+    Remove {
+        #[clap(short, long, help = "The remote address of the target node")]
+        address: String,
+    },
+}
+
 #[tokio::main]
 pub async fn main() {
     let cli = Cli::parse();
@@ -110,6 +128,11 @@ pub async fn main() {
             BundleCommands::Receive { endpoint, file } => {
                 command_bundle_receive(&mut client, endpoint, file).await
             }
+        },
+        Commands::Node { command } => match command {
+            NodeCommands::List => command_node_list(&mut client).await,
+            NodeCommands::Add { address } => command_node_add(&mut client, address).await,
+            NodeCommands::Remove { address } => command_node_remove(&mut client, address).await,
         },
     }
 }
@@ -207,6 +230,45 @@ async fn command_bundle_receive(client: &mut Client, endpoint: String, file: Opt
         },
         Err(e) => {
             println!("Error receiving bundle: {:?}", e);
+        }
+    }
+}
+
+async fn command_node_list(client: &mut Client) {
+    match client.list_nodes().await {
+        Ok(data) => {
+            let mut table = Table::new("{:<}  {:<}  {:<}  {:<}");
+            table.add_row(row!("URL", "Status", "Endpoint", "Temporary"));
+            for node in data {
+                table.add_row(row!(
+                    node.url,
+                    node.status,
+                    node.endpoint,
+                    if node.temporary { "temporary" } else { "" }
+                ));
+            }
+            print!("{}", table);
+        }
+        Err(e) => {
+            println!("Error receiving node list: {:?}", e);
+        }
+    }
+}
+
+async fn command_node_add(client: &mut Client, url: String) {
+    match client.add_node(url).await {
+        Ok(_) => {}
+        Err(e) => {
+            println!("Error adding node: {:?}", e);
+        }
+    }
+}
+
+async fn command_node_remove(client: &mut Client, url: String) {
+    match client.remove_node(url).await {
+        Ok(_) => {}
+        Err(e) => {
+            println!("Error adding node: {:?}", e);
         }
     }
 }

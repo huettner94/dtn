@@ -2,6 +2,7 @@ use std::str::FromStr;
 
 use crate::error::Error;
 use adminservice::admin_service_client::AdminServiceClient;
+use adminservice::Node;
 use bundleservice::bundle_service_client::BundleServiceClient;
 use futures_util::Stream;
 use futures_util::StreamExt;
@@ -97,5 +98,26 @@ impl Client {
                 Err(e) => Err(Error::GrpcError(e)),
             });
         Ok(stream.next().await.ok_or(Error::NoMessage)??)
+    }
+
+    #[maybe_async]
+    pub async fn list_nodes(&mut self) -> Result<Vec<Node>, Error> {
+        let req = adminservice::ListNodesRequest {};
+        let resp = self.admin_client.list_nodes(req).await?.into_inner();
+        Ok(resp.nodes)
+    }
+
+    #[maybe_async]
+    pub async fn add_node(&mut self, url: String) -> Result<(), Error> {
+        let req = adminservice::AddNodeRequest { url };
+        self.admin_client.add_node(req).await?.into_inner();
+        Ok(())
+    }
+
+    #[maybe_async]
+    pub async fn remove_node(&mut self, url: String) -> Result<(), Error> {
+        let req = adminservice::RemoveNodeRequest { url };
+        self.admin_client.remove_node(req).await?.into_inner();
+        Ok(())
     }
 }

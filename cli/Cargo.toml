@@ -11,3 +11,4 @@ dtrd_client = {path = "../client"}
 tokio = { version = "1.28.1", features = ["macros", "rt-multi-thread", "fs"] }
 futures-util = "0.3.28"
 clap = { version = "4.2.7", features = ["derive"] }
+tabular = "0.2.0"

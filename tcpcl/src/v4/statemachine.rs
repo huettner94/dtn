@@ -178,7 +178,7 @@ impl StateMachine {
             States::PassiveWaitContactHeader | States::ActiveWaitContactHeader => {
                 let ch = match &message {
                     Ok(Messages::ContactHeader(ch)) => ch,
-                    _ => panic!("no idea"),
+                    _ => panic!("no idea, {:?}", message),
                 };
                 self.peer_contact_header = Some(ch.clone());
                 if self.state == States::PassiveWaitContactHeader {
