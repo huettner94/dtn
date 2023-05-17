@@ -178,6 +178,7 @@ impl StateMachine {
             States::PassiveWaitContactHeader | States::ActiveWaitContactHeader => {
                 let ch = match &message {
                     Ok(Messages::ContactHeader(ch)) => ch,
+                    Err(messages::Errors::InvalidHeader) => return Err(Errors::DoesNotSpeakTCPCL),
                     _ => panic!("no idea, {:?}", message),
                 };
                 self.peer_contact_header = Some(ch.clone());

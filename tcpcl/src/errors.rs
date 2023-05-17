@@ -6,6 +6,7 @@ use crate::v4::messages::{self, MessageType};
 pub enum Errors {
     MessageTypeInappropriate(MessageType),
     RemoteRejected,
+    DoesNotSpeakTCPCL,
     TLSNameMissmatch(String),
     MessageError(messages::Errors),
 }

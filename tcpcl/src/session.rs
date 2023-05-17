@@ -541,6 +541,10 @@ impl TCPCLSession {
             Err(Errors::TLSNameMissmatch(_)) => {
                 warn!("In the tls name missmatch state");
             }
+            e @ Err(Errors::DoesNotSpeakTCPCL) => {
+                error!("The remote end does not follow the tcpcl protocl");
+                return Err(e.unwrap_err().into());
+            }
             e @ Err(Errors::MessageError(messages::Errors::SegmentTooLong)) => {
                 warn!("We received a segment longer than our Segment MRU");
                 return Err(e.unwrap_err().into());
