@@ -1,11 +1,12 @@
 use openssl::{
-    asn1::Asn1Time,
+    asn1::{Asn1Object, Asn1String, Asn1Time},
     hash::MessageDigest,
     nid::Nid,
     pkey::{PKey, Private},
     rsa::Rsa,
-    x509::{X509Extension, X509Name, X509},
+    x509::{extension::SubjectAlternativeName, X509Name, X509},
 };
+use std::str::FromStr;
 
 fn get_cert_with_san(sanname: &str) -> (PKey<Private>, X509) {
     let cert_rsa = Rsa::generate(2048).unwrap();
@@ -21,14 +22,16 @@ fn get_cert_with_san(sanname: &str) -> (PKey<Private>, X509) {
     builder.set_subject_name(&name).unwrap();
     builder.set_issuer_name(&name).unwrap();
 
-    #[allow(deprecated)] // Depending on https://github.com/sfackler/rust-openssl/issues/1911 to fix
-    let subject_alternative_name = X509Extension::new_nid(
-        None,
-        Some(&builder.x509v3_context(None, None)),
-        Nid::SUBJECT_ALT_NAME,
-        &format!("otherName:1.3.6.1.5.5.7.8.11;IA5STRING:{}", sanname),
-    )
-    .unwrap();
+    let s = Asn1String::from_str(sanname).unwrap();
+    let subject_alternative_name = SubjectAlternativeName::new()
+        .other_name2(
+            Asn1Object::from_str("1.3.6.1.5.5.7.8.11").unwrap(),
+            &s.as_asn1type_der().unwrap(),
+        )
+        .unwrap()
+        .build(&builder.x509v3_context(None, None))
+        .unwrap();
+
     builder.append_extension(subject_alternative_name).unwrap();
 
     builder

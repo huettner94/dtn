@@ -9,10 +9,16 @@ edition = "2021"
 bitflags = "2.2.1"
 tokio = { version = "1.28.0", features = ["fs", "io-util", "net", "macros", "sync", "rt", "time"] }
 tokio-openssl = "0.6.3"
-openssl = "0.10.52"
+openssl = "0.10.53"
 log = "0.4"
 num_enum = "0.6.1"
 x509-parser = "0.15.0"
 tokio-util = {version = "0.7.8", features = ["codec"]}
 bytes = "1.4.0"
 futures-util = {version = "0.3.28", features = ["sink"]}
+
+[patch.crates-io]
+openssl = { path = "../rust-openssl/openssl" }
+openssl-sys = { path = "../rust-openssl/openssl-sys" }
+openssl-errors = { path = "../rust-openssl/openssl-errors" }
+openssl-macros = { path = "../rust-openssl/openssl-macros" }

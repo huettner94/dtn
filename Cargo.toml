@@ -7,3 +7,9 @@ members = [
     "dtrd",
     "tcpcl"
 ]
+
+[patch.crates-io]
+openssl = { path = "../rust-openssl/openssl" }
+openssl-sys = { path = "../rust-openssl/openssl-sys" }
+openssl-errors = { path = "../rust-openssl/openssl-errors" }
+openssl-macros = { path = "../rust-openssl/openssl-macros" }
