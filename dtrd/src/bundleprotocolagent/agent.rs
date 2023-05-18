@@ -135,7 +135,7 @@ impl Handler<EventClientConnected> for Daemon {
         } = msg;
 
         self.local_connections
-            .insert(destination.clone(), sender.clone());
+            .insert(destination.clone(), sender);
 
         self.deliver_local_bundles(&destination, ctx);
     }
@@ -161,7 +161,7 @@ impl Handler<EventPeerConnected> for Daemon {
         assert!(destination.get_node_endpoint() == destination);
 
         self.remote_connections
-            .insert(destination.clone(), sender.clone());
+            .insert(destination.clone(), sender);
 
         self.deliver_remote_bundles(&destination, ctx);
     }
@@ -224,9 +224,9 @@ impl Handler<EventRoutingTableUpdate> for Daemon {
     fn handle(&mut self, msg: EventRoutingTableUpdate, ctx: &mut Self::Context) -> Self::Result {
         debug!("Updating routing table");
         let old_routes = mem::replace(&mut self.remote_routes, msg.routes);
-        let old_route_targets: HashSet<Endpoint> = old_routes.keys().map(|k| k.clone()).collect();
+        let old_route_targets: HashSet<Endpoint> = old_routes.keys().cloned().collect();
         let new_route_targets: HashSet<Endpoint> =
-            self.remote_routes.keys().map(|k| k.clone()).collect();
+            self.remote_routes.keys().cloned().collect();
         let added_routes: HashSet<&Endpoint> =
             new_route_targets.difference(&old_route_targets).collect();
         let updated_routes: HashSet<&Endpoint> =
@@ -249,7 +249,7 @@ impl Daemon {
             None => return,
         };
 
-        match self.local_bundles.get_mut(&destination) {
+        match self.local_bundles.get_mut(destination) {
             Some(queue) => {
                 while let Some(bundle) = queue.pop_front() {
                     debug!(
@@ -278,7 +278,7 @@ impl Daemon {
                             SendError::Closed(_) => {
                                 warn!("Client for endpoint {} disconnected while sending bundles. Queueing...", destination);
                                 queue.push_back(bundle);
-                                self.local_connections.remove(&destination);
+                                self.local_connections.remove(destination);
                                 return;
                             }
                         },

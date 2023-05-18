@@ -17,8 +17,7 @@ impl Serialize for BundleAgeBlock {
     {
         let mut vec = Vec::new();
         let inner_ser = &mut Serializer::new(&mut vec);
-        serde::Serializer::serialize_u64(inner_ser, self.age)
-            .or_else(|e| Err(serde::ser::Error::custom(e)))?;
+        serde::Serializer::serialize_u64(inner_ser, self.age).map_err(serde::ser::Error::custom)?;
 
         serializer.serialize_bytes(&vec)
     }
@@ -50,7 +49,7 @@ impl<'de> Deserialize<'de> for BundleAgeBlock {
 
 impl Validate for BundleAgeBlock {
     fn validate(&self) -> bool {
-        return true;
+        true
     }
 }
 
@@ -58,6 +57,6 @@ impl TryFrom<Vec<u8>> for BundleAgeBlock {
     type Error = serde_cbor::Error;
 
     fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
-        return serde_cbor::from_slice(&value);
+        serde_cbor::from_slice(&value)
     }
 }

@@ -338,7 +338,7 @@ impl Handler<Shutdown> for TCPCLSessionAgent {
     fn handle(&mut self, _msg: Shutdown, ctx: &mut Self::Context) -> Self::Result {
         match self.close_channel.take() {
             Some(c) => {
-                if let Err(_) = c.send(()) {
+                if c.send(()).is_err() {
                     warn!("Error sending shutdown message to tcpcl session. Forcing it to die by stopping us");
                     ctx.stop();
                 }
@@ -350,7 +350,7 @@ impl Handler<Shutdown> for TCPCLSessionAgent {
 
 impl StreamHandler<ConnectionInfo> for TCPCLSessionAgent {
     fn handle(&mut self, item: ConnectionInfo, ctx: &mut Self::Context) {
-        match Endpoint::new(&item.peer_endpoint.as_ref().unwrap()) {
+        match Endpoint::new(item.peer_endpoint.as_ref().unwrap()) {
             Some(node) => {
                 crate::converganceagent::agent::Daemon::from_registry().do_send(CLRegisterNode {
                     url: format!("tcpcl://{}", item.peer_address),

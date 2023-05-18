@@ -37,8 +37,7 @@ impl MsgReject {
         let reason = src
             .get_u8()
             .try_into()
-            .or::<()>(Ok(ReasonCode::Unkown))
-            .unwrap();
+            .unwrap_or(ReasonCode::Unkown);
         let message_header = src.get_u8();
 
         Ok(Some(MsgReject {

@@ -48,6 +48,6 @@ impl<'de> Deserialize<'de> for BlockFlags {
 
 impl Validate for BlockFlags {
     fn validate(&self) -> bool {
-        return true;
+        true
     }
 }

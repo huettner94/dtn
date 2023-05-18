@@ -344,10 +344,10 @@ impl StateMachine {
             States::SendKeepalive(s) => {
                 self.state = *s;
             }
-            States::SendSessTerm(_) if self.terminating == true => {
+            States::SendSessTerm(_) if self.terminating => {
                 self.state = States::ConnectionClose;
             }
-            States::SendSessTerm(_) if self.terminating == false => {
+            States::SendSessTerm(_) if !self.terminating => {
                 self.terminating = true;
                 self.state = States::WaitSessTerm
             }

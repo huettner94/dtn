@@ -47,7 +47,7 @@ impl ContactHeader {
         let version = src.get_u8();
         let flags = src.get_u8();
         Ok(Some(ContactHeader {
-            magic: magic.clone(),
+            magic,
             version,
             flags: ContactHeaderFields::from_bits_truncate(flags),
         }))

@@ -57,8 +57,8 @@ impl Handler<AddRoute> for Daemon {
         } = msg;
         if self
             .routes
-            .entry(target.clone())
-            .or_insert_with(|| HashSet::new())
+            .entry(target)
+            .or_insert_with(HashSet::new)
             .insert(RouteEntry {
                 route_type,
                 next_hop,
@@ -82,7 +82,7 @@ impl Handler<RemoveRoute> for Daemon {
         let endpoint_routes = self
             .routes
             .entry(target.clone())
-            .or_insert_with(|| HashSet::new());
+            .or_insert_with(HashSet::new);
         let entry_to_remove = RouteEntry {
             route_type,
             next_hop: next_hop.clone(),
@@ -142,9 +142,9 @@ impl Daemon {
         let connected_routes = self.get_connected_routes();
         self.routes
             .iter()
-            .map(|(target, routes)| {
+            .flat_map(|(target, routes)| {
                 let mut routes: Vec<RouteStatus> = routes
-                    .into_iter()
+                    .iter()
                     .map(|r| {
                         let available = r.route_type == RouteType::Connected
                             || connected_routes.contains(&r.next_hop);
@@ -159,12 +159,11 @@ impl Daemon {
                     })
                     .collect();
                 routes.sort_unstable_by_key(|e| e.route_type);
-                if routes.len() != 0 && routes[0].available {
+                if !routes.is_empty() && routes[0].available {
                     routes[0].preferred = true;
                 }
                 routes
             })
-            .flatten()
             .collect()
     }
 
@@ -173,7 +172,7 @@ impl Daemon {
             .iter()
             .filter_map(|(target, routes)| {
                 if routes
-                    .into_iter()
+                    .iter()
                     .any(|r| r.route_type == RouteType::Connected)
                 {
                     Some(target.clone())

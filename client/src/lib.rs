@@ -97,7 +97,7 @@ impl Client {
                 Ok(b) => Ok(b.payload),
                 Err(e) => Err(Error::GrpcError(e)),
             });
-        Ok(stream.next().await.ok_or(Error::NoMessage)??)
+        stream.next().await.ok_or(Error::NoMessage)?
     }
 
     #[maybe_async]

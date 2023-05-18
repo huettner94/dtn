@@ -14,7 +14,7 @@ use bp7::{
 fn test_rand_bundle_1() -> Result<(), SerializationError> {
     const BUNDLE_SRC: &str = "9F88071A00020004008201702F2F6E6F646533312F6D61766C696E6B8201702F2F6E6F6465322F696E636F6D696E678201702F2F6E6F6465322F696E636F6D696E67821B0000009E9DE3DEFE001A0036EE80850A020000448218200085010100004443414243FF";
 
-    let recovered = Bundle::from_hex(&BUNDLE_SRC)?;
+    let recovered = Bundle::from_hex(BUNDLE_SRC)?;
 
     let expected_bundle: Bundle = Bundle {
         primary_block: PrimaryBlock {

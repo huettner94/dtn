@@ -67,13 +67,13 @@ impl<'de> Deserialize<'de> for Endpoint {
                         let dtn_endpoint: DTNEndpoint = seq
                             .next_element()?
                             .ok_or(Error::custom("Error for field 'dtn_endpoint'"))?;
-                        return Ok(Endpoint::DTN(dtn_endpoint));
+                        Ok(Endpoint::DTN(dtn_endpoint))
                     }
                     EndpointType::IPN => {
                         let ipn_endpoint: IPNEndpoint = seq
                             .next_element()?
                             .ok_or(Error::custom("Error for field 'ipn_endpoint'"))?;
-                        return Ok(Endpoint::IPN(ipn_endpoint));
+                        Ok(Endpoint::IPN(ipn_endpoint))
                     }
                 }
             }
@@ -102,7 +102,7 @@ impl Display for Endpoint {
 
 impl Endpoint {
     pub fn new(uri: &str) -> Option<Self> {
-        let (schema, content) = uri.split_once(":")?;
+        let (schema, content) = uri.split_once(':')?;
         match schema {
             "dtn" => Some(Endpoint::DTN(DTNEndpoint::from_str(content)?)),
             "ipn" => Some(Endpoint::IPN(IPNEndpoint::from_str(content)?)),
@@ -142,13 +142,13 @@ impl DTNEndpoint {
         if !uri.starts_with("//") {
             return None;
         }
-        return Some(DTNEndpoint {
+        Some(DTNEndpoint {
             uri: String::from(uri),
-        });
+        })
     }
 
     fn is_null_endpoint(&self) -> bool {
-        return self.uri == "none";
+        self.uri == "none"
     }
 
     pub fn node_name(&self) -> &str {
@@ -173,9 +173,9 @@ impl Serialize for DTNEndpoint {
         S: serde::Serializer,
     {
         if self.is_null_endpoint() {
-            return serializer.serialize_u64(0);
+            serializer.serialize_u64(0)
         } else {
-            return serializer.serialize_str(&self.uri);
+            serializer.serialize_str(&self.uri)
         }
     }
 }
@@ -215,7 +215,7 @@ impl<'de> Deserialize<'de> for DTNEndpoint {
                 let endpoint = DTNEndpoint {
                     uri: String::from(v),
                 };
-                return Ok(endpoint);
+                Ok(endpoint)
             }
         }
         deserializer.deserialize_any(DTNEndpointVisitor)
@@ -227,7 +227,7 @@ impl Validate for DTNEndpoint {
         if self.uri != "none" && !self.uri.starts_with("//") {
             return false;
         }
-        return true;
+        true
     }
 }
 
@@ -245,27 +245,27 @@ pub struct IPNEndpoint {
 
 impl Validate for IPNEndpoint {
     fn validate(&self) -> bool {
-        return true;
+        true
     }
 }
 
 impl IPNEndpoint {
     fn from_str(uri: &str) -> Option<Self> {
-        let (schema, hier) = uri.split_once(":")?;
+        let (schema, hier) = uri.split_once(':')?;
         if schema != "ipn" {
             return None;
         }
-        let (node, service) = hier.split_once(".")?;
+        let (node, service) = hier.split_once('.')?;
         let node_id = node.parse().ok()?;
         let service_id = service.parse().ok()?;
-        return Some(IPNEndpoint {
+        Some(IPNEndpoint {
             node: node_id,
             service: service_id,
-        });
+        })
     }
 
     pub fn matches_node(&self, other: &IPNEndpoint) -> bool {
-        return self.node == other.node;
+        self.node == other.node
     }
 
     pub fn get_node_endpoint(&self) -> IPNEndpoint {

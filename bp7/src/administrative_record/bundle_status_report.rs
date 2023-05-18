@@ -307,7 +307,7 @@ mod tests {
                     }
                 },
                 reason: BundleStatusReason::DepletedStorage,
-                bundle_source: Endpoint::new(&"dtn://test/abc").unwrap(),
+                bundle_source: Endpoint::new("dtn://test/abc").unwrap(),
                 bundle_creation_timestamp: CreationTimestamp {
                     creation_time: DtnTime {
                         timestamp: 123456789
@@ -349,7 +349,7 @@ mod tests {
                     }
                 },
                 reason: BundleStatusReason::DepletedStorage,
-                bundle_source: Endpoint::new(&"dtn://test/abc").unwrap(),
+                bundle_source: Endpoint::new("dtn://test/abc").unwrap(),
                 bundle_creation_timestamp: CreationTimestamp {
                     creation_time: DtnTime {
                         timestamp: 123456789

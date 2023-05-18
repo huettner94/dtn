@@ -64,7 +64,7 @@ impl Stream {
         } else {
             Pin::new(&mut ssl_stream).connect().await?;
         }
-        let peer_cert = ssl_stream.ssl().peer_certificate().clone();
+        let peer_cert = ssl_stream.ssl().peer_certificate();
         let boxed_stream: Pin<Box<dyn AsyncReadWrite>> = Box::pin(ssl_stream);
         let (read, write) = tokio::io::split(boxed_stream);
         Ok(Stream {
@@ -218,31 +218,31 @@ impl TCPCLSession {
     }
 
     pub fn get_established_channel(&mut self) -> oneshot::Receiver<ConnectionInfo> {
-        return self
+        self
             .established_channel
             .1
             .take()
-            .expect("May not get a established channel > 1 time");
+            .expect("May not get a established channel > 1 time")
     }
 
     pub fn get_close_channel(&mut self) -> oneshot::Sender<()> {
-        return self
+        self
             .close_channel
             .0
             .take()
-            .expect("May not get a close channel > 1 time");
+            .expect("May not get a close channel > 1 time")
     }
 
     pub fn get_receive_channel(&mut self) -> mpsc::Receiver<Transfer> {
-        return self
+        self
             .receive_channel
             .1
             .take()
-            .expect("May not get a receive channel > 1 time");
+            .expect("May not get a receive channel > 1 time")
     }
 
     pub fn get_send_channel(&mut self) -> mpsc::Sender<TransferRequest> {
-        return self.send_channel.0.clone();
+        self.send_channel.0.clone()
     }
 
     pub fn get_connection_info(&self) -> ConnectionInfo {
@@ -272,7 +272,7 @@ impl TCPCLSession {
         } else {
             debug!("Connection has completed");
         }
-        return Ok(());
+        Ok(())
     }
 
     async fn drive_statemachine(
@@ -391,11 +391,8 @@ impl TCPCLSession {
                     }
                 }
                 _ = async { keepalive_timer.as_mut().unwrap().tick().await }, if keepalive_timer.is_some() => {
-                    if self.statemachine.is_established() {
-                        if self.last_received_keepalive.elapsed() >
-                                Duration::from_secs(self.statemachine.get_keepalive_interval().or(Some(STARTUP_IDLE_INTERVAL)).unwrap().into()) * 2 {
-                            self.statemachine.close_connection(Some(ReasonCode::IdleTimeout));
-                        }
+                    if self.statemachine.is_established() && self.last_received_keepalive.elapsed() > Duration::from_secs(self.statemachine.get_keepalive_interval().unwrap_or(STARTUP_IDLE_INTERVAL).into()) * 2 {
+                        self.statemachine.close_connection(Some(ReasonCode::IdleTimeout));
                     }
                     if self.initialized_keepalive {
                         self.statemachine.send_keepalive();
@@ -588,5 +585,5 @@ fn validate_peer_certificate(peer_node_id: String, x509: Option<&X509>) -> Resul
             warn!("We did not get a peer certificate for the tls session.");
         }
     }
-    return Err(());
+    Err(())
 }

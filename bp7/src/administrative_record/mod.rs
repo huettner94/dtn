@@ -62,9 +62,9 @@ impl<'de> Deserialize<'de> for AdministrativeRecord {
                         let bundle_status_report: BundleStatusReport = seq
                             .next_element()?
                             .ok_or(Error::custom("Error for field 'bundle_status_report'"))?;
-                        return Ok(AdministrativeRecord::BundleStatusReport(
+                        Ok(AdministrativeRecord::BundleStatusReport(
                             bundle_status_report,
-                        ));
+                        ))
                     }
                 }
             }
@@ -77,7 +77,7 @@ impl TryFrom<Vec<u8>> for AdministrativeRecord {
     type Error = SerializationError;
 
     fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
-        serde_cbor::from_slice(&value).or_else(|e| Err(SerializationError::SerializationError(e)))
+        serde_cbor::from_slice(&value).map_err(SerializationError::SerializationError)
     }
 }
 
@@ -85,7 +85,7 @@ impl TryFrom<&Vec<u8>> for AdministrativeRecord {
     type Error = SerializationError;
 
     fn try_from(value: &Vec<u8>) -> Result<Self, Self::Error> {
-        serde_cbor::from_slice(&value).or_else(|e| Err(SerializationError::SerializationError(e)))
+        serde_cbor::from_slice(value).map_err(SerializationError::SerializationError)
     }
 }
 
@@ -101,6 +101,6 @@ impl TryFrom<&AdministrativeRecord> for Vec<u8> {
     type Error = SerializationError;
 
     fn try_from(value: &AdministrativeRecord) -> Result<Self, Self::Error> {
-        serde_cbor::to_vec(value).or_else(|e| Err(SerializationError::SerializationError(e)))
+        serde_cbor::to_vec(value).map_err(SerializationError::SerializationError)
     }
 }

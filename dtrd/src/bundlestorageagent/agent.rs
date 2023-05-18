@@ -22,7 +22,7 @@ impl Actor for Daemon {
     }
 
     fn stopped(&mut self, _ctx: &mut Context<Self>) {
-        if self.bundles.len() != 0 {
+        if !self.bundles.is_empty() {
             warn!(
                 "BSA had {} bundles left over, they will be gone now.",
                 self.bundles.len()
@@ -44,7 +44,7 @@ impl Handler<StoreBundle> for Daemon {
         if bundle
             .primary_block
             .source_node
-            .matches_node(&self.endpoint.as_ref().unwrap())
+            .matches_node(self.endpoint.as_ref().unwrap())
         {
             panic!("Received a StoreBundle message but with us as the source node. Use StoreNewBundle instead!")
         }
@@ -62,7 +62,7 @@ impl Handler<StoreNewBundle> for Daemon {
         if !bundle
             .primary_block
             .source_node
-            .matches_node(&self.endpoint.as_ref().unwrap())
+            .matches_node(self.endpoint.as_ref().unwrap())
         {
             panic!("Received a StoreNewBundle message but with some other node as source node. Use StoreBundle instead!")
         }
@@ -221,7 +221,7 @@ impl Daemon {
         let local = bundle
             .primary_block
             .destination_endpoint
-            .matches_node(&self.endpoint.as_ref().unwrap());
+            .matches_node(self.endpoint.as_ref().unwrap());
         let res: Result<(), ()> = match TryInto::<StoredBundle>::try_into(bundle) {
             Ok(mut sb) => {
                 sb.min_size = min_size;

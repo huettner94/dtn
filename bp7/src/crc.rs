@@ -18,11 +18,11 @@ impl Serialize for CRCType {
     where
         S: serde::Serializer,
     {
-        return serializer.serialize_u64(match self {
+        serializer.serialize_u64(match self {
             CRCType::NoCRC => 0,
             CRCType::CRC16(_) => 1,
             CRCType::CRC32(_) => 2,
-        });
+        })
     }
 }
 

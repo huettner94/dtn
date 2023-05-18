@@ -4,7 +4,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let proto_path: PathBuf = "../protobuf/bundle/".into();
     let proto_files: Vec<PathBuf> = proto_path
         .read_dir()?
-        .filter_map(|p| p.and_then(|path| Ok(path.path())).ok())
+        .filter_map(|p| p.map(|path| path.path()).ok())
         .collect();
     println!("{:?}", proto_files);
     tonic_build::configure()

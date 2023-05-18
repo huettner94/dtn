@@ -16,10 +16,10 @@ pub struct StoredBundle {
 
 impl StoredBundle {
     pub fn get_id(&self) -> Uuid {
-        return self.id;
+        self.id
     }
     pub fn get_bundle(&self) -> &Bundle {
-        return &self.bundle;
+        &self.bundle
     }
 
     pub fn get_bundle_size(&self) -> u64 {

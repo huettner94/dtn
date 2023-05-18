@@ -48,10 +48,10 @@ impl<'de> Deserialize<'de> for CreationTimestamp {
                 let sequence_number = seq
                     .next_element()?
                     .ok_or(Error::custom("Error for field 'sequence_number'"))?;
-                return Ok(CreationTimestamp {
+                Ok(CreationTimestamp {
                     creation_time,
                     sequence_number,
-                });
+                })
             }
         }
         deserializer.deserialize_seq(CreationTimestampVisitor)
@@ -76,7 +76,7 @@ impl Debug for DtnTime {
 
 impl From<DtnTime> for DateTime<Utc> {
     fn from(dtn: DtnTime) -> Self {
-        return DateTime::from(&dtn);
+        DateTime::from(&dtn)
     }
 }
 
@@ -89,16 +89,16 @@ impl From<&DtnTime> for DateTime<Utc> {
 
 impl From<DateTime<Utc>> for DtnTime {
     fn from(utc: DateTime<Utc>) -> Self {
-        return DtnTime::from(&utc);
+        DtnTime::from(&utc)
     }
 }
 
 impl From<&DateTime<Utc>> for DtnTime {
     fn from(utc: &DateTime<Utc>) -> Self {
         let millis = utc.timestamp_millis() - 946684800000; // 946684800 seconds between 1970-01-01 and 2000-01-01
-        return DtnTime {
+        DtnTime {
             timestamp: millis as u64,
-        };
+        }
     }
 }
 

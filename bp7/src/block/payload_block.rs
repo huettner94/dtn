@@ -28,6 +28,6 @@ impl Serialize for PayloadBlock {
 
 impl Validate for PayloadBlock {
     fn validate(&self) -> bool {
-        return true;
+        true
     }
 }

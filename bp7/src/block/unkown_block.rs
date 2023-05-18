@@ -19,6 +19,6 @@ impl Serialize for UnkownBlock {
 
 impl Validate for UnkownBlock {
     fn validate(&self) -> bool {
-        return true;
+        true
     }
 }

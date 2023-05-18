@@ -20,7 +20,7 @@ impl Serialize for PreviousNodeBlock {
 
 impl Validate for PreviousNodeBlock {
     fn validate(&self) -> bool {
-        return true;
+        true
     }
 }
 
@@ -28,7 +28,7 @@ impl TryFrom<PreviousNodeBlock> for Endpoint {
     type Error = serde_cbor::Error;
 
     fn try_from(value: PreviousNodeBlock) -> Result<Self, Self::Error> {
-        return serde_cbor::from_slice(&value.data);
+        serde_cbor::from_slice(&value.data)
     }
 }
 
@@ -37,6 +37,6 @@ impl TryFrom<Endpoint> for PreviousNodeBlock {
 
     fn try_from(value: Endpoint) -> Result<Self, Self::Error> {
         let data = serde_cbor::to_vec(&value)?;
-        return Ok(PreviousNodeBlock { data });
+        Ok(PreviousNodeBlock { data })
     }
 }

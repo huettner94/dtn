@@ -120,7 +120,7 @@ impl<'de> Deserialize<'de> for CanonicalBlock {
                 let size = seq.size_hint().ok_or_else(|| {
                     Error::custom("Canonical Block must know the length of its contents")
                 })?;
-                if size < 5 || size > 6 {
+                if !(5..=6).contains(&size) {
                     return Err(Error::invalid_length(size, &"Block has 5 to 6 elements"));
                 }
 
@@ -147,10 +147,10 @@ impl<'de> Deserialize<'de> for CanonicalBlock {
                     Ok(BlockType::Payload) => Block::Payload(PayloadBlock { data }),
                     Ok(BlockType::PreviousNode) => Block::PreviousNode(PreviousNodeBlock { data }),
                     Ok(BlockType::BundleAge) => Block::BundleAge(
-                        BundleAgeBlock::try_from(data).or_else(|r| Err(Error::custom(r)))?,
+                        BundleAgeBlock::try_from(data).map_err(Error::custom)?,
                     ),
                     Ok(BlockType::HopCount) => Block::HopCount(
-                        HopCountBlock::try_from(data).or_else(|r| Err(Error::custom(r)))?,
+                        HopCountBlock::try_from(data).map_err(Error::custom)?,
                     ),
                     Err(_) => Block::Unkown(UnkownBlock {
                         block_type: block_type_num,
@@ -162,12 +162,12 @@ impl<'de> Deserialize<'de> for CanonicalBlock {
                     crc = crc.deserialize_value(seq)?;
                 }
 
-                return Ok(CanonicalBlock {
+                Ok(CanonicalBlock {
                     block,
                     block_number,
                     block_flags,
                     crc,
-                });
+                })
             }
         }
         deserializer.deserialize_seq(BlockVisitor)
@@ -180,6 +180,6 @@ impl Validate for CanonicalBlock {
             return false;
         }*/
         // TODO
-        return true;
+        true
     }
 }

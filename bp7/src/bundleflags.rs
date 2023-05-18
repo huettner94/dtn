@@ -63,6 +63,6 @@ impl Validate for BundleFlags {
         {
             return false;
         }
-        return true;
+        true
     }
 }

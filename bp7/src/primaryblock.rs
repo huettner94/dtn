@@ -74,7 +74,7 @@ impl<'de> Deserialize<'de> for PrimaryBlock {
                 A: serde::de::SeqAccess<'de>,
             {
                 let size = seq.size_hint().unwrap();
-                if size < 8 || size > 11 {
+                if !(8..=11).contains(&size) {
                     return Err(Error::invalid_length(
                         size,
                         &"Primary block has 8 to 11 elements",
@@ -124,7 +124,7 @@ impl<'de> Deserialize<'de> for PrimaryBlock {
                     crc = crc.deserialize_value(seq)?;
                 }
 
-                return Ok(PrimaryBlock {
+                Ok(PrimaryBlock {
                     version,
                     bundle_processing_flags,
                     crc,
@@ -135,7 +135,7 @@ impl<'de> Deserialize<'de> for PrimaryBlock {
                     lifetime,
                     fragment_offset,
                     total_data_length,
-                });
+                })
             }
         }
         deserializer.deserialize_seq(PrimaryBlockVisitor)
@@ -159,7 +159,7 @@ impl Validate for PrimaryBlock {
         if !self.report_to.validate() {
             return false;
         }
-        return true;
+        true
     }
 }
 

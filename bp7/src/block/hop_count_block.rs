@@ -22,13 +22,10 @@ impl Serialize for HopCountBlock {
     {
         let mut vec = Vec::new();
         let inner_ser = &mut Serializer::new(&mut vec);
-        let mut seq = serde::Serializer::serialize_seq(inner_ser, Some(2))
-            .or_else(|e| Err(serde::ser::Error::custom(e)))?;
-        seq.serialize_element(&self.limit)
-            .or_else(|e| Err(serde::ser::Error::custom(e)))?;
-        seq.serialize_element(&self.count)
-            .or_else(|e| Err(serde::ser::Error::custom(e)))?;
-        seq.end().or_else(|e| Err(serde::ser::Error::custom(e)))?;
+        let mut seq = serde::Serializer::serialize_seq(inner_ser, Some(2)).map_err(serde::ser::Error::custom)?;
+        seq.serialize_element(&self.limit).map_err(serde::ser::Error::custom)?;
+        seq.serialize_element(&self.count).map_err(serde::ser::Error::custom)?;
+        seq.end().map_err(serde::ser::Error::custom)?;
 
         serializer.serialize_bytes(&vec)
     }
@@ -68,7 +65,7 @@ impl<'de> Deserialize<'de> for HopCountBlock {
                 let count: u64 = seq
                     .next_element()?
                     .ok_or(Error::custom("Error for field 'count'"))?;
-                return Ok(HopCountBlock { limit, count });
+                Ok(HopCountBlock { limit, count })
             }
         }
         deserializer.deserialize_seq(HopCountBlockVisitor)
@@ -77,7 +74,7 @@ impl<'de> Deserialize<'de> for HopCountBlock {
 
 impl Validate for HopCountBlock {
     fn validate(&self) -> bool {
-        return self.limit <= 255;
+        self.limit <= 255
     }
 }
 
@@ -85,6 +82,6 @@ impl TryFrom<Vec<u8>> for HopCountBlock {
     type Error = serde_cbor::Error;
 
     fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
-        return serde_cbor::from_slice(&value);
+        serde_cbor::from_slice(&value)
     }
 }

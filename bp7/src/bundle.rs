@@ -71,14 +71,14 @@ impl<'de> Deserialize<'de> for Bundle {
                     blocks.push(block);
                 }
 
-                if blocks.len() < 1 {
+                if blocks.is_empty() {
                     return Err(Error::invalid_length(0, &"must have at least one block"));
                 }
 
-                return Ok(Bundle {
+                Ok(Bundle {
                     primary_block,
                     blocks,
-                });
+                })
             }
         }
         deserializer.deserialize_seq(BundleVisitor)
@@ -95,7 +95,7 @@ impl Validate for Bundle {
                 return false;
             }
         }
-        return true;
+        true
     }
 }
 
@@ -103,7 +103,7 @@ impl TryFrom<Vec<u8>> for Bundle {
     type Error = SerializationError;
 
     fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
-        serde_cbor::from_slice(&value).or_else(|e| Err(SerializationError::SerializationError(e)))
+        serde_cbor::from_slice(&value).map_err(SerializationError::SerializationError)
     }
 }
 
@@ -119,7 +119,7 @@ impl TryFrom<&Bundle> for Vec<u8> {
     type Error = SerializationError;
 
     fn try_from(value: &Bundle) -> Result<Self, Self::Error> {
-        serde_cbor::to_vec(value).or_else(|e| Err(SerializationError::SerializationError(e)))
+        serde_cbor::to_vec(value).map_err(SerializationError::SerializationError)
     }
 }
 
@@ -130,7 +130,7 @@ impl Bundle {
         for b in vec {
             write!(&mut s, "{:02X?}", &b).or_else(|_| Err(SerializationError::ConversionError))?;
         }
-        return Ok(s);
+        Ok(s)
     }
 
     pub fn from_hex(hex: &str) -> Result<Bundle, SerializationError> {
@@ -151,7 +151,7 @@ impl Bundle {
 
     pub fn payload_block(&self) -> &PayloadBlock {
         match &self.payload_canonical_block().block {
-            Block::Payload(p) => return p,
+            Block::Payload(p) => p,
             _ => panic!("The payload block is always the payload block"),
         }
     }
@@ -306,11 +306,11 @@ impl Bundle {
             current_payload_offset += payload_length_for_fragment;
         }
 
-        return Ok((fragments, first_fragment_min_size, fragment_min_size));
+        Ok((fragments, first_fragment_min_size, fragment_min_size))
     }
 
     pub fn can_reassemble_bundles(bundles: &mut Vec<&Bundle>) -> bool {
-        if bundles.len() == 0 {
+        if bundles.is_empty() {
             return false;
         }
         let first = &bundles[0];
@@ -367,7 +367,7 @@ impl Bundle {
             return false;
         }
 
-        return true;
+        true
     }
 
     pub fn reassemble_bundles(mut bundles: Vec<&Bundle>) -> Option<Bundle> {
@@ -502,8 +502,7 @@ mod tests {
         let mut fragments_first = get_test_bundle().fragment(750)?.0;
         let fragments: Vec<Bundle> = fragments_first
             .drain(0..fragments_first.len())
-            .map(|f| f.fragment(600).unwrap().0)
-            .flatten()
+            .flat_map(|f| f.fragment(600).unwrap().0)
             .collect();
 
         let mut current_offset = 0;
@@ -527,7 +526,7 @@ mod tests {
     fn reassembly_bundle_2_frags() -> Result<(), FragmentationError> {
         let fragments = get_test_bundle().fragment(800)?.0;
         assert_eq!(fragments.len(), 2);
-        let fragments_ref = fragments.iter().map(|b| b).collect();
+        let fragments_ref = fragments.iter().collect();
 
         let reassembled = &Bundle::reassemble_bundles(fragments_ref).unwrap();
 
@@ -548,8 +547,7 @@ mod tests {
         let mut fragments_first = get_test_bundle().fragment(750)?.0;
         let mut fragments: Vec<Bundle> = fragments_first
             .drain(0..fragments_first.len())
-            .map(|f| f.fragment(600).unwrap().0)
-            .flatten()
+            .flat_map(|f| f.fragment(600).unwrap().0)
             .collect();
 
         let mut current_offset = 0;
@@ -570,7 +568,7 @@ mod tests {
         // just to test reordering
         fragments.swap(0, 2);
         fragments.swap(1, 3);
-        let fragments_ref = fragments.iter().map(|b| b).collect();
+        let fragments_ref = fragments.iter().collect();
 
         let reassembled_bundles = Bundle::reassemble_bundles(fragments_ref);
         assert!(reassembled_bundles.is_some());
@@ -590,7 +588,7 @@ mod tests {
         let tmpdata = fragments[1].payload_block().data[0];
         fragments[0].mut_payload_block().data.push(tmpdata);
 
-        let fragments_ref = fragments.iter().map(|b| b).collect();
+        let fragments_ref = fragments.iter().collect();
 
         let reassembled = &Bundle::reassemble_bundles(fragments_ref).unwrap();
 

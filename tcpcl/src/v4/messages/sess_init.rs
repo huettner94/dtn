@@ -6,7 +6,7 @@ use bitflags::bitflags;
 
 const KEEPALIVE_DEFAULT_INTERVAL: u16 = 60;
 pub const MAX_SEGMENT_MRU: u64 = 100 * 1024;
-pub const MAX_TRANSFER_MRU: u64 = 1 * 1024 * 1024;
+pub const MAX_TRANSFER_MRU: u64 = 1024 * 1024;
 
 bitflags! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
