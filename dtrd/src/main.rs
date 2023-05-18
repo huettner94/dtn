@@ -73,7 +73,7 @@ async fn main() {
             }
         }
         res = tcpcl_listener => {
-            if let Err(_) = res {
+            if res.is_err() {
                 error!("something bad happened with the tcpcl listener. Aborting...");
             }
         }

@@ -171,10 +171,7 @@ impl Daemon {
         self.routes
             .iter()
             .filter_map(|(target, routes)| {
-                if routes
-                    .iter()
-                    .any(|r| r.route_type == RouteType::Connected)
-                {
+                if routes.iter().any(|r| r.route_type == RouteType::Connected) {
                     Some(target.clone())
                 } else {
                     None

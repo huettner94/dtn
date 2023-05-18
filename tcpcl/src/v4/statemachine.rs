@@ -195,15 +195,12 @@ impl StateMachine {
             | States::SendXferSegments(_)
             | States::SendXferSegmentsAndAck(_, _)
             | States::SendKeepalive(_) => {
-                match message {
-                    Err(messages::Errors::InvalidMessageType(message_type_num)) => {
-                        self.state = States::SendMsgReject(
-                            msg_reject::ReasonCode::MessageTypeUnkown,
-                            message_type_num,
-                        );
-                        return message.map_err(|e| e.into());
-                    }
-                    _ => {}
+                if let Err(messages::Errors::InvalidMessageType(message_type_num)) = message {
+                    self.state = States::SendMsgReject(
+                        msg_reject::ReasonCode::MessageTypeUnkown,
+                        message_type_num,
+                    );
+                    return message.map_err(|e| e.into());
                 }
                 match &message {
                     Ok(Messages::SessInit(si)) if self.state == States::ActiveWaitSessInit => {
@@ -411,10 +408,10 @@ impl StateMachine {
     }
 
     pub fn connection_closing(&self) -> bool {
-        match self.state {
-            States::SendSessTerm(_) | States::WaitSessTerm | States::ConnectionClose => true,
-            _ => false,
-        }
+        matches!(
+            self.state,
+            States::SendSessTerm(_) | States::WaitSessTerm | States::ConnectionClose
+        )
     }
 
     pub fn get_peer_node_id(&self) -> String {
@@ -445,13 +442,13 @@ impl StateMachine {
     }
 
     pub fn contact_header_done(&self) -> bool {
-        match self.state {
+        !matches!(
+            self.state,
             States::ActiveSendContactHeader
-            | States::ActiveWaitContactHeader
-            | States::PassiveSendContactHeader
-            | States::PassiveWaitContactHeader => false,
-            _ => true,
-        }
+                | States::ActiveWaitContactHeader
+                | States::PassiveSendContactHeader
+                | States::PassiveWaitContactHeader
+        )
     }
 
     pub fn should_use_tls(&self) -> bool {

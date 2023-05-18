@@ -38,9 +38,12 @@ use crate::{
 pub trait AsyncReadWrite: AsyncRead + AsyncWrite + Send {}
 impl<T> AsyncReadWrite for T where T: AsyncRead + AsyncWrite + Send {}
 
+type CustomFramedReader = FramedRead<tokio::io::ReadHalf<Pin<Box<dyn AsyncReadWrite>>>, Codec>;
+type CustomFramedWriter = FramedWrite<tokio::io::WriteHalf<Pin<Box<dyn AsyncReadWrite>>>, Codec>;
+
 struct Stream {
-    read: FramedRead<tokio::io::ReadHalf<Pin<Box<dyn AsyncReadWrite>>>, Codec>,
-    write: FramedWrite<tokio::io::WriteHalf<Pin<Box<dyn AsyncReadWrite>>>, Codec>,
+    read: CustomFramedReader,
+    write: CustomFramedWriter,
     peer_cert: Option<X509>,
 }
 
@@ -78,12 +81,7 @@ impl Stream {
         self.peer_cert.as_ref()
     }
 
-    fn as_split(
-        &mut self,
-    ) -> (
-        &mut FramedRead<tokio::io::ReadHalf<Pin<Box<dyn AsyncReadWrite>>>, Codec>,
-        &mut FramedWrite<tokio::io::WriteHalf<Pin<Box<dyn AsyncReadWrite>>>, Codec>,
-    ) {
+    fn as_split(&mut self) -> (&mut CustomFramedReader, &mut CustomFramedWriter) {
         (&mut self.read, &mut self.write)
     }
 
@@ -218,24 +216,21 @@ impl TCPCLSession {
     }
 
     pub fn get_established_channel(&mut self) -> oneshot::Receiver<ConnectionInfo> {
-        self
-            .established_channel
+        self.established_channel
             .1
             .take()
             .expect("May not get a established channel > 1 time")
     }
 
     pub fn get_close_channel(&mut self) -> oneshot::Sender<()> {
-        self
-            .close_channel
+        self.close_channel
             .0
             .take()
             .expect("May not get a close channel > 1 time")
     }
 
     pub fn get_receive_channel(&mut self) -> mpsc::Receiver<Transfer> {
-        self
-            .receive_channel
+        self.receive_channel
             .1
             .take()
             .expect("May not get a receive channel > 1 time")
@@ -364,8 +359,6 @@ impl TCPCLSession {
                             return Ok(());
                         }
                         Some(message) => {
-                            drop(read_stream);
-                            drop(write_stream);
                             match self.read_message(message).await {
                                 Ok(_) => {},
                                 Err(e) => {return Err(e)},
@@ -561,23 +554,18 @@ fn validate_peer_certificate(peer_node_id: String, x509: Option<&X509>) -> Resul
             let cert_bytes = cert.to_der().map_err(|_| ())?;
             let (_, c) = X509Certificate::from_der(&cert_bytes).map_err(|_| ())?;
             for extension in c.extensions() {
-                match extension.parsed_extension() {
-                    ParsedExtension::SubjectAlternativeName(sans) => {
-                        for san in &sans.general_names {
-                            match san {
-                                GeneralName::OtherName(oid, value) => {
-                                    if oid.to_id_string() == "1.3.6.1.5.5.7.8.11"
-                                        && &value[4..] == peer_node_id.as_bytes()
-                                    // we strip of the first 4 bytes as they are the ASN.1 header for a list of one string
-                                    {
-                                        return Ok(());
-                                    }
-                                }
-                                _ => {}
+                if let ParsedExtension::SubjectAlternativeName(sans) = extension.parsed_extension()
+                {
+                    for san in &sans.general_names {
+                        if let GeneralName::OtherName(oid, value) = san {
+                            if oid.to_id_string() == "1.3.6.1.5.5.7.8.11"
+                                && &value[4..] == peer_node_id.as_bytes()
+                            // we strip of the first 4 bytes as they are the ASN.1 header for a list of one string
+                            {
+                                return Ok(());
                             }
                         }
                     }
-                    _ => {}
                 }
             }
         }

@@ -70,19 +70,14 @@ impl Handler<RemoveNode> for Daemon {
             remote_endpoint: None,
             temporary: false,
         };
-        match self.nodes.iter().position(|x| x == &node) {
-            Some(pos) => {
-                let node = &mut self.nodes[pos];
-                node.temporary = true;
-                node.connection_status = NodeConnectionStatus::Disconnecting;
+        if let Some(pos) = self.nodes.iter().position(|x| x == &node) {
+            let node = &mut self.nodes[pos];
+            node.temporary = true;
+            node.connection_status = NodeConnectionStatus::Disconnecting;
 
-                crate::converganceagent::agent::Daemon::from_registry().do_send(
-                    AgentDisconnectNode {
-                        connection_string: url,
-                    },
-                );
-            }
-            None => {}
+            crate::converganceagent::agent::Daemon::from_registry().do_send(AgentDisconnectNode {
+                connection_string: url,
+            });
         }
     }
 }

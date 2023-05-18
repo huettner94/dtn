@@ -22,9 +22,12 @@ impl Serialize for HopCountBlock {
     {
         let mut vec = Vec::new();
         let inner_ser = &mut Serializer::new(&mut vec);
-        let mut seq = serde::Serializer::serialize_seq(inner_ser, Some(2)).map_err(serde::ser::Error::custom)?;
-        seq.serialize_element(&self.limit).map_err(serde::ser::Error::custom)?;
-        seq.serialize_element(&self.count).map_err(serde::ser::Error::custom)?;
+        let mut seq = serde::Serializer::serialize_seq(inner_ser, Some(2))
+            .map_err(serde::ser::Error::custom)?;
+        seq.serialize_element(&self.limit)
+            .map_err(serde::ser::Error::custom)?;
+        seq.serialize_element(&self.count)
+            .map_err(serde::ser::Error::custom)?;
         seq.end().map_err(serde::ser::Error::custom)?;
 
         serializer.serialize_bytes(&vec)

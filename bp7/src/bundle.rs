@@ -141,9 +141,8 @@ impl Bundle {
 
     fn payload_canonical_block(&self) -> &CanonicalBlock {
         for block in &self.blocks {
-            match &block.block {
-                Block::Payload(_) => return block,
-                _ => {}
+            if let Block::Payload(_) = &block.block {
+                return block;
             }
         }
         panic!("All Bundles MUST contain a payload block");
@@ -158,9 +157,8 @@ impl Bundle {
 
     fn mut_payload_block(&mut self) -> &mut PayloadBlock {
         for block in &mut self.blocks {
-            match &mut block.block {
-                Block::Payload(p) => return p,
-                _ => {}
+            if let Block::Payload(p) = &mut block.block {
+                return p;
             }
         }
         panic!("All Bundles MUST contain a payload block");

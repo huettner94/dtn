@@ -146,12 +146,12 @@ impl<'de> Deserialize<'de> for CanonicalBlock {
                 let block = match &block_type {
                     Ok(BlockType::Payload) => Block::Payload(PayloadBlock { data }),
                     Ok(BlockType::PreviousNode) => Block::PreviousNode(PreviousNodeBlock { data }),
-                    Ok(BlockType::BundleAge) => Block::BundleAge(
-                        BundleAgeBlock::try_from(data).map_err(Error::custom)?,
-                    ),
-                    Ok(BlockType::HopCount) => Block::HopCount(
-                        HopCountBlock::try_from(data).map_err(Error::custom)?,
-                    ),
+                    Ok(BlockType::BundleAge) => {
+                        Block::BundleAge(BundleAgeBlock::try_from(data).map_err(Error::custom)?)
+                    }
+                    Ok(BlockType::HopCount) => {
+                        Block::HopCount(HopCountBlock::try_from(data).map_err(Error::custom)?)
+                    }
                     Err(_) => Block::Unkown(UnkownBlock {
                         block_type: block_type_num,
                         data,

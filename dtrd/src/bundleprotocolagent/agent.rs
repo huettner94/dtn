@@ -134,8 +134,7 @@ impl Handler<EventClientConnected> for Daemon {
             sender,
         } = msg;
 
-        self.local_connections
-            .insert(destination.clone(), sender);
+        self.local_connections.insert(destination.clone(), sender);
 
         self.deliver_local_bundles(&destination, ctx);
     }
@@ -160,8 +159,7 @@ impl Handler<EventPeerConnected> for Daemon {
         } = msg;
         assert!(destination.get_node_endpoint() == destination);
 
-        self.remote_connections
-            .insert(destination.clone(), sender);
+        self.remote_connections.insert(destination.clone(), sender);
 
         self.deliver_remote_bundles(&destination, ctx);
     }
@@ -225,8 +223,7 @@ impl Handler<EventRoutingTableUpdate> for Daemon {
         debug!("Updating routing table");
         let old_routes = mem::replace(&mut self.remote_routes, msg.routes);
         let old_route_targets: HashSet<Endpoint> = old_routes.keys().cloned().collect();
-        let new_route_targets: HashSet<Endpoint> =
-            self.remote_routes.keys().cloned().collect();
+        let new_route_targets: HashSet<Endpoint> = self.remote_routes.keys().cloned().collect();
         let added_routes: HashSet<&Endpoint> =
             new_route_targets.difference(&old_route_targets).collect();
         let updated_routes: HashSet<&Endpoint> =
@@ -249,43 +246,42 @@ impl Daemon {
             None => return,
         };
 
-        match self.local_bundles.get_mut(destination) {
-            Some(queue) => {
-                while let Some(bundle) = queue.pop_front() {
-                    debug!(
-                        "locally delivering bundle {:?}",
-                        &bundle.get_bundle().primary_block
+        if let Some(queue) = self.local_bundles.get_mut(destination) {
+            while let Some(bundle) = queue.pop_front() {
+                debug!(
+                    "locally delivering bundle {:?}",
+                    &bundle.get_bundle().primary_block
+                );
+                if bundle.get_bundle().primary_block.fragment_offset.is_some() {
+                    panic!(
+                        "Bundle is a fragment. It should have been reassembled before calling this"
                     );
-                    if bundle.get_bundle().primary_block.fragment_offset.is_some() {
-                        panic!("Bundle is a fragment. It should have been reassembled before calling this");
-                    }
+                }
 
-                    match sender.try_send(ClientDeliverBundle {
-                        bundle: bundle.clone(),
-                        responder: ctx.address().recipient(),
-                    }) {
-                        Ok(_) => self
-                            .bundles_pending_local_delivery
-                            .entry(destination.clone())
-                            .or_default()
-                            .push(bundle),
-                        Err(e) => match e {
-                            SendError::Full(cdb) => {
-                                let ClientDeliverBundle { bundle, .. } = cdb;
-                                queue.push_back(bundle);
-                                return;
-                            }
-                            SendError::Closed(_) => {
-                                warn!("Client for endpoint {} disconnected while sending bundles. Queueing...", destination);
-                                queue.push_back(bundle);
-                                self.local_connections.remove(destination);
-                                return;
-                            }
-                        },
-                    }
+                match sender.try_send(ClientDeliverBundle {
+                    bundle: bundle.clone(),
+                    responder: ctx.address().recipient(),
+                }) {
+                    Ok(_) => self
+                        .bundles_pending_local_delivery
+                        .entry(destination.clone())
+                        .or_default()
+                        .push(bundle),
+                    Err(e) => match e {
+                        SendError::Full(cdb) => {
+                            let ClientDeliverBundle { bundle, .. } = cdb;
+                            queue.push_back(bundle);
+                            return;
+                        }
+                        SendError::Closed(_) => {
+                            warn!("Client for endpoint {} disconnected while sending bundles. Queueing...", destination);
+                            queue.push_back(bundle);
+                            self.local_connections.remove(destination);
+                            return;
+                        }
+                    },
                 }
             }
-            None => {}
         }
     }
 
@@ -312,29 +308,27 @@ impl Daemon {
             None => sender_route.max_size,
         };
 
-        match self.remote_bundles.get_mut(&destination) {
-            Some(queue) => {
-                let mut visited: HashSet<uuid::Uuid> = HashSet::new();
-                while let Some(bundle) = queue.pop_front() {
-                    if visited.contains(&bundle.get_id()) {
-                        break;
-                    }
-                    debug!(
-                        "forwarding bundle {:?} to {:?}",
-                        &bundle.get_bundle().primary_block,
-                        destination
-                    );
+        if let Some(queue) = self.remote_bundles.get_mut(&destination) {
+            let mut visited: HashSet<uuid::Uuid> = HashSet::new();
+            while let Some(bundle) = queue.pop_front() {
+                if visited.contains(&bundle.get_id()) {
+                    break;
+                }
+                debug!(
+                    "forwarding bundle {:?} to {:?}",
+                    &bundle.get_bundle().primary_block,
+                    destination
+                );
 
-                    if max_bundle_size.is_some()
-                        && bundle.get_bundle_size() > max_bundle_size.unwrap()
-                    {
+                match max_bundle_size {
+                    Some(mbs) if bundle.get_bundle_size() > mbs => {
                         if bundle
                             .get_bundle()
                             .primary_block
                             .bundle_processing_flags
                             .contains(BundleFlags::MUST_NOT_FRAGMENT)
                             || bundle.get_bundle_min_size().is_some()
-                                && bundle.get_bundle_min_size().unwrap() > max_bundle_size.unwrap()
+                                && bundle.get_bundle_min_size().unwrap() > mbs
                         {
                             debug!("Bundle can not be fragmented as we can not get it that small. Queueing it");
                             visited.insert(bundle.get_id());
@@ -343,40 +337,40 @@ impl Daemon {
                             crate::bundlestorageagent::agent::Daemon::from_registry().do_send(
                                 FragmentBundle {
                                     bundle,
-                                    target_size: max_bundle_size.unwrap(),
+                                    target_size: mbs,
                                 },
                             );
                         }
                         continue;
                     }
+                    Some(_) | None => {}
+                }
 
-                    match sender.try_send(AgentForwardBundle {
-                        bundle: bundle.clone(),
-                        responder: ctx.address().recipient(),
-                    }) {
-                        Ok(_) => self
-                            .bundles_pending_forwarding
-                            .entry(destination.clone())
-                            .or_default()
-                            .push(bundle),
-                        Err(e) => match e {
-                            SendError::Full(afb) => {
-                                debug!("Can not continue forwarding to {}. Waiting for some space in the queue", route.next_hop);
-                                let AgentForwardBundle { bundle, .. } = afb;
-                                queue.push_back(bundle);
-                                return;
-                            }
-                            SendError::Closed(_) => {
-                                warn!("Peer for endpoint {} disconnected while forwarding bundles. Queueing...", destination);
-                                queue.push_back(bundle);
-                                self.remote_connections.remove(&destination);
-                                return;
-                            }
-                        },
-                    }
+                match sender.try_send(AgentForwardBundle {
+                    bundle: bundle.clone(),
+                    responder: ctx.address().recipient(),
+                }) {
+                    Ok(_) => self
+                        .bundles_pending_forwarding
+                        .entry(destination.clone())
+                        .or_default()
+                        .push(bundle),
+                    Err(e) => match e {
+                        SendError::Full(afb) => {
+                            debug!("Can not continue forwarding to {}. Waiting for some space in the queue", route.next_hop);
+                            let AgentForwardBundle { bundle, .. } = afb;
+                            queue.push_back(bundle);
+                            return;
+                        }
+                        SendError::Closed(_) => {
+                            warn!("Peer for endpoint {} disconnected while forwarding bundles. Queueing...", destination);
+                            queue.push_back(bundle);
+                            self.remote_connections.remove(&destination);
+                            return;
+                        }
+                    },
                 }
             }
-            None => {}
         }
     }
 

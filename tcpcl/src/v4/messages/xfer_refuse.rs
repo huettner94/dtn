@@ -35,10 +35,7 @@ impl XferRefuse {
             return Ok(None);
         }
 
-        let reason = src
-            .get_u8()
-            .try_into()
-            .unwrap_or(ReasonCode::Unkown);
+        let reason = src.get_u8().try_into().unwrap_or(ReasonCode::Unkown);
         let transfer_id = src.get_u64();
 
         Ok(Some(XferRefuse {

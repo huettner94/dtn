@@ -173,11 +173,8 @@ impl Handler<DisconnectRemote> for TCPCLServer {
 
     fn handle(&mut self, msg: DisconnectRemote, _ctx: &mut Self::Context) -> Self::Result {
         let DisconnectRemote { address } = msg;
-        match self.sessions.remove(&address) {
-            Some(sess) => {
-                sess.do_send(Shutdown {});
-            }
-            None => {}
+        if let Some(sess) = self.sessions.remove(&address) {
+            sess.do_send(Shutdown {});
         }
     }
 }
@@ -222,9 +219,11 @@ impl TCPCLServer {
     }
 }
 
+type TCPCLSendChannel = mpsc::Sender<(Vec<u8>, oneshot::Sender<Result<(), TransferSendErrors>>)>;
+
 struct TCPCLSessionAgent {
     close_channel: Option<oneshot::Sender<()>>,
-    send_channel: mpsc::Sender<(Vec<u8>, oneshot::Sender<Result<(), TransferSendErrors>>)>,
+    send_channel: TCPCLSendChannel,
 }
 
 impl Actor for TCPCLSessionAgent {
@@ -292,7 +291,7 @@ impl Handler<AgentForwardBundle> for TCPCLSessionAgent {
         let fut = async move { channel.send((bundle_data, result_sender)).await };
         fut.into_actor(self)
             .then(|res, _act, ctx| {
-                if let Err(_) = res {
+                if res.is_err() {
                     error!("Error sending bundle to tcpcl connection. Killing the connection");
                     ctx.stop();
                 } else {
@@ -336,15 +335,12 @@ impl Handler<Shutdown> for TCPCLSessionAgent {
     type Result = ();
 
     fn handle(&mut self, _msg: Shutdown, ctx: &mut Self::Context) -> Self::Result {
-        match self.close_channel.take() {
-            Some(c) => {
-                if c.send(()).is_err() {
-                    warn!("Error sending shutdown message to tcpcl session. Forcing it to die by stopping us");
-                    ctx.stop();
-                }
+        if let Some(c) = self.close_channel.take() {
+            if c.send(()).is_err() {
+                warn!("Error sending shutdown message to tcpcl session. Forcing it to die by stopping us");
+                ctx.stop();
             }
-            None => {}
-        };
+        }
     }
 }
 

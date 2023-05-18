@@ -12,8 +12,8 @@ use crate::Validate;
 #[derive(Debug, Serialize_repr, Deserialize_repr, PartialEq, Eq)]
 #[repr(u64)]
 enum EndpointType {
-    DTN = 1,
-    IPN = 2,
+    Dtn = 1,
+    Ipn = 2,
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
@@ -30,11 +30,11 @@ impl Serialize for Endpoint {
         let mut seq = serializer.serialize_seq(Some(2))?;
         match self {
             Endpoint::DTN(e) => {
-                seq.serialize_element(&EndpointType::DTN)?;
+                seq.serialize_element(&EndpointType::Dtn)?;
                 seq.serialize_element(e)?;
             }
             Endpoint::IPN(e) => {
-                seq.serialize_element(&EndpointType::IPN)?;
+                seq.serialize_element(&EndpointType::Ipn)?;
                 seq.serialize_element(e)?;
             }
         }
@@ -63,13 +63,13 @@ impl<'de> Deserialize<'de> for Endpoint {
                     .next_element()?
                     .ok_or(Error::custom("Error for field 'endpoint_type'"))?;
                 match endpoint_type {
-                    EndpointType::DTN => {
+                    EndpointType::Dtn => {
                         let dtn_endpoint: DTNEndpoint = seq
                             .next_element()?
                             .ok_or(Error::custom("Error for field 'dtn_endpoint'"))?;
                         Ok(Endpoint::DTN(dtn_endpoint))
                     }
-                    EndpointType::IPN => {
+                    EndpointType::Ipn => {
                         let ipn_endpoint: IPNEndpoint = seq
                             .next_element()?
                             .ok_or(Error::custom("Error for field 'ipn_endpoint'"))?;

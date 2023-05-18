@@ -136,11 +136,11 @@ impl Handler<CLUnregisterNode> for Daemon {
             "Received an unregistration request for node {:?} at url {}",
             node, url
         );
-        if node.is_some() {
+        if let Some(dstnode) = &node {
             self.connected_nodes.remove(&node.clone().unwrap());
             crate::bundleprotocolagent::agent::Daemon::from_registry().do_send(
                 EventPeerDisconnected {
-                    destination: node.unwrap(),
+                    destination: dstnode.clone(),
                 },
             );
         }

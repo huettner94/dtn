@@ -198,7 +198,7 @@ async fn command_bundle_listen(client: &mut Client, endpoint: String, output_mod
                         OutputMode::Hex => println!("Received bundle: {:?}", data),
                         OutputMode::Raw => {
                             let mut stdout = std::io::stdout();
-                            stdout.write(&data).unwrap();
+                            stdout.write_all(&data).unwrap();
                             stdout.flush().unwrap();
                         }
                     },
@@ -224,7 +224,7 @@ async fn command_bundle_receive(client: &mut Client, endpoint: String, file: Opt
             }
             None => {
                 let mut stdout = std::io::stdout();
-                stdout.write(&data).unwrap();
+                stdout.write_all(&data).unwrap();
                 stdout.flush().unwrap()
             }
         },

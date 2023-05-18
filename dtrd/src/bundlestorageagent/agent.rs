@@ -156,11 +156,8 @@ impl Handler<DeleteBundle> for Daemon {
 
     fn handle(&mut self, msg: DeleteBundle, _ctx: &mut Context<Self>) {
         let DeleteBundle { bundle } = msg;
-        match self.bundles.iter().position(|b| b == bundle) {
-            Some(idx) => {
-                self.bundles.remove(idx);
-            }
-            None => {}
+        if let Some(idx) = self.bundles.iter().position(|b| b == bundle) {
+            self.bundles.remove(idx);
         }
     }
 }
@@ -229,16 +226,15 @@ impl Daemon {
 
                 if local {
                     match sb.get_bundle().primary_block.fragment_offset.is_some() {
-                        true => match self.try_defragment_bundle(&sb) {
-                            Some(defragmented) => {
+                        true => {
+                            if let Some(defragmented) = self.try_defragment_bundle(&sb) {
                                 crate::bundleprotocolagent::agent::Daemon::from_registry().do_send(
                                     EventNewBundleStored {
                                         bundle: defragmented,
                                     },
                                 );
                             }
-                            None => {}
-                        },
+                        }
                         false => {
                             crate::bundleprotocolagent::agent::Daemon::from_registry()
                                 .do_send(EventNewBundleStored { bundle: sb });

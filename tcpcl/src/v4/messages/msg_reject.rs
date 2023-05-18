@@ -34,10 +34,7 @@ impl MsgReject {
             return Ok(None);
         }
 
-        let reason = src
-            .get_u8()
-            .try_into()
-            .unwrap_or(ReasonCode::Unkown);
+        let reason = src.get_u8().try_into().unwrap_or(ReasonCode::Unkown);
         let message_header = src.get_u8();
 
         Ok(Some(MsgReject {

@@ -93,8 +93,7 @@ impl Decoder for Codec {
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         if !self.contact_header_done {
-            let contact_header =
-                ContactHeader::decode(src).map(|o| o.map(Messages::ContactHeader));
+            let contact_header = ContactHeader::decode(src).map(|o| o.map(Messages::ContactHeader));
             if contact_header.is_ok() && contact_header.as_ref().unwrap().is_some() {
                 self.contact_header_done = true;
             }
@@ -115,25 +114,15 @@ impl Decoder for Codec {
         }
 
         let decoded = match self.curr_message_type.as_ref().unwrap() {
-            MessageType::SessInit => {
-                SessInit::decode(src).map(|o| o.map(Messages::SessInit))
-            }
-            MessageType::SessTerm => {
-                SessTerm::decode(src).map(|o| o.map(Messages::SessTerm))
-            }
+            MessageType::SessInit => SessInit::decode(src).map(|o| o.map(Messages::SessInit)),
+            MessageType::SessTerm => SessTerm::decode(src).map(|o| o.map(Messages::SessTerm)),
             MessageType::XferSegment => {
                 XferSegment::decode(src).map(|o| o.map(Messages::XferSegment))
             }
             MessageType::XferAck => XferAck::decode(src).map(|o| o.map(Messages::XferAck)),
-            MessageType::XferRefuse => {
-                XferRefuse::decode(src).map(|o| o.map(Messages::XferRefuse))
-            }
-            MessageType::Keepalive => {
-                Keepalive::decode(src).map(|o| o.map(Messages::Keepalive))
-            }
-            MessageType::MsgReject => {
-                MsgReject::decode(src).map(|o| o.map(Messages::MsgReject))
-            }
+            MessageType::XferRefuse => XferRefuse::decode(src).map(|o| o.map(Messages::XferRefuse)),
+            MessageType::Keepalive => Keepalive::decode(src).map(|o| o.map(Messages::Keepalive)),
+            MessageType::MsgReject => MsgReject::decode(src).map(|o| o.map(Messages::MsgReject)),
         };
 
         if decoded.is_ok() && decoded.as_ref().unwrap().is_some() {
