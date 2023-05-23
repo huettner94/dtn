@@ -27,8 +27,8 @@ COPY ./ .
 
 # as a workaround to make registry updates faster
 RUN mkdir -p ~/.cargo/
-RUN echo "[net]" > ~/.cargo/config
-RUN echo "git-fetch-with-cli = true" >> ~/.cargo/config
+RUN echo "[net]" > ~/.cargo/config.toml
+RUN echo "git-fetch-with-cli = true" >> ~/.cargo/config.toml
 
 RUN rustup component add rustfmt
 RUN cargo build --release
