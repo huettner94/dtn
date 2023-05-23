@@ -29,6 +29,8 @@ COPY ./ .
 RUN mkdir -p ~/.cargo/
 RUN echo "[net]" > ~/.cargo/config.toml
 RUN echo "git-fetch-with-cli = true" >> ~/.cargo/config.toml
+RUN echo "[registries.crates-io]" >> ~/.cargo/config.toml
+RUN echo 'protocol = "sparse"' >> ~/.cargo/config.toml
 
 RUN rustup component add rustfmt
 RUN cargo build --release
