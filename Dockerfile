@@ -4,7 +4,7 @@
 FROM rust:1.69 AS builder
 
 RUN rustup target add x86_64-unknown-linux-musl
-RUN apt update && apt install -y musl-tools musl-dev git
+RUN apt update && apt install -y musl-tools musl-dev git protobuf-compiler
 RUN update-ca-certificates
 
 # Create appuser
