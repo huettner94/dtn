@@ -5,12 +5,15 @@ FROM --platform=$BUILDPLATFORM rust:1.69 AS builder
 
 ARG TARGETPLATFORM
 
-RUN if [ "${TARGETPLATFORM}" == "linux/amd64" ]; then \
+RUN set -exu; if [ "${TARGETPLATFORM}" = "linux/amd64" ]; then \
     rustup target add x86_64-unknown-linux-musl; \
     TARGET="x86_64-unknown-linux-musl"; \
-    elif [ "${TARGETPLATFORM}" == "linux/arm64" ]; then \
+    elif [ "${TARGETPLATFORM}" = "linux/arm64" ]; then \
     rustup target add aarch64-unknown-linux-musl; \
     TARGET="aarch64-unknown-linux-musl"; \
+    else \
+    echo "broken targetplatform"; \
+    exit 1; \
     fi
 RUN apt update && apt install -y musl-tools musl-dev git protobuf-compiler
 RUN update-ca-certificates
