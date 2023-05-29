@@ -1,9 +1,17 @@
 ####################################################################################################
 ## Builder
 ####################################################################################################
-FROM rust:1.69 AS builder
+FROM --platform=$BUILDPLATFORM rust:1.69 AS builder
 
-RUN rustup target add x86_64-unknown-linux-musl
+ARG TARGETPLATFORM
+
+RUN if [[ "${TARGETPLATFORM}" == "linux/amd64" ]]; then \
+    rustup target add x86_64-unknown-linux-musl; \
+    TARGET="x86_64-unknown-linux-musl"; \
+    elif [[ "${TARGETPLATFORM}" == "linux/arm64" ]]; then \
+    rustup target add aarch64-unknown-linux-musl; \
+    TARGET="aarch64-unknown-linux-musl"; \
+    fi
 RUN apt update && apt install -y musl-tools musl-dev git protobuf-compiler
 RUN update-ca-certificates
 
