@@ -9,17 +9,16 @@ COPY ./ .
 
 RUN set -exu; \
     if [ "${TARGETPLATFORM}" = "linux/amd64" ]; then \
-    rustup target add x86_64-unknown-linux-musl; \
-    TARGET="x86_64-unknown-linux-musl"; \
+    TARGET="x86_64-unknown-linux-gnu"; \
     elif [ "${TARGETPLATFORM}" = "linux/arm64" ]; then \
-    rustup target add aarch64-unknown-linux-musl; \
     TARGET="aarch64-unknown-linux-musl"; \
     else \
     echo "broken targetplatform"; \
     exit 1; \
+    rustup target add "${TARGET}"; \
     fi; \
     apt update;\
-    apt install -y musl-tools musl-dev git protobuf-compiler;\
+    apt install -y musl-tools musl-dev git protobuf-compiler libssl-dev;\
     update-ca-certificates; \
     # as a workaround to make registry updates faster
     mkdir -p ~/.cargo/; \
