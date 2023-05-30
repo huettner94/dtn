@@ -18,7 +18,7 @@ RUN set -exu; \
     fi; \
     rustup target add "${TARGET}"; \
     apt update;\
-    apt install -y musl-tools musl-dev git protobuf-compiler libssl-dev;\
+    apt install -y musl-tools musl-dev git protobuf-compiler;\
     update-ca-certificates; \
     # as a workaround to make registry updates faster
     mkdir -p ~/.cargo/; \
@@ -29,7 +29,7 @@ RUN set -exu; \
     rustup component add rustfmt; \
     cargo build --release --target="${TARGET}"; \
     mkdir /releases; \
-    ls /dtrd/target/*; \
+    ls /dtrd/target/$TARGET*; \
     cp "/dtrd/target/${TARGET}/release/*" /releases
 
 ####################################################################################################
