@@ -11,7 +11,7 @@ RUN set -exu; \
     if [ "${TARGETPLATFORM}" = "linux/amd64" ]; then \
     TARGET="x86_64-unknown-linux-gnu"; \
     elif [ "${TARGETPLATFORM}" = "linux/arm64" ]; then \
-    TARGET="aarch64-unknown-linux-musl"; \
+    TARGET="aarch64-unknown-linux-gnu"; \
     else \
     echo "broken targetplatform"; \
     exit 1; \
@@ -27,7 +27,9 @@ RUN set -exu; \
     echo "[registries.crates-io]" >> ~/.cargo/config.toml; \
     echo 'protocol = "sparse"' >> ~/.cargo/config.toml; \
     rustup component add rustfmt; \
-    cargo build --release --target="${TARGET}"
+    cargo build --release --target="${TARGET}"; \
+    mkdir /releases; \
+    cp "/dtrd/target/${TARGET}/release/*" /releases
 
 ####################################################################################################
 ## Final image
@@ -41,7 +43,7 @@ COPY --from=builder /etc/group /etc/group
 WORKDIR /dtrd
 
 # Copy our build
-COPY --from=builder /dtrd/target/release/dtrd ./
+COPY --from=builder /releases/dtrd ./
 
 # Use an unprivileged user.
 USER dtrd:dtrd
