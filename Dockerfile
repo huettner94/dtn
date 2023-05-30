@@ -15,8 +15,8 @@ RUN set -exu; \
     else \
     echo "broken targetplatform"; \
     exit 1; \
-    rustup target add "${TARGET}"; \
     fi; \
+    rustup target add "${TARGET}"; \
     apt update;\
     apt install -y musl-tools musl-dev git protobuf-compiler libssl-dev;\
     update-ca-certificates; \
@@ -29,6 +29,7 @@ RUN set -exu; \
     rustup component add rustfmt; \
     cargo build --release --target="${TARGET}"; \
     mkdir /releases; \
+    ls /dtrd/target/*; \
     cp "/dtrd/target/${TARGET}/release/*" /releases
 
 ####################################################################################################
