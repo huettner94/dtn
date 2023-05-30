@@ -14,7 +14,7 @@ RUN set -exu; \
     elif [ "${TARGETPLATFORM}" = "linux/arm64" ]; then \
     TARGET="aarch64-unknown-linux-gnu"; \
     apt install gcc-aarch64-linux-gnu -y; \
-    export CARGO_TARGET_${TARGET}_LINKER=aarch64-linux-gnu-gcc; \
+    export CARGO_TARGET_AARCH64_UNKOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc; \
     else \
     echo "broken targetplatform"; \
     exit 1; \
@@ -31,7 +31,7 @@ RUN set -exu; \
     rustup component add rustfmt; \
     cargo build --release --target="${TARGET}"; \
     mkdir /releases; \
-    cp /dtrd/target/${TARGET}/release/* /releases
+    cp /dtrd/target/${TARGET}/release/dtrd /releases
 
 ####################################################################################################
 ## Final image
