@@ -8,16 +8,17 @@ WORKDIR /dtrd
 COPY ./ .
 
 RUN set -exu; \
+    apt update;\
     if [ "${TARGETPLATFORM}" = "linux/amd64" ]; then \
     TARGET="x86_64-unknown-linux-gnu"; \
     elif [ "${TARGETPLATFORM}" = "linux/arm64" ]; then \
     TARGET="aarch64-unknown-linux-gnu"; \
+    apt install gcc-aarch64-linux-gnu -y; \
     else \
     echo "broken targetplatform"; \
     exit 1; \
     fi; \
     rustup target add "${TARGET}"; \
-    apt update;\
     apt install -y musl-tools musl-dev git protobuf-compiler;\
     update-ca-certificates; \
     # as a workaround to make registry updates faster
@@ -29,7 +30,7 @@ RUN set -exu; \
     rustup component add rustfmt; \
     cargo build --release --target="${TARGET}"; \
     mkdir /releases; \
-    ls /dtrd/target/$TARGET*; \
+    ls /dtrd/target/$TARGET/*; \
     cp "/dtrd/target/${TARGET}/release/*" /releases
 
 ####################################################################################################
