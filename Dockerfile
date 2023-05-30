@@ -4,8 +4,11 @@
 FROM --platform=$BUILDPLATFORM rust:1.69 AS builder
 
 ARG TARGETPLATFORM
+WORKDIR /dtrd
+COPY ./ .
 
-RUN set -exu; if [ "${TARGETPLATFORM}" = "linux/amd64" ]; then \
+RUN set -exu; \
+    if [ "${TARGETPLATFORM}" = "linux/amd64" ]; then \
     rustup target add x86_64-unknown-linux-musl; \
     TARGET="x86_64-unknown-linux-musl"; \
     elif [ "${TARGETPLATFORM}" = "linux/arm64" ]; then \
@@ -14,37 +17,18 @@ RUN set -exu; if [ "${TARGETPLATFORM}" = "linux/amd64" ]; then \
     else \
     echo "broken targetplatform"; \
     exit 1; \
-    fi
-RUN apt update && apt install -y musl-tools musl-dev git protobuf-compiler
-RUN update-ca-certificates
-
-# Create appuser
-ENV USER=dtrd
-ENV UID=10001
-
-RUN adduser \
-    --disabled-password \
-    --gecos "" \
-    --home "/nonexistent" \
-    --shell "/sbin/nologin" \
-    --no-create-home \
-    --uid "${UID}" \
-    "${USER}"
-
-
-WORKDIR /dtrd
-
-COPY ./ .
-
-# as a workaround to make registry updates faster
-RUN mkdir -p ~/.cargo/
-RUN echo "[net]" > ~/.cargo/config.toml
-RUN echo "git-fetch-with-cli = true" >> ~/.cargo/config.toml
-RUN echo "[registries.crates-io]" >> ~/.cargo/config.toml
-RUN echo 'protocol = "sparse"' >> ~/.cargo/config.toml
-
-RUN rustup component add rustfmt
-RUN cargo build --release
+    fi; \
+    apt update;\
+    apt install -y musl-tools musl-dev git protobuf-compiler;\
+    update-ca-certificates; \
+    # as a workaround to make registry updates faster
+    mkdir -p ~/.cargo/; \
+    echo "[net]" > ~/.cargo/config.toml; \
+    echo "git-fetch-with-cli = true" >> ~/.cargo/config.toml; \
+    echo "[registries.crates-io]" >> ~/.cargo/config.toml; \
+    echo 'protocol = "sparse"' >> ~/.cargo/config.toml; \
+    rustup component add rustfmt; \
+    cargo build --release --target="${TARGET}"
 
 ####################################################################################################
 ## Final image
