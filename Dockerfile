@@ -9,25 +9,28 @@ COPY ./ .
 
 RUN set -exu; \
     apt update;\
-    if [ "${TARGETPLATFORM}" = "linux/amd64" ]; then \
-    TARGET="x86_64-unknown-linux-gnu"; \
-    elif [ "${TARGETPLATFORM}" = "linux/arm64" ]; then \
-    TARGET="aarch64-unknown-linux-gnu"; \
-    apt install gcc-aarch64-linux-gnu -y; \
-    export CARGO_TARGET_AARCH64_UNKOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc; \
-    else \
-    echo "broken targetplatform"; \
-    exit 1; \
-    fi; \
-    rustup target add "${TARGET}"; \
-    apt install -y musl-tools musl-dev git protobuf-compiler;\
-    update-ca-certificates; \
     # as a workaround to make registry updates faster
     mkdir -p ~/.cargo/; \
     echo "[net]" > ~/.cargo/config.toml; \
     echo "git-fetch-with-cli = true" >> ~/.cargo/config.toml; \
     echo "[registries.crates-io]" >> ~/.cargo/config.toml; \
     echo 'protocol = "sparse"' >> ~/.cargo/config.toml; \
+    # per platform config
+    if [ "${TARGETPLATFORM}" = "linux/amd64" ]; then \
+    TARGET="x86_64-unknown-linux-gnu"; \
+    elif [ "${TARGETPLATFORM}" = "linux/arm64" ]; then \
+    TARGET="aarch64-unknown-linux-gnu"; \
+    apt install gcc-aarch64-linux-gnu -y; \
+    echo "[target.aarch64-unknown-linux-gnu]" >>  ~/.cargo/config.toml; \
+    echo "linker = \"aarch64-linux-gnu-gcc\"" >> ~/.cargo/config.toml; \
+    else \
+    echo "broken targetplatform"; \
+    exit 1; \
+    fi; \
+    # and now the generic build
+    rustup target add "${TARGET}"; \
+    apt install -y musl-tools musl-dev git protobuf-compiler;\
+    update-ca-certificates; \
     rustup component add rustfmt; \
     cargo build --release --target="${TARGET}"; \
     mkdir /releases; \
