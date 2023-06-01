@@ -21,7 +21,7 @@ RUN set -exu; \
     elif [ "${TARGETPLATFORM}" = "linux/arm64" ]; then \
     TARGET="aarch64-unknown-linux-gnu"; \
     apt install gcc-aarch64-linux-gnu -y; \
-    export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-ld; \
+    export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc; \
     else \
     echo "broken targetplatform"; \
     exit 1; \
