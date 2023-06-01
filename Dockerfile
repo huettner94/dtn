@@ -21,8 +21,7 @@ RUN set -exu; \
     elif [ "${TARGETPLATFORM}" = "linux/arm64" ]; then \
     TARGET="aarch64-unknown-linux-gnu"; \
     apt install gcc-aarch64-linux-gnu -y; \
-    echo "[target.aarch64-unknown-linux-gnu]" >>  ~/.cargo/config.toml; \
-    echo "linker = \"aarch64-linux-gnu-gcc\"" >> ~/.cargo/config.toml; \
+    export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-ld; \
     else \
     echo "broken targetplatform"; \
     exit 1; \
