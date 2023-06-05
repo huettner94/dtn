@@ -7,6 +7,19 @@ ARG TARGETPLATFORM
 WORKDIR /dtrd
 COPY ./ .
 
+# Create appuser
+ENV USER=dtrd
+ENV UID=10001
+
+RUN adduser \
+    --disabled-password \
+    --gecos "" \
+    --home "/nonexistent" \
+    --shell "/sbin/nologin" \
+    --no-create-home \
+    --uid "${UID}" \
+    "${USER}"
+
 RUN set -exu; \
     apt update;\
     # as a workaround to make registry updates faster
