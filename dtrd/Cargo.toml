@@ -16,7 +16,7 @@ tokio-stream = "0.1.14"
 tokio-util = "0.7.8"
 futures-util = "0.3.28"
 env_logger = "0.10.0"
-openssl = {version = "0.10.55", features = ["vendored"]}
+openssl = {version = "0.10.56", features = ["vendored"]}
 uuid = {version = "1.4.1", features = ["v4"]}
 console-subscriber = "0.1.10"
 actix = "0.13.0"
