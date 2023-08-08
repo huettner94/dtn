@@ -10,5 +10,5 @@ bp7 = {path = "../bp7"}
 dtrd_client = {path = "../client"}
 tokio = { version = "1.29.1", features = ["macros", "rt-multi-thread", "fs"] }
 futures-util = "0.3.28"
-clap = { version = "4.3.19", features = ["derive"] }
+clap = { version = "4.3.21", features = ["derive"] }
 tabular = "0.2.0"
