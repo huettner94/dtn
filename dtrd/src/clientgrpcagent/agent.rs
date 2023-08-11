@@ -8,6 +8,7 @@ use bundleservice::bundle_service_server::{BundleService, BundleServiceServer};
 use log::info;
 use tokio::sync::{broadcast, mpsc};
 use tonic::{transport::Server, Response, Status};
+use url::Url;
 
 use crate::{
     clientagent::{
@@ -168,7 +169,7 @@ impl AdminService for MyAdminService {
         let nodes = node_list
             .iter()
             .map(|node| adminservice::Node {
-                url: node.url.clone(),
+                url: node.url.to_string(),
                 status: node.connection_status.to_string(),
                 endpoint: node
                     .remote_endpoint
@@ -186,8 +187,9 @@ impl AdminService for MyAdminService {
         request: tonic::Request<adminservice::AddNodeRequest>,
     ) -> Result<tonic::Response<adminservice::AddNodeResponse>, tonic::Status> {
         let req = request.into_inner();
+        let url = Url::parse(&req.url).map_err(|e| Status::invalid_argument(e.to_string()))?;
         self.client_agent
-            .send(ClientAddNode { url: req.url })
+            .send(ClientAddNode { url })
             .await
             .map_err(|e| tonic::Status::unknown(e.to_string()))?;
         Ok(Response::new(adminservice::AddNodeResponse {}))
@@ -198,8 +200,9 @@ impl AdminService for MyAdminService {
         request: tonic::Request<adminservice::RemoveNodeRequest>,
     ) -> Result<tonic::Response<adminservice::RemoveNodeResponse>, tonic::Status> {
         let req = request.into_inner();
+        let url = Url::parse(&req.url).map_err(|e| Status::invalid_argument(e.to_string()))?;
         self.client_agent
-            .send(ClientRemoveNode { url: req.url })
+            .send(ClientRemoveNode { url })
             .await
             .map_err(|e| tonic::Status::unknown(e.to_string()))?;
         Ok(Response::new(adminservice::RemoveNodeResponse {}))

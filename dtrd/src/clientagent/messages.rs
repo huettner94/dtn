@@ -5,6 +5,7 @@ use crate::{
 use actix::prelude::*;
 use bp7::endpoint::Endpoint;
 use tokio::sync::mpsc;
+use url::Url;
 
 #[derive(Message, Debug)]
 #[rtype(result = "")]
@@ -67,13 +68,13 @@ pub struct ClientListNodes {}
 #[derive(Message)]
 #[rtype(result = "")]
 pub struct ClientAddNode {
-    pub url: String,
+    pub url: Url,
 }
 
 #[derive(Message)]
 #[rtype(result = "")]
 pub struct ClientRemoveNode {
-    pub url: String,
+    pub url: Url,
 }
 
 #[derive(Message)]

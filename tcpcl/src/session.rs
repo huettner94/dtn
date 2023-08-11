@@ -1,5 +1,4 @@
 use std::{
-    net::SocketAddr,
     pin::Pin,
     time::{Duration, Instant},
 };
@@ -19,6 +18,7 @@ use tokio::{
 };
 use tokio_openssl::SslStream;
 use tokio_util::codec::{FramedRead, FramedWrite};
+use url::{Host, Url};
 use x509_parser::{
     extensions::{GeneralName, ParsedExtension},
     prelude::{FromDer, X509Certificate},
@@ -139,7 +139,6 @@ impl TCPCLSession {
         node_id: String,
         tls_settings: Option<TLSSettings>,
     ) -> Result<Self, std::io::Error> {
-        let peer_addr = stream.peer_addr()?;
         let can_tls = tls_settings.is_some();
         let established_channel = oneshot::channel();
         let close_channel = oneshot::channel();
@@ -150,6 +149,7 @@ impl TCPCLSession {
             Some(s) => Some(TCPCLSession::make_ssl_context(s)?),
             None => None,
         };
+        let peer_url = Url::parse(&format!("tcpcl://{}", stream.peer_addr().unwrap())).unwrap();
 
         Ok(TCPCLSession {
             is_server: true,
@@ -159,7 +159,7 @@ impl TCPCLSession {
             receiving_transfer: None,
             connection_info: ConnectionInfo {
                 peer_endpoint: None,
-                peer_address: peer_addr,
+                peer_url,
                 max_bundle_size: None,
             },
             established_channel: (Some(established_channel.0), Some(established_channel.1)),
@@ -174,14 +174,18 @@ impl TCPCLSession {
     }
 
     pub async fn connect(
-        socket: SocketAddr,
+        url: Url,
         node_id: String,
         tls_settings: Option<TLSSettings>,
     ) -> Result<Self, ErrorType> {
-        let stream = TcpStream::connect(&socket)
+        let addr = url
+            .socket_addrs(|| Some(4556))
+            .map_err(|_| ErrorType::DnsError)
+            .and_then(|mut r| r.pop().ok_or(ErrorType::DnsError))?;
+        let stream = TcpStream::connect(addr)
             .await
             .map_err::<ErrorType, _>(|e| e.into())?;
-        debug!("Connected to peer at {}", socket);
+        debug!("Connected to peer at {}", url);
         let can_tls = tls_settings.is_some();
         let established_channel = oneshot::channel();
         let close_channel = oneshot::channel();
@@ -201,7 +205,7 @@ impl TCPCLSession {
             receiving_transfer: None,
             connection_info: ConnectionInfo {
                 peer_endpoint: None,
-                peer_address: socket,
+                peer_url: url,
                 max_bundle_size: None,
             },
             established_channel: (Some(established_channel.0), Some(established_channel.1)),
@@ -413,7 +417,13 @@ impl TCPCLSession {
                 if self.statemachine.should_use_tls() {
                     let peer_node_id = s.node_id;
                     let x509 = self.stream.as_mut().unwrap().get_peer_certificate();
-                    if validate_peer_certificate(peer_node_id.clone(), x509).is_err() {
+                    if validate_peer_certificate(
+                        peer_node_id.clone(),
+                        &self.connection_info.peer_url,
+                        x509,
+                    )
+                    .is_err()
+                    {
                         return Err(Errors::TLSNameMissmatch(peer_node_id).into());
                     }
                 }
@@ -549,7 +559,11 @@ impl TCPCLSession {
     }
 }
 
-fn validate_peer_certificate(peer_node_id: String, x509: Option<&X509>) -> Result<(), ()> {
+fn validate_peer_certificate(
+    peer_node_id: String,
+    peer_url: &Url,
+    x509: Option<&X509>,
+) -> Result<(), ()> {
     match x509 {
         Some(cert) => {
             let cert_bytes = cert.to_der().map_err(|_| ())?;
@@ -563,7 +577,20 @@ fn validate_peer_certificate(peer_node_id: String, x509: Option<&X509>) -> Resul
                                 && &value[4..] == peer_node_id.as_bytes()
                             // we strip of the first 4 bytes as they are the ASN.1 header for a list of one string
                             {
+                                debug!("Certificate matched");
                                 return Ok(());
+                            }
+                        }
+                    }
+                    // If we did not find a matching other name, then try dns names
+                    // TODO: make this configurable
+                    if let Host::Domain(peer_name) = peer_url.host().unwrap() {
+                        for san in &sans.general_names {
+                            if let GeneralName::DNSName(name) = san {
+                                if name == &peer_name {
+                                    debug!("Certificate matched");
+                                    return Ok(());
+                                }
                             }
                         }
                     }

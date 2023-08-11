@@ -1,4 +1,4 @@
-use std::{collections::HashMap, net::SocketAddr};
+use std::collections::HashMap;
 
 use bp7::endpoint::Endpoint;
 use log::{error, info};
@@ -6,7 +6,7 @@ use log::{error, info};
 use crate::{
     converganceagent::messages::{EventPeerConnected, EventPeerDisconnected},
     nodeagent::messages::{NotifyNodeConnected, NotifyNodeDisconnected},
-    tcpclconverganceagent::messages::{ConnectRemote, DisconnectRemote},
+    tcpclconverganceagent::messages::ConnectRemote,
 };
 
 use super::messages::{
@@ -39,30 +39,14 @@ impl Handler<AgentConnectNode> for Daemon {
     type Result = ();
 
     fn handle(&mut self, msg: AgentConnectNode, _ctx: &mut Context<Self>) -> Self::Result {
-        let AgentConnectNode { connection_string } = msg;
-        match connection_string.split_once(':') {
-            Some((proto, hostport)) => match proto {
-                "tcpcl" => match hostport[2..].parse::<SocketAddr>() {
-                    Ok(address) => {
-                        crate::tcpclconverganceagent::agent::TCPCLServer::from_registry()
-                            .do_send(ConnectRemote { address });
-                    }
-                    Err(e) => {
-                        error!(
-                            "Invalid address '{}' specified to connect to new nodes: {}",
-                            hostport[2..].to_string(),
-                            e
-                        );
-                        //TODO make a response to the requestor
-                    }
-                },
-                _ => {
-                    error!("Invalid protocol: {}", proto);
-                    //TODO make a response to the requestor
-                }
-            },
-            None => {
-                error!("Invalid connection string format: {}", connection_string);
+        let AgentConnectNode { url } = msg;
+        match url.scheme() {
+            "tcpcl" => {
+                crate::tcpclconverganceagent::agent::TCPCLServer::from_registry()
+                    .do_send(ConnectRemote { url });
+            }
+            _ => {
+                error!("unkown scheme for: {}", url);
                 //TODO make a response to the requestor
             }
         }
@@ -73,30 +57,14 @@ impl Handler<AgentDisconnectNode> for Daemon {
     type Result = ();
 
     fn handle(&mut self, msg: AgentDisconnectNode, _ctx: &mut Context<Self>) -> Self::Result {
-        let AgentDisconnectNode { connection_string } = msg;
-        match connection_string.split_once(':') {
-            Some((proto, hostport)) => match proto {
-                "tcpcl" => match hostport[2..].parse::<SocketAddr>() {
-                    Ok(address) => {
-                        crate::tcpclconverganceagent::agent::TCPCLServer::from_registry()
-                            .do_send(DisconnectRemote { address });
-                    }
-                    Err(e) => {
-                        error!(
-                            "Invalid address '{}' specified to connect to new nodes: {}",
-                            hostport[2..].to_string(),
-                            e
-                        );
-                        //TODO make a response to the requestor
-                    }
-                },
-                _ => {
-                    error!("Invalid protocol: {}", proto);
-                    //TODO make a response to the requestor
-                }
-            },
-            None => {
-                error!("Invalid connection string format: {}", connection_string);
+        let AgentDisconnectNode { url } = msg;
+        match url.scheme() {
+            "tcpcl" => {
+                crate::tcpclconverganceagent::agent::TCPCLServer::from_registry()
+                    .do_send(ConnectRemote { url });
+            }
+            _ => {
+                error!("unkown scheme for: {}", url);
                 //TODO make a response to the requestor
             }
         }

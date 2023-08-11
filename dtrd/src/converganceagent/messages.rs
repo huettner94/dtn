@@ -1,5 +1,6 @@
 use actix::prelude::*;
 use bp7::endpoint::Endpoint;
+use url::Url;
 
 use crate::bundlestorageagent::StoredBundle;
 
@@ -40,17 +41,17 @@ pub struct EventPeerDisconnected {
 #[derive(Message)]
 #[rtype(result = "")]
 pub struct AgentConnectNode {
-    pub connection_string: String,
+    pub url: Url,
 }
 #[derive(Message)]
 #[rtype(result = "")]
 pub struct AgentDisconnectNode {
-    pub connection_string: String,
+    pub url: Url,
 }
 #[derive(Message)]
 #[rtype(result = "")]
 pub struct CLRegisterNode {
-    pub url: String,
+    pub url: Url,
     pub node: Endpoint,
     pub max_bundle_size: u64,
     pub sender: Recipient<AgentForwardBundle>,
@@ -58,6 +59,6 @@ pub struct CLRegisterNode {
 #[derive(Message)]
 #[rtype(result = "")]
 pub struct CLUnregisterNode {
-    pub url: String,
+    pub url: Url,
     pub node: Option<Endpoint>,
 }

@@ -9,6 +9,7 @@ use tokio::{
     net::{TcpListener, TcpStream},
     sync::oneshot,
 };
+use url::Url;
 
 use crate::common::*;
 
@@ -35,7 +36,8 @@ async fn test_connection_setup_client() -> Result<(), ErrorType> {
 
         socket.write(&SESS_INIT_SERVER).await.unwrap();
     });
-    let mut session = TCPCLSession::connect(addr, "dtn://client".into(), None).await?;
+    let url = Url::parse(&format!("tcpcl://{}", addr)).unwrap();
+    let mut session = TCPCLSession::connect(url, "dtn://client".into(), None).await?;
     let established = session.get_established_channel();
     session.manage_connection().await.unwrap();
     jh.await.unwrap();

@@ -1,14 +1,14 @@
 use actix::prelude::*;
-use std::net::SocketAddr;
+use url::Url;
 
 #[derive(Message)]
 #[rtype(result = "")]
 pub struct ConnectRemote {
-    pub address: SocketAddr,
+    pub url: Url,
 }
 
 #[derive(Message)]
 #[rtype(result = "")]
 pub struct DisconnectRemote {
-    pub address: SocketAddr,
+    pub url: Url,
 }

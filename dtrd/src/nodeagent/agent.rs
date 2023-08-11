@@ -52,9 +52,8 @@ impl Handler<AddNode> for Daemon {
         if !self.nodes.contains(&node) {
             node.connection_status = NodeConnectionStatus::Connecting;
             self.nodes.push(node);
-            crate::converganceagent::agent::Daemon::from_registry().do_send(AgentConnectNode {
-                connection_string: url,
-            });
+            crate::converganceagent::agent::Daemon::from_registry()
+                .do_send(AgentConnectNode { url });
         }
     }
 }
@@ -75,9 +74,8 @@ impl Handler<RemoveNode> for Daemon {
             node.temporary = true;
             node.connection_status = NodeConnectionStatus::Disconnecting;
 
-            crate::converganceagent::agent::Daemon::from_registry().do_send(AgentDisconnectNode {
-                connection_string: url,
-            });
+            crate::converganceagent::agent::Daemon::from_registry()
+                .do_send(AgentDisconnectNode { url });
         }
     }
 }
@@ -158,7 +156,7 @@ impl Handler<TryConnect> for Daemon {
                 info!("Trying to reconnect to {}", node.url);
                 node.connection_status = NodeConnectionStatus::Connecting;
                 crate::converganceagent::agent::Daemon::from_registry().do_send(AgentConnectNode {
-                    connection_string: node.url.clone(),
+                    url: node.url.clone(),
                 });
             }
         }

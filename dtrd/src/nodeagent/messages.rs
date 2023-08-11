@@ -2,6 +2,7 @@ use std::fmt::Display;
 
 use actix::prelude::*;
 use bp7::endpoint::Endpoint;
+use url::Url;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum NodeConnectionStatus {
@@ -21,10 +22,9 @@ impl Display for NodeConnectionStatus {
         })
     }
 }
-
 #[derive(Debug, Clone, Eq)]
 pub struct Node {
-    pub url: String,
+    pub url: Url,
     pub connection_status: NodeConnectionStatus,
     pub remote_endpoint: Option<Endpoint>,
     pub temporary: bool,
@@ -43,19 +43,19 @@ pub struct ListNodes {}
 #[derive(Message)]
 #[rtype(result = "")]
 pub struct AddNode {
-    pub url: String,
+    pub url: Url,
 }
 
 #[derive(Message)]
 #[rtype(result = "")]
 pub struct RemoveNode {
-    pub url: String,
+    pub url: Url,
 }
 
 #[derive(Message)]
 #[rtype(result = "")]
 pub struct NotifyNodeConnected {
-    pub url: String,
+    pub url: Url,
     pub endpoint: Endpoint,
     pub max_bundle_size: u64,
 }
@@ -63,7 +63,7 @@ pub struct NotifyNodeConnected {
 #[derive(Message)]
 #[rtype(result = "")]
 pub struct NotifyNodeDisconnected {
-    pub url: String,
+    pub url: Url,
 }
 
 #[derive(Message)]

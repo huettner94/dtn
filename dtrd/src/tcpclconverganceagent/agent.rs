@@ -15,6 +15,7 @@ use tokio::{
     task::JoinHandle,
 };
 use tokio_stream::wrappers::ReceiverStream;
+use url::Url;
 
 use crate::{
     bundlestorageagent::messages::StoreBundle,
@@ -82,7 +83,7 @@ pub async fn tcpcl_listener(
 pub struct TCPCLServer {
     my_node_id: String,
     tls_config: Option<TLSSettings>,
-    sessions: HashMap<SocketAddr, Addr<TCPCLSessionAgent>>,
+    sessions: HashMap<Url, Addr<TCPCLSessionAgent>>,
 }
 
 impl Actor for TCPCLServer {
@@ -135,7 +136,8 @@ impl Handler<NewClientConnectedOnSocket> for TCPCLServer {
             };
 
         let sessionagent = TCPCLSessionAgent::new(session);
-        self.sessions.insert(address, sessionagent);
+        let url = Url::parse(&format!("tcpcl://{}", address)).unwrap();
+        self.sessions.insert(url, sessionagent);
     }
 }
 
@@ -143,23 +145,24 @@ impl Handler<ConnectRemote> for TCPCLServer {
     type Result = ();
 
     fn handle(&mut self, msg: ConnectRemote, ctx: &mut Self::Context) -> Self::Result {
-        let ConnectRemote { address } = msg;
-        let fut = TCPCLSession::connect(address, self.my_node_id.clone(), self.tls_config.clone());
+        let ConnectRemote { url } = msg;
+
+        let fut = TCPCLSession::connect(
+            url.clone(),
+            self.my_node_id.clone(),
+            self.tls_config.clone(),
+        );
         fut.into_actor(self)
             .then(move |ret, act, _ctx| {
                 match ret {
                     Ok(session) => {
                         let sessionagent = TCPCLSessionAgent::new(session);
-                        act.sessions.insert(address, sessionagent);
+                        act.sessions.insert(url, sessionagent);
                     }
                     Err(e) => {
                         error!("Error connecting to remote tcpcl: {:?}", e);
-                        crate::converganceagent::agent::Daemon::from_registry().do_send(
-                            CLUnregisterNode {
-                                url: format!("tcpcl://{}", &address),
-                                node: None,
-                            },
-                        );
+                        crate::converganceagent::agent::Daemon::from_registry()
+                            .do_send(CLUnregisterNode { url, node: None });
                     }
                 }
                 fut::ready(())
@@ -172,8 +175,8 @@ impl Handler<DisconnectRemote> for TCPCLServer {
     type Result = ();
 
     fn handle(&mut self, msg: DisconnectRemote, _ctx: &mut Self::Context) -> Self::Result {
-        let DisconnectRemote { address } = msg;
-        if let Some(sess) = self.sessions.remove(&address) {
+        let DisconnectRemote { url } = msg;
+        if let Some(sess) = self.sessions.remove(&url) {
             sess.do_send(Shutdown {});
         }
     }
@@ -349,7 +352,7 @@ impl StreamHandler<ConnectionInfo> for TCPCLSessionAgent {
         match Endpoint::new(item.peer_endpoint.as_ref().unwrap()) {
             Some(node) => {
                 crate::converganceagent::agent::Daemon::from_registry().do_send(CLRegisterNode {
-                    url: format!("tcpcl://{}", item.peer_address),
+                    url: item.peer_url,
                     node,
                     max_bundle_size: item
                         .max_bundle_size
@@ -389,7 +392,7 @@ impl TCPCLSessionAgent {
                     None => None,
                 };
                 crate::converganceagent::agent::Daemon::from_registry().do_send(CLUnregisterNode {
-                    url: format!("tcpcl://{}", ci.peer_address),
+                    url: Url::parse(&format!("tcpcl://{}", ci.peer_url)).unwrap(),
                     node,
                 });
             };

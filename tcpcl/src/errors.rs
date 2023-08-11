@@ -16,6 +16,7 @@ pub enum ErrorType {
     IOError(std::io::Error),
     SSLError(openssl::ssl::Error),
     TCPCLError(Errors),
+    DnsError,
 }
 
 impl From<std::io::Error> for ErrorType {
