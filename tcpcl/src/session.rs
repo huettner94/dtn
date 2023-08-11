@@ -255,15 +255,16 @@ impl TCPCLSession {
 
         let out = self.drive_statemachine(&mut send_channel_receiver).await;
         if out.is_err() {
-            let e = out.unwrap_err();
-            warn!("Connection completed with error {:?}", e);
+            let error = out.unwrap_err();
+            warn!("Connection completed with error {:?}", error);
             if self.stream.is_some() {
-                if let Err(e) = self.stream.take().unwrap().shutdown().await {
-                    warn!("error shuting down the socket: {:?}", e);
-                    return Err(e.into());
+                let stream = self.stream.take().unwrap();
+                if let Err(internal_error) = stream.shutdown().await {
+                    warn!("error shuting down the socket: {:?}", internal_error);
+                    return Err(error);
                 }
             }
-            return Err(e);
+            return Err(error);
         } else {
             debug!("Connection has completed");
         }
