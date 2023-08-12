@@ -1,0 +1,26 @@
+header:
+  license:
+    spdx-id: GPL-3.0-or-later
+    copyright-owner: Felix Huettner
+    copyright-year: '2023'
+    software-name: DTRD
+
+  paths-ignore:
+    - '**/target/**'
+    - '**/*.md'
+    - 'LICENSE.txt'
+    - '.*ignore'
+    - 'renovate.json'
+    - '.licenserc.yaml'
+    - 'Cargo.lock'
+
+  language:
+    protobuf:
+      extensions:
+        - "*.proto"
+      filenames:
+        - "protobuf/bundle/admin.proto"
+        - "protobuf/bundle/bundle.proto"
+      comment_style_id: DoubleSlash
+
+  comment: on-failure
