@@ -37,16 +37,18 @@ RUN adduser \
     --uid "${UID}" \
     "${USER}"
 
-RUN set -exu; \
-    apt update;\
-    # as a workaround to make registry updates faster
-    mkdir -p ~/.cargo/; \
-    echo "[net]" > ~/.cargo/config.toml; \
-    echo "git-fetch-with-cli = true" >> ~/.cargo/config.toml; \
-    echo "[registries.crates-io]" >> ~/.cargo/config.toml; \
-    echo 'protocol = "sparse"' >> ~/.cargo/config.toml; \
-    # per platform config
-    if [ "${TARGETPLATFORM}" = "linux/amd64" ]; then \
+RUN set -exu
+RUN apt update
+
+# as a workaround to make registry updates faster
+RUN mkdir -p ~/.cargo/
+RUN echo "[net]" > ~/.cargo/config.toml
+RUN echo "git-fetch-with-cli = true" >> ~/.cargo/config.toml
+RUN echo "[registries.crates-io]" >> ~/.cargo/config.toml
+RUN echo 'protocol = "sparse"' >> ~/.cargo/config.toml
+
+# per platform config
+RUN if [ "${TARGETPLATFORM}" = "linux/amd64" ]; then \
     TARGET="x86_64-unknown-linux-gnu"; \
     elif [ "${TARGETPLATFORM}" = "linux/arm64" ]; then \
     TARGET="aarch64-unknown-linux-gnu"; \
@@ -63,7 +65,7 @@ RUN set -exu; \
     rustup component add rustfmt; \
     cargo build --release --target="${TARGET}"; \
     mkdir /releases; \
-    cp /dtrd/target/${TARGET}/release/dtrd /releases
+    cp /dtrd/target/${TARGET}/release/dtrd /dtrd/target/${TARGET}/release/dtrd_cli /releases
 
 ####################################################################################################
 ## Final image
@@ -77,7 +79,8 @@ COPY --from=builder /etc/group /etc/group
 WORKDIR /dtrd
 
 # Copy our build
-COPY --from=builder /releases/dtrd ./
+COPY --from=builder /releases/dtrd /releases/dtrd_cli ./
+ENV PATH="/dtrd:$PATH"
 
 # Use an unprivileged user.
 USER dtrd:dtrd

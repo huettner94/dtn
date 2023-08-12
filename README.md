@@ -42,11 +42,9 @@ To generate the certificates for testing the tool `dtrd/gencert.sh` can be used.
 
 ## Usage Cli client
 
-The client can currently only be built from source.
-It is located in the `cli` directory.
-Use `--help` as for any other cli tooling.
+Run it with `docker run ghcr.io/huettner94/dtn:main dtrd_cli` (or compile it using cargo and run from the `cli` folder).
 
-E.g. `cargo run bundle --url http://localhost:50051 submit -d "dtn://node2/testlistener" --data thecakeisalie`
+E.g. `docker run ghcr.io/huettner94/dtn:main dtrd_cli bundle --url http://localhost:50051 submit -d "dtn://node2/testlistener" --data thecakeisalie`
 
 ## Contributing
 
