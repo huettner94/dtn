@@ -22,6 +22,7 @@ DTN could e.g. also be used to send data from one mobile phone to the other with
 * Most of the Bundle Protocol [RFC 9171](https://datatracker.ietf.org/doc/rfc9171/) 
 * TCPCL as convergance layer [RFC 9174](https://datatracker.ietf.org/doc/rfc9174/)
 * A grpc client endpoint as well as a client library and cli
+* Support for routing bundles to other connected nodes and based on user defined static routes
 
 ## Usage DTRD
 
