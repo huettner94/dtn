@@ -59,7 +59,7 @@ impl Handler<AgentConnectNode> for Daemon {
         let AgentConnectNode { url } = msg;
         match url.scheme() {
             "tcpcl" => {
-                crate::tcpclconverganceagent::agent::TCPCLServer::from_registry()
+                crate::tcpclconverganceagent::server_agent::TCPCLServer::from_registry()
                     .do_send(ConnectRemote { url });
             }
             _ => {
@@ -77,7 +77,7 @@ impl Handler<AgentDisconnectNode> for Daemon {
         let AgentDisconnectNode { url } = msg;
         match url.scheme() {
             "tcpcl" => {
-                crate::tcpclconverganceagent::agent::TCPCLServer::from_registry()
+                crate::tcpclconverganceagent::server_agent::TCPCLServer::from_registry()
                     .do_send(ConnectRemote { url });
             }
             _ => {

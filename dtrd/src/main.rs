@@ -69,11 +69,11 @@ async fn main() {
         })
         .unwrap();
 
-    let tcpcl_server_addr = tcpclconverganceagent::agent::TCPCLServer::default().start();
+    let tcpcl_server_addr = tcpclconverganceagent::server_agent::TCPCLServer::default().start();
 
     let tcpcl_listener_shutdown_notifier = notify_shutdown.subscribe();
     let tcpcl_listener_shutdown_complete_tx_task = shutdown_complete_tx.clone();
-    let tcpcl_listener = tcpclconverganceagent::agent::tcpcl_listener(
+    let tcpcl_listener = tcpclconverganceagent::server_agent::tcpcl_listener(
         tcpcl_listener_shutdown_notifier,
         tcpcl_listener_shutdown_complete_tx_task,
         tcpcl_server_addr.clone(),
