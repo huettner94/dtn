@@ -58,19 +58,19 @@ impl PartialEq for Node {
 pub struct ListNodes {}
 
 #[derive(Message)]
-#[rtype(result = "")]
+#[rtype(result = "()")]
 pub struct AddNode {
     pub url: Url,
 }
 
 #[derive(Message)]
-#[rtype(result = "")]
+#[rtype(result = "()")]
 pub struct RemoveNode {
     pub url: Url,
 }
 
 #[derive(Message)]
-#[rtype(result = "")]
+#[rtype(result = "()")]
 pub struct NotifyNodeConnected {
     pub url: Url,
     pub endpoint: Endpoint,
@@ -78,11 +78,11 @@ pub struct NotifyNodeConnected {
 }
 
 #[derive(Message)]
-#[rtype(result = "")]
+#[rtype(result = "()")]
 pub struct NotifyNodeDisconnected {
     pub url: Url,
 }
 
 #[derive(Message)]
-#[rtype(result = "")]
+#[rtype(result = "()")]
 pub struct TryConnect {}

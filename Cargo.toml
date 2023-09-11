@@ -24,3 +24,5 @@ members = [
     "dtrd",
     "tcpcl"
 ]
+
+resolver = "2"

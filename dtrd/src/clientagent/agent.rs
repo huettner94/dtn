@@ -237,7 +237,7 @@ impl Handler<ClientRemoveRoute> for Daemon {
 }
 
 #[derive(Message)]
-#[rtype(result = "")]
+#[rtype(result = "()")]
 struct StopListenBundleResponseActor {}
 
 pub struct ListenBundleResponseActor {

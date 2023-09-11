@@ -43,13 +43,13 @@ pub struct NexthopInfo {
 }
 
 #[derive(Message)]
-#[rtype(result = "")]
+#[rtype(result = "()")]
 pub struct EventRoutingTableUpdate {
     pub routes: HashMap<Endpoint, NexthopInfo>,
 }
 
 #[derive(Message)]
-#[rtype(result = "")]
+#[rtype(result = "()")]
 pub struct AddRoute {
     pub target: Endpoint,
     pub route_type: RouteType,
@@ -58,7 +58,7 @@ pub struct AddRoute {
 }
 
 #[derive(Message)]
-#[rtype(result = "")]
+#[rtype(result = "()")]
 pub struct RemoveRoute {
     pub target: Endpoint,
     pub route_type: RouteType,

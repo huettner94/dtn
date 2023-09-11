@@ -18,5 +18,5 @@
 use actix::prelude::*;
 
 #[derive(Message, Debug)]
-#[rtype(result = "")]
+#[rtype(result = "()")]
 pub struct Shutdown {}

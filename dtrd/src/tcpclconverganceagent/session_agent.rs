@@ -42,7 +42,7 @@ use crate::{
 use actix::prelude::*;
 
 #[derive(Message)]
-#[rtype(result = "")]
+#[rtype(result = "()")]
 pub struct NewClientConnectedOnSocket {
     pub stream: TcpStream,
     pub address: SocketAddr,
