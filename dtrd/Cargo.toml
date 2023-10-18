@@ -34,7 +34,7 @@ tokio-util = "0.7.9"
 futures-util = "0.3.28"
 env_logger = "0.10.0"
 openssl = {version = "0.10.57", features = ["vendored"]}
-uuid = {version = "1.4.1", features = ["v4"]}
+uuid = {version = "1.5.0", features = ["v4"]}
 console-subscriber = "0.2.0"
 actix = "0.13.1"
 actix-rt = "2.9.0"
