@@ -28,7 +28,6 @@ use tokio::{
     sync::{mpsc, oneshot},
 };
 use tokio_stream::wrappers::ReceiverStream;
-use url::Url;
 
 use crate::{
     bundlestorageagent::messages::StoreBundle,
@@ -218,7 +217,7 @@ impl TCPCLSessionAgent {
                     None => None,
                 };
                 crate::converganceagent::agent::Daemon::from_registry().do_send(CLUnregisterNode {
-                    url: Url::parse(&format!("tcpcl://{}", ci.peer_url)).unwrap(),
+                    url: ci.peer_url,
                     node,
                 });
             };
