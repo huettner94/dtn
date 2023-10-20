@@ -23,7 +23,7 @@ use log::{error, info};
 use crate::{
     converganceagent::messages::{EventPeerConnected, EventPeerDisconnected},
     nodeagent::messages::{NotifyNodeConnected, NotifyNodeDisconnected},
-    tcpclconverganceagent::messages::ConnectRemote,
+    tcpclconverganceagent::messages::{ConnectRemote, DisconnectRemote},
 };
 
 use super::messages::{
@@ -78,7 +78,7 @@ impl Handler<AgentDisconnectNode> for Daemon {
         match url.scheme() {
             "tcpcl" => {
                 crate::tcpclconverganceagent::server_agent::TCPCLServer::from_registry()
-                    .do_send(ConnectRemote { url });
+                    .do_send(DisconnectRemote { url });
             }
             _ => {
                 error!("unkown scheme for: {}", url);
