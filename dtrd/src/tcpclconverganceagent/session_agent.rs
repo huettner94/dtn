@@ -40,6 +40,8 @@ use crate::{
 
 use actix::prelude::*;
 
+use super::messages::ForceShutdown;
+
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct NewClientConnectedOnSocket {
@@ -147,7 +149,7 @@ impl Handler<AgentForwardBundle> for TCPCLSessionAgent {
                                 }
                             },
                             Err(_) => {
-                                error!("Error during receiving bundle status results.");
+                                debug!("Error during receiving bundle status results. Probabily the session was killed ugly");
                             }
                         }
                     };
@@ -169,6 +171,14 @@ impl Handler<Shutdown> for TCPCLSessionAgent {
                 ctx.stop();
             }
         }
+    }
+}
+
+impl Handler<ForceShutdown> for TCPCLSessionAgent {
+    type Result = ();
+
+    fn handle(&mut self, _msg: ForceShutdown, ctx: &mut Self::Context) -> Self::Result {
+        ctx.stop();
     }
 }
 
@@ -207,9 +217,12 @@ impl TCPCLSessionAgent {
             let close_channel = session.get_close_channel();
             let send_channel = session.get_send_channel();
 
+            let session_agent_address = ctx.address();
+
             let fut = async move {
                 if let Err(e) = session.manage_connection().await {
                     warn!("Connection closed with error: {:?}", e);
+                    session_agent_address.do_send(ForceShutdown {});
                 }
                 let ci = session.get_connection_info();
                 let node = match ci.peer_endpoint {

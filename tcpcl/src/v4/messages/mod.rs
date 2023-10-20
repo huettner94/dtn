@@ -89,6 +89,7 @@ pub enum Errors {
     UnkownCriticalTransferExtension(u16),
     SegmentTooLong,
     NodeIdInvalid,
+    InvalidACKValue,
 }
 
 impl From<std::io::Error> for Errors {

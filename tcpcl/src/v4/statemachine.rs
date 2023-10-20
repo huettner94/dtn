@@ -17,7 +17,7 @@
 
 use std::{cmp::min, mem, pin::Pin};
 
-use log::{info, warn};
+use log::{error, info, warn};
 use tokio::io::{Interest, WriteHalf};
 use tokio_util::codec::FramedWrite;
 
@@ -250,6 +250,12 @@ impl StateMachine {
                                 panic!("Remote send ack for transfer {}, but we are currently sending {}", xa.transfer_id, tt.transfer.id);
                             }
                             tt.pos_acked = xa.acknowleged_length as usize;
+                            if tt.pos_acked > tt.pos {
+                                error!("Peer acked a transfer further than we have send it (current send potition {}, current acked position {}).", tt.pos, tt.pos_acked);
+                                return Err(Errors::MessageError(
+                                    messages::Errors::InvalidACKValue,
+                                ));
+                            }
                             if tt.pos_acked == tt.transfer.data.len() {
                                 info!("Transfer {} finished (sent and acked)", tt.transfer.id);
                                 let state = mem::replace(&mut self.state, States::ShouldNeverExist);

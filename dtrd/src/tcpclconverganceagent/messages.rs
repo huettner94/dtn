@@ -29,3 +29,7 @@ pub struct ConnectRemote {
 pub struct DisconnectRemote {
     pub url: Url,
 }
+
+#[derive(Message)]
+#[rtype(result = "()")]
+pub(crate) struct ForceShutdown {}
