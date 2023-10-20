@@ -317,8 +317,13 @@ pub async fn main(
     };
 
     info!("Server listening on {}", addr);
+    const MESSAGE_SIZE_LIMIT: usize = 10 * 1024 * 1024 * 1024;
     Server::builder()
-        .add_service(BundleServiceServer::new(bundle_service))
+        .add_service(
+            BundleServiceServer::new(bundle_service)
+                .max_decoding_message_size(MESSAGE_SIZE_LIMIT)
+                .max_encoding_message_size(MESSAGE_SIZE_LIMIT),
+        )
         .add_service(AdminServiceServer::new(admin_service))
         .serve_with_shutdown(addr, shutdown.recv().map(|_| ()))
         .await?;
