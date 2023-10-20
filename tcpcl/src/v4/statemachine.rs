@@ -165,8 +165,17 @@ impl StateMachine {
                 }
 
                 let xfer_seg = XferSegment::new(flags, tt.transfer.id, data);
-                writer.send(Messages::XferSegment(xfer_seg)).await?;
+
+                // The following is some magic to ensure we are actually cancelation safe (so send_message can be used in select!)
+                // We first feed the data to the writer. According to https://users.rust-lang.org/t/is-tokio-codec-framed-cancel-safe/86408/14
+                // this is cancelation safe. So if this future is canceled the message has either been appended to the buffer
+                // (and we where at flush below) or it has not yet been appended to the buffer.
+                // Only after we have appended to the buffer (and done so successfully) are we allowed to increase our transfer tracking position.
+                // The call to flush at the end is just so the data is actually out. It should not hurt if it does not happen as the buffer should
+                // be flushed in the background anyway
+                writer.feed(Messages::XferSegment(xfer_seg)).await?;
                 tt.pos = end_pos;
+                writer.flush().await?;
             }
             States::SendKeepalive(_) => {
                 let ka = Keepalive::new();
