@@ -17,7 +17,7 @@
 
 use std::{collections::HashMap, io, net::SocketAddr};
 
-use log::{error, info};
+use log::{debug, error, info};
 use openssl::{pkey::PKey, x509::X509};
 use tcpcl::{session::TCPCLSession, TLSSettings};
 use tokio::{
@@ -151,6 +151,7 @@ impl Handler<ConnectRemote> for TCPCLServer {
 
     fn handle(&mut self, msg: ConnectRemote, ctx: &mut Self::Context) -> Self::Result {
         let ConnectRemote { url } = msg;
+        debug!("connecting to {}", url);
 
         let fut = TCPCLSession::connect(
             url.clone(),
@@ -181,6 +182,7 @@ impl Handler<DisconnectRemote> for TCPCLServer {
 
     fn handle(&mut self, msg: DisconnectRemote, _ctx: &mut Self::Context) -> Self::Result {
         let DisconnectRemote { url } = msg;
+        debug!("disconnecting from {}", url);
         if let Some(sess) = self.sessions.remove(&url) {
             sess.do_send(Shutdown {});
         }

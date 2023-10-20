@@ -107,10 +107,14 @@ impl Handler<RemoveRoute> for Daemon {
         };
         match endpoint_routes.remove(&entry_to_remove) {
             true => {
-                debug!(
-                    "Removed route for {} over {} from routing table",
-                    target, next_hop
-                );
+                if target == next_hop {
+                    debug!("Removed direct route for {} from routing table", target)
+                } else {
+                    debug!(
+                        "Removed route for {} via {} from routing table",
+                        target, next_hop
+                    );
+                }
                 self.send_route_update();
             }
             false => warn!("No route found to remove for {} over {}", target, next_hop),

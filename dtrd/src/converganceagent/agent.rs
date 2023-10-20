@@ -98,7 +98,7 @@ impl Handler<CLRegisterNode> for Daemon {
             max_bundle_size,
             sender,
         } = msg;
-        info!("Received a registration request for node {}", node);
+        info!("registering node {}", node);
         self.connected_nodes.insert(node.clone(), sender.clone());
         crate::nodeagent::agent::Daemon::from_registry().do_send(NotifyNodeConnected {
             url,
@@ -118,8 +118,10 @@ impl Handler<CLUnregisterNode> for Daemon {
     fn handle(&mut self, msg: CLUnregisterNode, _ctx: &mut Context<Self>) -> Self::Result {
         let CLUnregisterNode { url, node } = msg;
         info!(
-            "Received an unregistration request for node {:?} at url {}",
-            node, url
+            "unregistering node {} at url {}",
+            node.as_ref()
+                .map_or("unknown".to_string(), |e| e.to_string()),
+            url
         );
         if let Some(dstnode) = &node {
             self.connected_nodes.remove(&node.clone().unwrap());
