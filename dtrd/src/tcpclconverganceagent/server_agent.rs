@@ -207,18 +207,30 @@ impl TCPCLServer {
                 File::open(settings.tcpcl_certificate_path.as_ref().unwrap()).await?;
             let mut certificate_data = Vec::new();
             certificate_file.read_to_end(&mut certificate_data).await?;
-            let certificate = X509::from_der(&certificate_data)?;
+            let certificate = if certificate_data.starts_with(b"-----BEGIN CERTIFICATE-----") {
+                X509::from_pem(&certificate_data)?
+            } else {
+                X509::from_der(&certificate_data)?
+            };
 
             let mut key_file = File::open(settings.tcpcl_key_path.as_ref().unwrap()).await?;
             let mut key_data = Vec::new();
             key_file.read_to_end(&mut key_data).await?;
-            let key = PKey::private_key_from_der(&key_data)?;
+            let key = if key_data.starts_with(b"-----BEGIN RSA PRIVATE KEY-----") {
+                PKey::private_key_from_pem(&key_data)?
+            } else {
+                PKey::private_key_from_der(&key_data)?
+            };
 
             let mut trusted_file =
                 File::open(settings.tcpcl_trusted_certs_path.as_ref().unwrap()).await?;
             let mut trusted_data = Vec::new();
             trusted_file.read_to_end(&mut trusted_data).await?;
-            let trusted = X509::from_der(&trusted_data)?;
+            let trusted = if trusted_data.starts_with(b"-----BEGIN CERTIFICATE-----") {
+                X509::from_pem(&trusted_data)?
+            } else {
+                X509::from_der(&trusted_data)?
+            };
             info!("Starting TCPCL agent with TLS Support");
             return Ok(Some(TLSSettings::new(key, certificate, vec![trusted])));
         }
