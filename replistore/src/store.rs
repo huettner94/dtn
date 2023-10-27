@@ -1,7 +1,7 @@
 use std::{collections::HashMap, io::ErrorKind, path::PathBuf, pin::Pin, sync::Arc};
 
 use bytes::{Bytes, BytesMut};
-use futures_util::{AsyncWriteExt, Sink, SinkExt, Stream, StreamExt, TryStreamExt};
+use futures_util::{AsyncWriteExt, Sink, Stream, StreamExt, TryStreamExt};
 use log::info;
 use time::OffsetDateTime;
 use tokio::{fs, sync::RwLock};
@@ -133,8 +133,6 @@ impl Bucket {
 pub struct ObjectPrototype {
     object_path: PathBuf,
     name: String,
-    size: Option<u64>,
-    hashes: Option<Hashes>,
 }
 
 impl ObjectPrototype {
@@ -144,8 +142,6 @@ impl ObjectPrototype {
         ObjectPrototype {
             object_path,
             name: name.to_string(),
-            size: None,
-            hashes: None,
         }
     }
 
@@ -155,22 +151,13 @@ impl ObjectPrototype {
     {
         let file = fs::File::create(&self.object_path).await?;
         let sink = AsyncWriteExt::into_sink(file.compat_write());
-        self.size = Some(0);
-        self.hashes = Some(Hashes {
-            md5sum: String::new(),
-            sha512: String::new(),
-        });
         Ok(Box::pin(sink))
     }
 
     pub async fn finalize(self) -> Object {
-        Object {
-            object_path: self.object_path,
-            name: self.name,
-            size: self.size.unwrap(),
-            hashes: self.hashes.unwrap(),
-            last_modified: OffsetDateTime::now_utc(),
-        }
+        Object::load_from_path(self.object_path, &self.name)
+            .await
+            .unwrap()
     }
 }
 
@@ -188,6 +175,10 @@ impl Object {
         info!("Loading object {}", name);
         let mut object_path = base_path.clone();
         object_path.push(name);
+        Object::load_from_path(object_path, name).await
+    }
+
+    pub async fn load_from_path(object_path: PathBuf, name: &str) -> Result<Self, std::io::Error> {
         let metadata = fs::metadata(&object_path).await?;
         assert!(metadata.is_file());
         Ok(Object {
