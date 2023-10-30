@@ -3,8 +3,9 @@ use std::{collections::HashMap, io::ErrorKind, path::PathBuf, pin::Pin, sync::Ar
 use bytes::{Bytes, BytesMut};
 use futures_util::{AsyncWriteExt, Sink, Stream, StreamExt, TryStreamExt};
 use log::info;
+use md5::{Digest, Md5};
 use time::OffsetDateTime;
-use tokio::{fs, sync::RwLock};
+use tokio::{fs, io::AsyncReadExt, sync::RwLock};
 use tokio_util::{
     codec::{BytesCodec, FramedRead},
     compat::TokioAsyncWriteCompatExt,
@@ -171,24 +172,21 @@ pub struct Object {
 }
 
 impl Object {
-    pub async fn load(base_path: &PathBuf, name: &str) -> Result<Self, std::io::Error> {
+    async fn load(base_path: &PathBuf, name: &str) -> Result<Self, std::io::Error> {
         info!("Loading object {}", name);
         let mut object_path = base_path.clone();
         object_path.push(name);
         Object::load_from_path(object_path, name).await
     }
 
-    pub async fn load_from_path(object_path: PathBuf, name: &str) -> Result<Self, std::io::Error> {
+    async fn load_from_path(object_path: PathBuf, name: &str) -> Result<Self, std::io::Error> {
         let metadata = fs::metadata(&object_path).await?;
         assert!(metadata.is_file());
         Ok(Object {
-            object_path,
+            object_path: object_path.clone(),
             name: name.to_string(),
             size: metadata.len(),
-            hashes: Hashes {
-                md5sum: String::new(),
-                sha512: String::new(),
-            },
+            hashes: Hashes::load_from_path(&object_path).await?,
             last_modified: metadata.modified().unwrap().into(),
         })
     }
@@ -228,5 +226,25 @@ impl Object {
 #[derive(Debug)]
 pub struct Hashes {
     md5sum: String,
-    sha512: String,
+}
+
+impl Hashes {
+    pub fn get_md5sum(&self) -> &str {
+        &self.md5sum
+    }
+
+    async fn load_from_path(path: &PathBuf) -> Result<Self, std::io::Error> {
+        let mut file = fs::File::open(path).await?;
+        let mut buf = vec![0; 65536];
+        let mut md5_hash = Md5::new();
+        loop {
+            let nread = file.read(&mut buf).await?;
+            if nread == 0 {
+                break;
+            }
+            md5_hash.update(&buf[..nread]);
+        }
+        let md5sum = hex::encode(md5_hash.finalize());
+        Ok(Hashes { md5sum })
+    }
 }
