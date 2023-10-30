@@ -88,7 +88,7 @@ impl S3 for FileStore {
                         body: Some(s3s::dto::StreamingBlob::wrap(stream)),
                         last_modified: Some((*object.get_last_modified()).into()),
                         content_length: object.get_size() as i64,
-                        e_tag: Some("0".to_string()),
+                        e_tag: Some(object.get_hashes().get_md5sum().to_string()),
                         ..Default::default()
                     }))
                 }
@@ -107,7 +107,7 @@ impl S3 for FileStore {
                 Some(object) => Ok(S3Response::new(HeadObjectOutput {
                     last_modified: Some((*object.get_last_modified()).into()),
                     content_length: object.get_size() as i64,
-                    e_tag: Some("0".to_string()),
+                    e_tag: Some(object.get_hashes().get_md5sum().to_string()),
                     ..Default::default()
                 })),
                 None => Err(s3_error!(NoSuchKey)),
@@ -143,12 +143,12 @@ impl S3 for FileStore {
                 let body = _req.input.body.unwrap();
                 let body_stream =
                     Box::pin(body.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)));
-                bucket
+                let object = bucket
                     .put_object(&_req.input.key, body_stream)
                     .await
                     .unwrap();
                 Ok(S3Response::new(PutObjectOutput {
-                    e_tag: Some("0".to_string()),
+                    e_tag: Some(object.get_hashes().get_md5sum().to_string()),
                     ..Default::default()
                 }))
             }
