@@ -226,6 +226,7 @@ impl Object {
 #[derive(Debug)]
 pub struct Hashes {
     md5sum: String,
+    sha2_256sum: String,
 }
 
 impl Hashes {
@@ -233,18 +234,25 @@ impl Hashes {
         &self.md5sum
     }
 
+    pub fn get_sha2_256sum(&self) -> &str {
+        &self.sha2_256sum
+    }
+
     async fn load_from_path(path: &PathBuf) -> Result<Self, std::io::Error> {
         let mut file = fs::File::open(path).await?;
         let mut buf = vec![0; 65536];
         let mut md5_hash = Md5::new();
+        let mut sha2_256_hash = sha2::Sha256::new();
         loop {
             let nread = file.read(&mut buf).await?;
             if nread == 0 {
                 break;
             }
             md5_hash.update(&buf[..nread]);
+            sha2_256_hash.update(&buf[..nread]);
         }
         let md5sum = hex::encode(md5_hash.finalize());
-        Ok(Hashes { md5sum })
+        let sha2_256sum = hex::encode(sha2_256_hash.finalize());
+        Ok(Hashes { md5sum, sha2_256sum })
     }
 }

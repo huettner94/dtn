@@ -89,6 +89,7 @@ impl S3 for FileStore {
                         last_modified: Some((*object.get_last_modified()).into()),
                         content_length: object.get_size() as i64,
                         e_tag: Some(object.get_hashes().get_md5sum().to_string()),
+                        checksum_sha256: Some(object.get_hashes().get_sha2_256sum().to_string()),
                         ..Default::default()
                     }))
                 }
@@ -108,6 +109,7 @@ impl S3 for FileStore {
                     last_modified: Some((*object.get_last_modified()).into()),
                     content_length: object.get_size() as i64,
                     e_tag: Some(object.get_hashes().get_md5sum().to_string()),
+                    checksum_sha256: Some(object.get_hashes().get_sha2_256sum().to_string()),
                     ..Default::default()
                 })),
                 None => Err(s3_error!(NoSuchKey)),
@@ -149,6 +151,7 @@ impl S3 for FileStore {
                     .unwrap();
                 Ok(S3Response::new(PutObjectOutput {
                     e_tag: Some(object.get_hashes().get_md5sum().to_string()),
+                    checksum_sha256: Some(object.get_hashes().get_sha2_256sum().to_string()),
                     ..Default::default()
                 }))
             }
