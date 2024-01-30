@@ -28,7 +28,7 @@ log = "0.4"
 tonic = "0.10.2"
 prost = "0.12.3"
 futures-util = "0.3.30"
-maybe-async = "0.2.7"
+maybe-async = "0.2.8"
 
 [build-dependencies]
 tonic-build = "0.10.2"
