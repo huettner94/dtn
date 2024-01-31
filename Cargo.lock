@@ -1033,9 +1033,9 @@ checksum = "0e7465ac9959cc2b1404e8e2367b43684a6d13790fe23056cc8c6c5a6b7bcb94"
 
 [[package]]
 name = "maybe-async"
-version = "0.2.8"
+version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "174c44590f35300ae0155d74f5a08e0742dcea34445e25be9a8054cca8b8688f"
+checksum = "afc95a651c82daf7004c824405aa1019723644950d488571bd718e3ed84646ed"
 dependencies = [
  "proc-macro2",
  "quote",
