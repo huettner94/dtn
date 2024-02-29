@@ -29,7 +29,7 @@ tokio-openssl = "0.6.4"
 openssl = {version = "0.10.64", features = ["vendored"]}
 log = "0.4"
 num_enum = "0.7.2"
-x509-parser = "0.15.1"
+x509-parser = "0.16.0"
 tokio-util = {version = "0.7.10", features = ["codec"]}
 bytes = "1.5.0"
 futures-util = {version = "0.3.30", features = ["sink"]}
