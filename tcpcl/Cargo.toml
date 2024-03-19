@@ -23,7 +23,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bitflags = "2.4.2"
+bitflags = "2.5.0"
 tokio = { version = "1.36.0", features = ["fs", "io-util", "net", "macros", "sync", "rt", "time"] }
 tokio-openssl = "0.6.4"
 openssl = {version = "0.10.64", features = ["vendored"]}
