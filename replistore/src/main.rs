@@ -5,14 +5,54 @@ use log::info;
 use s3s::{auth::SimpleAuth, service::S3ServiceBuilder};
 use tokio::sync::{broadcast, mpsc};
 
+use opentelemetry::KeyValue;
+use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_sdk::{
+    trace::{self, RandomIdGenerator, Sampler},
+    Resource,
+};
+use std::time::Duration;
+use tracing_subscriber::layer::SubscriberExt;
+
 mod bitswap;
 mod common;
 mod s3;
 mod store;
 
+fn init_tracing() {
+    let tracer = opentelemetry_otlp::new_pipeline()
+        .tracing()
+        .with_exporter(
+            opentelemetry_otlp::new_exporter()
+                .tonic()
+                .with_endpoint("http://localhost:4317")
+                .with_timeout(Duration::from_secs(3)),
+        )
+        .with_trace_config(
+            trace::config()
+                .with_sampler(Sampler::AlwaysOn)
+                .with_id_generator(RandomIdGenerator::default())
+                .with_max_events_per_span(64)
+                .with_max_attributes_per_span(16)
+                .with_max_events_per_span(16)
+                .with_resource(Resource::new(vec![KeyValue::new(
+                    "service.name",
+                    "replistore",
+                )])),
+        )
+        .install_batch(opentelemetry_sdk::runtime::Tokio)
+        .unwrap();
+
+    let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
+
+    let subscriber = tracing_subscriber::Registry::default().with(telemetry);
+    tracing::subscriber::set_global_default(subscriber).unwrap();
+}
+
 #[actix_rt::main]
 async fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    init_tracing();
     info!("Starting up");
     let settings: Settings = Settings::from_env();
     info!("Starting with settings: {:?}", settings);

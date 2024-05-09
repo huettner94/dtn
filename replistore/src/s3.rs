@@ -4,9 +4,10 @@ use async_trait::async_trait;
 use futures_util::TryStreamExt;
 use s3s::{
     dto::{
-        Bucket, DeleteObjectInput, DeleteObjectOutput, GetObjectInput, GetObjectOutput,
-        HeadObjectInput, HeadObjectOutput, ListBucketsInput, ListBucketsOutput, ListObjectsInput,
-        ListObjectsOutput, Object, Owner, PutObjectInput, PutObjectOutput,
+        Bucket, DeleteObjectInput, DeleteObjectOutput, GetBucketLocationInput,
+        GetBucketLocationOutput, GetObjectInput, GetObjectOutput, HeadBucketInput,
+        HeadBucketOutput, HeadObjectInput, HeadObjectOutput, ListBucketsInput, ListBucketsOutput,
+        ListObjectsInput, ListObjectsOutput, Object, Owner, PutObjectInput, PutObjectOutput,
     },
     s3_error, S3Request, S3Response, S3Result, S3,
 };
@@ -25,6 +26,15 @@ impl FileStore {
 
 #[async_trait]
 impl S3 for FileStore {
+    async fn get_bucket_location(
+        &self,
+        _req: S3Request<GetBucketLocationInput>,
+    ) -> S3Result<S3Response<GetBucketLocationOutput>> {
+        Ok(S3Response::new(GetBucketLocationOutput {
+            location_constraint: None,
+        }))
+    }
+
     async fn list_buckets(
         &self,
         _req: S3Request<ListBucketsInput>,
@@ -46,6 +56,16 @@ impl S3 for FileStore {
                 id: Some("test".to_string()),
             }),
         }))
+    }
+
+    async fn head_bucket(
+        &self,
+        _req: S3Request<HeadBucketInput>,
+    ) -> S3Result<S3Response<HeadBucketOutput>> {
+        match self.store.get_bucket(&_req.input.bucket).await {
+            Some(_) => Ok(S3Response::new(HeadBucketOutput {})),
+            None => Err(s3_error!(NoSuchBucket)),
+        }
     }
 
     async fn list_objects(
