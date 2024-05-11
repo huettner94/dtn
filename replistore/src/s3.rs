@@ -11,9 +11,11 @@ use s3s::{
     },
     s3_error, S3Request, S3Response, S3Result, S3,
 };
+use tracing::instrument;
 
 use crate::store::Store;
 
+#[derive(Debug)]
 pub struct FileStore {
     store: Store,
 }
@@ -26,6 +28,7 @@ impl FileStore {
 
 #[async_trait]
 impl S3 for FileStore {
+    #[instrument]
     async fn get_bucket_location(
         &self,
         _req: S3Request<GetBucketLocationInput>,
@@ -35,6 +38,7 @@ impl S3 for FileStore {
         }))
     }
 
+    #[instrument]
     async fn list_buckets(
         &self,
         _req: S3Request<ListBucketsInput>,
@@ -58,6 +62,7 @@ impl S3 for FileStore {
         }))
     }
 
+    #[instrument]
     async fn head_bucket(
         &self,
         _req: S3Request<HeadBucketInput>,
@@ -68,6 +73,7 @@ impl S3 for FileStore {
         }
     }
 
+    #[instrument]
     async fn list_objects(
         &self,
         _req: S3Request<ListObjectsInput>,
@@ -96,6 +102,7 @@ impl S3 for FileStore {
         }
     }
 
+    #[instrument]
     async fn get_object(
         &self,
         _req: S3Request<GetObjectInput>,
@@ -119,6 +126,7 @@ impl S3 for FileStore {
         }
     }
 
+    #[instrument]
     async fn head_object(
         &self,
         _req: S3Request<HeadObjectInput>,
@@ -138,6 +146,7 @@ impl S3 for FileStore {
         }
     }
 
+    #[instrument]
     async fn delete_object(
         &self,
         _req: S3Request<DeleteObjectInput>,
@@ -156,6 +165,7 @@ impl S3 for FileStore {
         }
     }
 
+    #[instrument]
     async fn put_object(
         &self,
         _req: S3Request<PutObjectInput>,

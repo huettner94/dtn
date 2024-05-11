@@ -10,6 +10,7 @@ use tokio_util::{
     codec::{BytesCodec, FramedRead},
     compat::TokioAsyncWriteCompatExt,
 };
+use tracing::instrument;
 
 #[derive(Debug)]
 pub struct Store {
@@ -27,6 +28,7 @@ impl Store {
         }
     }
 
+    #[instrument]
     pub async fn load(&self) -> Result<(), std::io::Error> {
         info!("Loading store at {}", &self.base_path.display());
         let mut buckets = self.buckets.write().await;
@@ -43,10 +45,12 @@ impl Store {
         Ok(())
     }
 
+    #[instrument]
     pub async fn get_bucket(&self, name: &str) -> Option<Arc<Bucket>> {
         self.buckets.read().await.get(name).cloned()
     }
 
+    #[instrument]
     pub async fn list_buckets(&self) -> Vec<String> {
         self.buckets.read().await.keys().cloned().collect()
     }
@@ -74,6 +78,7 @@ impl Bucket {
         }
     }
 
+    #[instrument]
     pub async fn load(base_path: &PathBuf, name: &str) -> Result<Self, std::io::Error> {
         info!("Loading bucket {}", name);
         let mut bucket_path = base_path.clone();
@@ -99,14 +104,17 @@ impl Bucket {
         })
     }
 
+    #[instrument]
     pub async fn get_object(&self, name: &str) -> Option<Arc<Object>> {
         self.objects.read().await.get(name).cloned()
     }
 
+    #[instrument]
     pub async fn list_objects(&self) -> Vec<Arc<Object>> {
         self.objects.read().await.values().cloned().collect()
     }
 
+    #[instrument(skip(stream))]
     pub async fn put_object(
         &self,
         name: &str,
@@ -121,6 +129,7 @@ impl Bucket {
         Ok(object)
     }
 
+    #[instrument]
     pub async fn delete_object(&self, name: &str) -> Option<Result<(), std::io::Error>> {
         let mut objects = self.objects.write().await;
         match objects.remove(name) {
@@ -146,10 +155,16 @@ impl ObjectPrototype {
         }
     }
 
+    #[instrument]
     pub async fn writer(
         &mut self,
     ) -> Result<Pin<Box<dyn Sink<Bytes, Error = std::io::Error> + Send + Sync>>, std::io::Error>
     {
+        if let Err(e) = fs::metadata(self.object_path.parent().unwrap()).await {
+            if matches!(e.kind(), std::io::ErrorKind::NotFound) {
+                fs::create_dir_all(self.object_path.parent().unwrap()).await?;
+            }
+        }
         let file = fs::File::create(&self.object_path).await?;
         let sink = AsyncWriteExt::into_sink(file.compat_write());
         Ok(Box::pin(sink))
@@ -253,6 +268,9 @@ impl Hashes {
         }
         let md5sum = hex::encode(md5_hash.finalize());
         let sha2_256sum = hex::encode(sha2_256_hash.finalize());
-        Ok(Hashes { md5sum, sha2_256sum })
+        Ok(Hashes {
+            md5sum,
+            sha2_256sum,
+        })
     }
 }
