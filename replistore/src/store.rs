@@ -1,6 +1,10 @@
 use std::{collections::HashMap, io::ErrorKind, path::PathBuf, pin::Pin, sync::Arc};
 
 use bytes::{Bytes, BytesMut};
+use futures::{
+    future::{BoxFuture, LocalBoxFuture},
+    FutureExt,
+};
 use futures_util::{AsyncWriteExt, Sink, Stream, StreamExt, TryStreamExt};
 use log::info;
 use md5::{Digest, Md5};
@@ -78,6 +82,39 @@ impl Bucket {
         }
     }
 
+    fn load_dirs<'a>(
+        bucket_path: &'a PathBuf,
+        sub_path: &'a PathBuf,
+        objects: &'a mut HashMap<String, Arc<Object>>,
+    ) -> BoxFuture<'a, Result<(), std::io::Error>> {
+        async move {
+            let current_path = bucket_path.join(sub_path);
+            let mut entries = fs::read_dir(&current_path).await?;
+            while let Some(entry) = entries.next_entry().await? {
+                let metadata = entry.metadata().await?;
+                if metadata.is_file() {
+                    let file_name = entry.file_name();
+                    let object_file_path = current_path.join(file_name.to_str().unwrap());
+                    let object_s3_path = sub_path.join(file_name.to_str().unwrap());
+                    let object =
+                        Object::load_from_path(object_file_path, object_s3_path.to_str().unwrap())
+                            .await?;
+                    objects.insert(
+                        object_s3_path.to_str().unwrap().to_string(),
+                        Arc::new(object),
+                    );
+                }
+                if metadata.is_dir() {
+                    let mut new_sub_path = sub_path.clone();
+                    new_sub_path.push(entry.file_name());
+                    Self::load_dirs(&bucket_path, &new_sub_path, objects).await?;
+                }
+            }
+            Ok(())
+        }
+        .boxed()
+    }
+
     #[instrument]
     pub async fn load(base_path: &PathBuf, name: &str) -> Result<Self, std::io::Error> {
         info!("Loading bucket {}", name);
@@ -86,16 +123,7 @@ impl Bucket {
         assert!(fs::metadata(&bucket_path).await.is_ok_and(|m| m.is_dir()));
 
         let mut objects = HashMap::new();
-        let mut dirs = fs::read_dir(&bucket_path).await?;
-        while let Some(entry) = dirs.next_entry().await? {
-            let metadata = entry.metadata().await?;
-            if metadata.is_file() {
-                let file_name = entry.file_name();
-                let object_name = file_name.to_str().unwrap();
-                let bucket = Object::load(&bucket_path, object_name).await?;
-                objects.insert(object_name.to_string(), Arc::new(bucket));
-            }
-        }
+        Self::load_dirs(&bucket_path, &PathBuf::new(), &mut objects).await?;
 
         Ok(Bucket {
             bucket_path,
@@ -187,14 +215,8 @@ pub struct Object {
 }
 
 impl Object {
-    async fn load(base_path: &PathBuf, name: &str) -> Result<Self, std::io::Error> {
-        info!("Loading object {}", name);
-        let mut object_path = base_path.clone();
-        object_path.push(name);
-        Object::load_from_path(object_path, name).await
-    }
-
     async fn load_from_path(object_path: PathBuf, name: &str) -> Result<Self, std::io::Error> {
+        info!("Loading object {}", name);
         let metadata = fs::metadata(&object_path).await?;
         assert!(metadata.is_file());
         Ok(Object {
