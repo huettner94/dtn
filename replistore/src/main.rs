@@ -14,7 +14,6 @@ use opentelemetry_sdk::{
 use std::time::Duration;
 use tracing_subscriber::layer::SubscriberExt;
 
-mod bitswap;
 mod common;
 mod s3;
 mod store;
