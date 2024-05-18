@@ -1,3 +1,33 @@
+// Copyright (C) 2023 Felix Huettner
+//
+// This file is part of DTRD.
+//
+// DTRD is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// DTRD is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+use actix::prelude::*;
+use futures_util::future::FutureExt;
+
+use hyper::Server;
+use log::info;
+use s3s::{
+    auth::SimpleAuth,
+    dto::{CreateBucketInput, CreateBucketOutput},
+    service::S3ServiceBuilder,
+};
+use tokio::sync::{broadcast, mpsc};
+
+use crate::stores::storeowner::StoreOwner;
 use std::time;
 
 use async_trait::async_trait;
@@ -11,31 +41,98 @@ use s3s::{
         ListObjectsInput, ListObjectsOutput, ListObjectsV2Input, ListObjectsV2Output, Object,
         Owner, PutObjectInput, PutObjectOutput,
     },
-    s3_error, S3Request, S3Response, S3Result, S3,
+    s3_error, S3Request, S3Response, S3Result,
 };
 use tracing::instrument;
 
 use crate::store::Store;
 
-#[derive(Debug)]
-pub struct FileStore {
-    store: Store,
-}
+use super::messages::CreateBucketError;
 
-impl FileStore {
-    pub fn new(store: Store) -> Self {
-        FileStore { store }
+impl From<super::messages::S3Error> for s3s::S3Error {
+    fn from(value: super::messages::S3Error) -> Self {
+        s3s::S3Error::with_message(s3s::S3ErrorCode::InternalError, format!("{:?}", value))
     }
 }
 
 #[async_trait]
-impl S3 for FileStore {
+trait AddrExt<A> {
+    async fn send_s3<M>(&self, msg: M) -> Result<M::Result, s3s::S3Error>
+    where
+        M: Message + Send + 'static,
+        M::Result: Send,
+        A: Handler<M>,
+        A::Context: actix::dev::ToEnvelope<A, M>;
+}
+
+#[async_trait]
+impl<A: actix::Actor> AddrExt<A> for Addr<A> {
+    async fn send_s3<M>(&self, msg: M) -> Result<M::Result, s3s::S3Error>
+    where
+        M: Message + Send + 'static,
+        M::Result: Send,
+        A: Handler<M>,
+        A::Context: actix::dev::ToEnvelope<A, M>,
+    {
+        self.send(msg)
+            .await
+            .map_err(|_| s3s::S3Error::with_message(s3s::S3ErrorCode::InternalError, "actix error"))
+    }
+}
+
+#[derive(Debug)]
+pub struct S3Frontend {
+    store: Store,
+    s3: Addr<super::s3::S3>,
+}
+
+impl S3Frontend {
+    pub async fn new(s3: Addr<super::s3::S3>) -> Self {
+        let store = crate::store::Store::new("/tmp/replistore");
+        store.load().await.unwrap();
+        S3Frontend { store, s3 }
+    }
+
+    pub async fn run(
+        self,
+        mut shutdown: broadcast::Receiver<()>,
+        _shutdown_complete_sender: mpsc::Sender<()>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Setup S3Frontend service
+        let service = {
+            let mut b = S3ServiceBuilder::new(self);
+
+            // Enable authentication
+            b.set_auth(SimpleAuth::from_single("cake", "ilike"));
+
+            b.build()
+        };
+
+        // Run server
+        let addr = "0.0.0.0:8080".parse().unwrap();
+        info!("Server listening on {}", addr);
+        let server = Server::try_bind(&addr)
+            .unwrap()
+            .serve(service.into_shared().into_make_service());
+
+        info!("server is running at http://{addr}");
+        server
+            .with_graceful_shutdown(shutdown.recv().map(|_| ()))
+            .await?;
+
+        info!("Server has shutdown. See you");
+        // _shutdown_complete_sender is explicitly dropped here
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl s3s::S3 for S3Frontend {
     #[instrument]
     async fn get_bucket_location(
         &self,
         _req: S3Request<GetBucketLocationInput>,
     ) -> S3Result<S3Response<GetBucketLocationOutput>> {
-        debug!("get_bucket_location");
         Ok(S3Response::new(GetBucketLocationOutput {
             location_constraint: None,
         }))
@@ -46,19 +143,18 @@ impl S3 for FileStore {
         &self,
         _req: S3Request<ListBucketsInput>,
     ) -> S3Result<S3Response<ListBucketsOutput>> {
-        debug!("list_buckets");
-        let buckets: Vec<Bucket> = self
-            .store
-            .list_buckets()
-            .await
-            .iter()
-            .map(|name| Bucket {
-                creation_date: Some(time::SystemTime::now().into()),
-                name: Some(name.to_string()),
-            })
-            .collect();
+        let buckets = self.s3.send_s3(super::messages::ListBuckets {}).await??;
+
         Ok(S3Response::new(ListBucketsOutput {
-            buckets: Some(buckets),
+            buckets: Some(
+                buckets
+                    .into_iter()
+                    .map(|name| Bucket {
+                        creation_date: Some(time::SystemTime::now().into()),
+                        name: Some(name.to_string()),
+                    })
+                    .collect(),
+            ),
             owner: Some(Owner {
                 display_name: Some("ich teste mal".to_string()),
                 id: Some("test".to_string()),
@@ -66,24 +162,47 @@ impl S3 for FileStore {
         }))
     }
 
+    async fn create_bucket(
+        &self,
+        req: S3Request<CreateBucketInput>,
+    ) -> S3Result<S3Response<CreateBucketOutput>> {
+        match __self
+            .s3
+            .send_s3(super::messages::CreateBucket {
+                name: req.input.bucket,
+            })
+            .await?
+        {
+            Ok(bucket) => Ok(S3Response::new(CreateBucketOutput {
+                location: Some(format!("/{}", bucket)),
+            })),
+            Err(CreateBucketError::BucketAlreadyExists) => Err(s3_error!(BucketAlreadyExists)),
+            Err(CreateBucketError::S3Error(e)) => Err(e.into()),
+        }
+    }
+
     #[instrument]
     async fn head_bucket(
         &self,
-        _req: S3Request<HeadBucketInput>,
+        req: S3Request<HeadBucketInput>,
     ) -> S3Result<S3Response<HeadBucketOutput>> {
-        debug!("head_bucket {}", _req.input.bucket);
-        match self.store.get_bucket(&_req.input.bucket).await {
+        match __self
+            .s3
+            .send_s3(super::messages::HeadBucket {
+                name: req.input.bucket,
+            })
+            .await??
+        {
             Some(_) => Ok(S3Response::new(HeadBucketOutput {})),
             None => Err(s3_error!(NoSuchBucket)),
         }
     }
 
-    #[instrument]
+    /*#[instrument]
     async fn list_objects(
         &self,
         _req: S3Request<ListObjectsInput>,
     ) -> S3Result<S3Response<ListObjectsOutput>> {
-        debug!("list_objects {}", _req.input.bucket);
         match self.store.get_bucket(&_req.input.bucket).await {
             Some(bucket) => {
                 let objects: Vec<Object> = bucket
@@ -117,7 +236,6 @@ impl S3 for FileStore {
         &self,
         _req: S3Request<ListObjectsV2Input>,
     ) -> S3Result<S3Response<ListObjectsV2Output>> {
-        debug!("list_objects_v2 {}", _req.input.bucket);
         match self.store.get_bucket(&_req.input.bucket).await {
             Some(bucket) => {
                 let objects: Vec<Object> = bucket
@@ -151,7 +269,6 @@ impl S3 for FileStore {
         &self,
         _req: S3Request<GetObjectInput>,
     ) -> S3Result<S3Response<GetObjectOutput>> {
-        debug!("get_object {} {}", _req.input.bucket, _req.input.key);
         match self.store.get_bucket(&_req.input.bucket).await {
             Some(bucket) => match bucket.get_object(&_req.input.key).await {
                 Some(object) => {
@@ -176,7 +293,6 @@ impl S3 for FileStore {
         &self,
         _req: S3Request<HeadObjectInput>,
     ) -> S3Result<S3Response<HeadObjectOutput>> {
-        debug!("head_object {} {}", _req.input.bucket, _req.input.key);
         match self.store.get_bucket(&_req.input.bucket).await {
             Some(bucket) => match bucket.get_object(&_req.input.key).await {
                 Some(object) => Ok(S3Response::new(HeadObjectOutput {
@@ -197,7 +313,6 @@ impl S3 for FileStore {
         &self,
         _req: S3Request<DeleteObjectInput>,
     ) -> S3Result<S3Response<DeleteObjectOutput>> {
-        debug!("delete_object {} {}", _req.input.bucket, _req.input.key);
         match self.store.get_bucket(&_req.input.bucket).await {
             Some(bucket) => match bucket.delete_object(&_req.input.key).await {
                 Some(result) => {
@@ -217,7 +332,6 @@ impl S3 for FileStore {
         &self,
         _req: S3Request<PutObjectInput>,
     ) -> S3Result<S3Response<PutObjectOutput>> {
-        debug!("put_object {} {}", _req.input.bucket, _req.input.key);
         match self.store.get_bucket(&_req.input.bucket).await {
             Some(bucket) => {
                 let body = _req.input.body.unwrap();
@@ -235,5 +349,5 @@ impl S3 for FileStore {
             }
             None => Err(s3_error!(NoSuchBucket)),
         }
-    }
+    }*/
 }

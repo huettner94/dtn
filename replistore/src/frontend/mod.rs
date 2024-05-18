@@ -15,15 +15,4 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use std::path::PathBuf;
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let proto_path: PathBuf = "../protobuf/bitswap/".into();
-    let proto_files: Vec<PathBuf> = proto_path
-        .read_dir()?
-        .filter_map(|p| p.map(|path| path.path()).ok())
-        .collect();
-    println!("{:?}", proto_files);
-    prost_build::compile_protos(&proto_files, &[proto_path])?;
-    Ok(())
-}
+pub mod s3;

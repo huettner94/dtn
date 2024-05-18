@@ -1,0 +1,41 @@
+use actix::prelude::*;
+
+use crate::stores::messages::StoreError;
+
+#[derive(Debug)]
+pub struct S3Error {
+    store_error: StoreError,
+}
+
+impl From<StoreError> for S3Error {
+    fn from(value: StoreError) -> Self {
+        S3Error { store_error: value }
+    }
+}
+
+#[derive(Message)]
+#[rtype(result = "Result<Vec<String>, S3Error>")]
+pub struct ListBuckets {}
+
+pub enum CreateBucketError {
+    S3Error(S3Error),
+    BucketAlreadyExists,
+}
+
+impl From<StoreError> for CreateBucketError {
+    fn from(value: StoreError) -> Self {
+        CreateBucketError::S3Error(value.into())
+    }
+}
+
+#[derive(Message)]
+#[rtype(result = "Result<String, CreateBucketError>")]
+pub struct CreateBucket {
+    pub name: String,
+}
+
+#[derive(Message)]
+#[rtype(result = "Result<Option<()>, S3Error>")]
+pub struct HeadBucket {
+    pub name: String,
+}

@@ -1,8 +1,10 @@
-use crate::common::settings::Settings;
-use actix::System;
+use crate::{
+    common::settings::Settings, frontend::s3::s3_frontend::S3Frontend,
+    stores::storeowner::StoreOwner,
+};
+use actix::prelude::*;
 use hyper::Server;
-use log::info;
-use s3s::{auth::SimpleAuth, service::S3ServiceBuilder};
+use log::{error, info};
 use tokio::sync::{broadcast, mpsc};
 
 use opentelemetry::KeyValue;
@@ -15,8 +17,9 @@ use std::time::Duration;
 use tracing_subscriber::layer::SubscriberExt;
 
 mod common;
-mod s3;
+mod frontend;
 mod store;
+mod stores;
 
 fn init_tracing() {
     let tracer = opentelemetry_otlp::new_pipeline()
@@ -65,32 +68,41 @@ async fn main() {
     let (notify_shutdown, _) = broadcast::channel::<()>(1);
     let (shutdown_complete_tx, mut shutdown_complete_rx) = mpsc::channel::<()>(1);
 
-    let store = store::Store::new("/tmp/replistore");
-    store.load().await.unwrap();
-
-    let fs = s3::FileStore::new(store);
-
-    // Setup S3 service
-    let service = {
-        let mut b = S3ServiceBuilder::new(fs);
-
-        // Enable authentication
-        b.set_auth(SimpleAuth::from_single("cake", "ilike"));
-
-        b.build()
-    };
-
-    // Run server
-    let addr = "0.0.0.0:8080".parse().unwrap();
-    let server = Server::try_bind(&addr)
+    let storeowner = StoreOwner::new("/tmp/replistore/db".into())
         .unwrap()
-        .serve(service.into_shared().into_make_service());
+        .start();
 
-    info!("server is running at http://{addr}");
-    server
-        .with_graceful_shutdown(shutdown_signal())
-        .await
+    let s3_addr = frontend::s3::s3::S3::new(storeowner.clone()).start();
+
+    let s3_task_shutdown_notifier = notify_shutdown.subscribe();
+    let s3_task_shutdown_complete_tx_task = shutdown_complete_tx.clone();
+    let s3_task_s3_addr = s3_addr.clone();
+    let s3_task = tokio::task::Builder::new()
+        .name("S3")
+        .spawn(async move {
+            let s3 = S3Frontend::new(s3_task_s3_addr).await;
+            match s3
+                .run(s3_task_shutdown_notifier, s3_task_shutdown_complete_tx_task)
+                .await
+            {
+                Ok(_) => Ok(()),
+                Err(e) => Err(e.to_string()),
+            }
+        })
         .unwrap();
+
+    let ctrl_c = tokio::signal::ctrl_c();
+
+    tokio::select! {
+        res = s3_task => {
+            if let Ok(Err(e)) = res {
+                error!("something bad happened with the s3 server {:?}. Aborting...", e);
+            }
+        }
+        _ = ctrl_c => {
+            info!("Shutting down");
+        }
+    }
 
     info!("Stopping external connections");
     // Stolen from: https://github.com/tokio-rs/mini-redis/blob/master/src/server.rs
@@ -112,8 +124,4 @@ async fn main() {
     let _ = shutdown_complete_rx.recv().await;
 
     info!("All done, see you");
-}
-
-async fn shutdown_signal() {
-    let _ = tokio::signal::ctrl_c().await;
 }
