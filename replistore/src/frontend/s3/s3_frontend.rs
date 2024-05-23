@@ -162,6 +162,7 @@ impl s3s::S3 for S3Frontend {
         }))
     }
 
+    #[instrument]
     async fn create_bucket(
         &self,
         req: S3Request<CreateBucketInput>,

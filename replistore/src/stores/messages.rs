@@ -61,24 +61,24 @@ pub struct GetOrCreateKeyValueStore {
 #[derive(Message)]
 #[rtype(result = "Result<Option<String>, StoreError>")]
 pub struct Get {
-    pub key: String,
+    pub key: Vec<String>,
 }
 
 #[derive(Message)]
 #[rtype(result = "Result<(), StoreError>")]
 pub struct Set {
-    pub key: String,
+    pub key: Vec<String>,
     pub value: String,
 }
 
 #[derive(Message)]
 #[rtype(result = "Result<(), StoreError>")]
 pub struct Delete {
-    pub key: String,
+    pub key: Vec<String>,
 }
 
 #[derive(Message)]
 #[rtype(result = "Result<HashMap<String, String>, StoreError>")]
 pub struct List {
-    pub prefix: String,
+    pub prefix: Vec<String>,
 }

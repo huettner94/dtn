@@ -15,8 +15,8 @@ impl KeyValueStore {
         KeyValueStore { name, db }
     }
 
-    fn get_path(&self, key: &str) -> String {
-        format!("/store/{}/{}", self.name, key)
+    fn get_path(&self, keys: Vec<String>) -> String {
+        format!("\0store\0{}\0{}", self.name, keys.join("\0"))
     }
 }
 
@@ -31,7 +31,7 @@ impl Handler<Get> for KeyValueStore {
         let Get { key } = msg;
         Ok(self
             .db
-            .get(&self.get_path(&key))?
+            .get(&self.get_path(key))?
             .map(|e| String::from_utf8(e).unwrap()))
     }
 }
@@ -41,7 +41,7 @@ impl Handler<Set> for KeyValueStore {
 
     fn handle(&mut self, msg: Set, _ctx: &mut Self::Context) -> Self::Result {
         let Set { key, value } = msg;
-        Ok(self.db.put(&self.get_path(&key), value)?)
+        Ok(self.db.put(&self.get_path(key), value)?)
     }
 }
 
@@ -50,7 +50,7 @@ impl Handler<Delete> for KeyValueStore {
 
     fn handle(&mut self, msg: Delete, _ctx: &mut Self::Context) -> Self::Result {
         let Delete { key } = msg;
-        Ok(self.db.delete(&self.get_path(&key))?)
+        Ok(self.db.delete(&self.get_path(key))?)
     }
 }
 
@@ -59,7 +59,7 @@ impl Handler<List> for KeyValueStore {
 
     fn handle(&mut self, msg: List, _ctx: &mut Self::Context) -> Self::Result {
         let List { prefix } = msg;
-        let path = self.get_path(&prefix);
+        let path = self.get_path(prefix);
         let path_bytes = path.as_bytes();
         let mut options = rocksdb::ReadOptions::default();
         options.set_iterate_range(rocksdb::PrefixRange(path_bytes));

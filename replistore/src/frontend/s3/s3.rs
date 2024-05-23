@@ -22,6 +22,10 @@ impl S3 {
     fn store(&self) -> Addr<KeyValueStore> {
         self.s3_kv_store.clone().unwrap()
     }
+    
+    fn bucket_path(&self, name: &str) -> Vec<String> {
+        vec!["buckets".to_string(), name.to_string()]
+    }
 }
 
 impl Actor for S3 {
@@ -58,7 +62,7 @@ impl Handler<ListBuckets> for S3 {
         Box::pin(async move {
             let resp = store
                 .send(crate::stores::messages::List {
-                    prefix: "buckets/".to_string(),
+                    prefix: vec!["buckets".to_string(), "".to_string()],
                 })
                 .await
                 .unwrap()?;
@@ -72,7 +76,7 @@ impl Handler<CreateBucket> for S3 {
     fn handle(&mut self, msg: CreateBucket, _ctx: &mut Self::Context) -> Self::Result {
         let CreateBucket { name } = msg;
         let store = self.store();
-        let bucket_path = format!("buckets/{}", name);
+        let bucket_path = self.bucket_path(&name);
         Box::pin(async move {
             let resp = store
                 .send(crate::stores::messages::Get {
@@ -101,7 +105,7 @@ impl Handler<HeadBucket> for S3 {
     fn handle(&mut self, msg: HeadBucket, _ctx: &mut Self::Context) -> Self::Result {
         let HeadBucket { name } = msg;
         let store = self.store();
-        let bucket_path = format!("buckets/{}", name);
+        let bucket_path = self.bucket_path(&name);
         Box::pin(async move {
             let resp = store
                 .send(crate::stores::messages::Get {

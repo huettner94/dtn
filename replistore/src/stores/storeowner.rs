@@ -1,7 +1,6 @@
 use actix::prelude::*;
-use log::{error, info};
 use rocksdb::DB;
-use std::{collections::HashMap, fmt::Display, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use super::{
     keyvalue::KeyValueStore,
@@ -28,7 +27,7 @@ impl StoreOwner {
         name: &str,
         store_type: StoreType,
     ) -> Result<Option<()>, GetOrCreateError> {
-        let type_key = format!("/type/{}", name);
+        let type_key = format!("\0type\0{}", name);
         match self.db.get(&type_key)? {
             Some(entry) => {
                 if entry == store_type.as_bytes() {
