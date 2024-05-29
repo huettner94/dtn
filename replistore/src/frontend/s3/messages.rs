@@ -84,3 +84,22 @@ pub struct ListObject {
     pub bucket: String,
     pub prefix: String,
 }
+
+pub enum HeadObjectError {
+    S3Error(S3Error),
+    BucketNotFound,
+    ObjectNotFound,
+}
+
+impl From<StoreError> for HeadObjectError {
+    fn from(value: StoreError) -> Self {
+        Self::S3Error(value.into())
+    }
+}
+
+#[derive(Message)]
+#[rtype(result = "Result<Object, HeadObjectError>")]
+pub struct HeadObject {
+    pub bucket: String,
+    pub key: String,
+}

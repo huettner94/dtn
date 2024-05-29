@@ -7,8 +7,8 @@ use time::OffsetDateTime;
 use crate::stores::{keyvalue::KeyValueStore, messages::StoreError, storeowner::StoreOwner};
 
 use super::messages::{
-    CreateBucket, CreateBucketError, HeadBucket, ListBuckets, ListObject, ListObjectError, Object,
-    PutObject, PutObjectError, S3Error,
+    CreateBucket, CreateBucketError, HeadBucket, HeadObject, HeadObjectError, ListBuckets,
+    ListObject, ListObjectError, Object, PutObject, PutObjectError, S3Error,
 };
 
 #[derive(Debug)]
@@ -208,6 +208,36 @@ impl Handler<ListObject> for S3 {
                 result.push(Self::meta_to_obj(&store, &bucket, obj).await?);
             }
             Ok(result)
+        })
+    }
+}
+
+impl Handler<HeadObject> for S3 {
+    type Result = ResponseFuture<Result<Object, HeadObjectError>>;
+
+    fn handle(&mut self, msg: HeadObject, _ctx: &mut Self::Context) -> Self::Result {
+        let HeadObject { bucket, key } = msg;
+        let store = self.store();
+        let bucket_path = self.bucket_path(&bucket);
+        let object_path = self.object_path(&bucket, &key);
+        Box::pin(async move {
+            let resp = store
+                .send(crate::stores::messages::Get {
+                    key: bucket_path.clone(),
+                })
+                .await
+                .unwrap()?;
+            if resp.is_none() {
+                return Err(HeadObjectError::BucketNotFound);
+            }
+            let resp = store
+                .send(crate::stores::messages::Get { key: object_path })
+                .await
+                .unwrap()?;
+            if resp.is_none() {
+                return Err(HeadObjectError::ObjectNotFound);
+            }
+            Ok(Self::meta_to_obj(&store, &bucket, key).await?)
         })
     }
 }

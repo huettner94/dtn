@@ -78,6 +78,16 @@ impl From<super::messages::PutObjectError> for s3s::S3Error {
     }
 }
 
+impl From<super::messages::HeadObjectError> for s3s::S3Error {
+    fn from(value: super::messages::HeadObjectError) -> Self {
+        match value {
+            super::messages::HeadObjectError::S3Error(e) => e.into(),
+            super::messages::HeadObjectError::BucketNotFound => s3_error!(NoSuchBucket),
+            super::messages::HeadObjectError::ObjectNotFound => s3_error!(NoSuchKey),
+        }
+    }
+}
+
 #[async_trait]
 trait AddrExt<A> {
     async fn send_s3<M>(&self, msg: M) -> Result<M::Result, s3s::S3Error>
@@ -277,6 +287,28 @@ impl s3s::S3 for S3Frontend {
         }))
     }
 
+    #[instrument]
+    async fn head_object(
+        &self,
+        req: S3Request<HeadObjectInput>,
+    ) -> S3Result<S3Response<HeadObjectOutput>> {
+        let obj = self
+            .s3
+            .send_s3(super::messages::HeadObject {
+                bucket: req.input.bucket.clone(),
+                key: req.input.key,
+            })
+            .await??;
+
+        Ok(S3Response::new(HeadObjectOutput {
+            last_modified: Some(obj.last_modified.into()),
+            content_length: 0,
+            e_tag: None,
+            checksum_sha256: None,
+            ..Default::default()
+        }))
+    }
+
     /*#[instrument]
     async fn get_object(
         &self,
@@ -301,25 +333,6 @@ impl s3s::S3 for S3Frontend {
         }
     }
 
-    #[instrument]
-    async fn head_object(
-        &self,
-        _req: S3Request<HeadObjectInput>,
-    ) -> S3Result<S3Response<HeadObjectOutput>> {
-        match self.store.get_bucket(&_req.input.bucket).await {
-            Some(bucket) => match bucket.get_object(&_req.input.key).await {
-                Some(object) => Ok(S3Response::new(HeadObjectOutput {
-                    last_modified: Some((*object.get_last_modified()).into()),
-                    content_length: object.get_size() as i64,
-                    e_tag: Some(object.get_hashes().get_md5sum().to_string()),
-                    checksum_sha256: Some(object.get_hashes().get_sha2_256sum().to_string()),
-                    ..Default::default()
-                })),
-                None => Err(s3_error!(NoSuchKey)),
-            },
-            None => Err(s3_error!(NoSuchBucket)),
-        }
-    }
 
     #[instrument]
     async fn delete_object(
