@@ -1,5 +1,8 @@
+use std::collections::HashMap;
+
 use actix::prelude::*;
 use log::error;
+use time::OffsetDateTime;
 
 use crate::stores::{keyvalue::KeyValueStore, storeowner::StoreOwner};
 
@@ -41,6 +44,14 @@ impl S3 {
 
     fn object_path(&self, bucket: &str, key: &str) -> Vec<String> {
         vec!["objects".to_string(), bucket.to_string(), key.to_string()]
+    }
+    fn objectmeta_path(&self, bucket: &str, key: &str, suffix: &str) -> Vec<String> {
+        vec![
+            "objectmeta".to_string(),
+            bucket.to_string(),
+            key.to_string(),
+            suffix.to_string(),
+        ]
     }
 }
 
@@ -155,19 +166,40 @@ impl Handler<ListObject> for S3 {
             if resp.is_none() {
                 return Err(ListObjectError::BucketNotFound);
             }
-            Ok(store
+            let mut result = Vec::new();
+            for obj in store
                 .send(crate::stores::messages::List {
                     prefix: object_path,
                 })
                 .await
                 .unwrap()?
                 .into_keys()
-                .map(|e| Object {
-                    key: e,
+            {
+                let meta = store
+                    .send(crate::stores::messages::List {
+                        prefix: vec![
+                            "objectmeta".to_string(),
+                            bucket.clone(),
+                            obj.clone(),
+                            String::new(),
+                        ],
+                    })
+                    .await
+                    .unwrap()?;
+                let last_modified = OffsetDateTime::from_unix_timestamp(
+                    meta.get("last_modified")
+                        .map(|e| e.parse().unwrap_or_default())
+                        .unwrap_or_default(),
+                )
+                .unwrap();
+                result.push(Object {
+                    key: obj,
                     md5sum: String::new(),
                     sha256sum: String::new(),
-                })
-                .collect())
+                    last_modified,
+                });
+            }
+            Ok(result)
         })
     }
 }
@@ -180,6 +212,7 @@ impl Handler<PutObject> for S3 {
         let store = self.store();
         let bucket_path = self.bucket_path(&bucket);
         let object_path = self.object_path(&bucket, &key);
+        let last_modified_path = self.objectmeta_path(&bucket, &key, "last_modified");
         Box::pin(async move {
             let resp = store
                 .send(crate::stores::messages::Get {
@@ -190,10 +223,16 @@ impl Handler<PutObject> for S3 {
             if resp.is_none() {
                 return Err(PutObjectError::BucketNotFound);
             }
+            let last_modified = OffsetDateTime::now_utc();
             store
-                .send(crate::stores::messages::Set {
-                    key: object_path.clone(),
-                    value: String::new(),
+                .send(crate::stores::messages::MultiSet {
+                    data: HashMap::from([
+                        (object_path.clone(), String::new()),
+                        (
+                            last_modified_path,
+                            last_modified.unix_timestamp().to_string(),
+                        ),
+                    ]),
                 })
                 .await
                 .unwrap()?;
@@ -201,6 +240,7 @@ impl Handler<PutObject> for S3 {
                 key,
                 md5sum: String::new(),
                 sha256sum: String::new(),
+                last_modified,
             })
         })
     }

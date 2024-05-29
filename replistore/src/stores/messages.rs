@@ -73,6 +73,12 @@ pub struct Set {
 
 #[derive(Message)]
 #[rtype(result = "Result<(), StoreError>")]
+pub struct MultiSet {
+    pub data: HashMap<Vec<String>, String>,
+}
+
+#[derive(Message)]
+#[rtype(result = "Result<(), StoreError>")]
 pub struct Delete {
     pub key: Vec<String>,
 }

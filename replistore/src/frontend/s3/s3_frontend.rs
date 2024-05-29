@@ -43,8 +43,6 @@ use s3s::{
 };
 use tracing::instrument;
 
-use super::messages::CreateBucketError;
-
 impl From<super::messages::S3Error> for s3s::S3Error {
     fn from(value: super::messages::S3Error) -> Self {
         s3s::S3Error::with_message(s3s::S3ErrorCode::InternalError, format!("{:?}", value))
@@ -236,7 +234,7 @@ impl s3s::S3 for S3Frontend {
                     .into_iter()
                     .map(|obj| Object {
                         key: Some(obj.key),
-                        last_modified: Some(OffsetDateTime::now_utc().into()),
+                        last_modified: Some(obj.last_modified.into()),
                         size: 0,
                         ..Default::default()
                     })
@@ -267,7 +265,7 @@ impl s3s::S3 for S3Frontend {
                     .into_iter()
                     .map(|obj| Object {
                         key: Some(obj.key),
-                        last_modified: Some(OffsetDateTime::now_utc().into()),
+                        last_modified: Some(obj.last_modified.into()),
                         size: 0,
                         ..Default::default()
                     })
@@ -347,6 +345,9 @@ impl s3s::S3 for S3Frontend {
         &self,
         req: S3Request<PutObjectInput>,
     ) -> S3Result<S3Response<PutObjectOutput>> {
+        if req.input.body.is_none() {
+            return Err(s3_error!(InvalidRequest));
+        }
         let object = self
             .s3
             .send_s3(super::messages::PutObject {

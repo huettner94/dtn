@@ -1,17 +1,24 @@
 use actix::prelude::*;
-use rocksdb::DB;
+use rocksdb::TransactionDB;
 use std::{collections::HashMap, sync::Arc};
 
-use super::messages::{Delete, Get, List, Set, StoreError};
+use super::messages::{Delete, Get, List, MultiSet, Set, StoreError};
 
-#[derive(Debug)]
 pub struct KeyValueStore {
     name: String,
-    db: Arc<DB>,
+    db: Arc<TransactionDB>,
+}
+
+impl std::fmt::Debug for KeyValueStore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("KeyValueStore")
+            .field("name", &self.name)
+            .finish()
+    }
 }
 
 impl KeyValueStore {
-    pub fn new(name: String, db: Arc<DB>) -> Self {
+    pub fn new(name: String, db: Arc<TransactionDB>) -> Self {
         KeyValueStore { name, db }
     }
 
@@ -42,6 +49,20 @@ impl Handler<Set> for KeyValueStore {
     fn handle(&mut self, msg: Set, _ctx: &mut Self::Context) -> Self::Result {
         let Set { key, value } = msg;
         Ok(self.db.put(&self.get_path(key), value)?)
+    }
+}
+
+impl Handler<MultiSet> for KeyValueStore {
+    type Result = Result<(), StoreError>;
+
+    fn handle(&mut self, msg: MultiSet, _ctx: &mut Self::Context) -> Self::Result {
+        let MultiSet { mut data } = msg;
+        let txn = self.db.transaction();
+        for (key, value) in data.drain() {
+            txn.put(&self.get_path(key), value)?;
+        }
+        txn.commit()?;
+        Ok(())
     }
 }
 

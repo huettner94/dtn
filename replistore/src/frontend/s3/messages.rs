@@ -1,4 +1,5 @@
 use actix::prelude::*;
+use time::OffsetDateTime;
 
 use crate::stores::messages::StoreError;
 
@@ -18,6 +19,7 @@ pub struct Object {
     pub key: String,
     pub md5sum: String,
     pub sha256sum: String,
+    pub last_modified: OffsetDateTime,
 }
 
 #[derive(Message)]

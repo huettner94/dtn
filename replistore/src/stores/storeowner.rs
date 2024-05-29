@@ -1,5 +1,5 @@
 use actix::prelude::*;
-use rocksdb::DB;
+use rocksdb::TransactionDB;
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use super::{
@@ -7,15 +7,22 @@ use super::{
     messages::{GetOrCreateError, GetOrCreateKeyValueStore, StoreType},
 };
 
-#[derive(Debug)]
 pub struct StoreOwner {
-    db: Arc<DB>,
+    db: Arc<TransactionDB>,
     kv_stores: HashMap<String, Addr<KeyValueStore>>,
+}
+
+impl std::fmt::Debug for StoreOwner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StoreOwner")
+            .field("kv_stores", &self.kv_stores)
+            .finish()
+    }
 }
 
 impl StoreOwner {
     pub fn new(db_path: PathBuf) -> Result<Self, rocksdb::Error> {
-        let db = DB::open_default(db_path)?;
+        let db = TransactionDB::open_default(db_path)?;
         Ok(StoreOwner {
             db: Arc::new(db),
             kv_stores: HashMap::new(),
