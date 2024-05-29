@@ -3,13 +3,25 @@ use log::error;
 
 use crate::stores::{keyvalue::KeyValueStore, storeowner::StoreOwner};
 
-use super::messages::{CreateBucket, CreateBucketError, HeadBucket, ListBuckets, S3Error};
+use super::messages::{
+    CreateBucket, CreateBucketError, HeadBucket, ListBuckets, ListObject, ListObjectError, Object,
+    PutObject, PutObjectError, S3Error,
+};
 
 #[derive(Debug)]
 pub struct S3 {
     store_owner: Addr<StoreOwner>,
     s3_kv_store: Option<Addr<KeyValueStore>>,
 }
+
+/* Kv Structure
+ *
+ * \0buckets\0<bucket_name>: nil
+ * \0objects\0<bucket_name>\0<object_name_path>: nil
+ * \0objectmeta\0<bucket_name>\0<object_name_path>\0size: size in bytes
+ * \0objectmeta\0<bucket_name>\0<object_name_path>\0last_modified: u64 timestamp
+ *
+ */
 
 impl S3 {
     pub fn new(store_owner: Addr<StoreOwner>) -> Self {
@@ -22,9 +34,13 @@ impl S3 {
     fn store(&self) -> Addr<KeyValueStore> {
         self.s3_kv_store.clone().unwrap()
     }
-    
+
     fn bucket_path(&self, name: &str) -> Vec<String> {
         vec!["buckets".to_string(), name.to_string()]
+    }
+
+    fn object_path(&self, bucket: &str, key: &str) -> Vec<String> {
+        vec!["objects".to_string(), bucket.to_string(), key.to_string()]
     }
 }
 
@@ -117,6 +133,75 @@ impl Handler<HeadBucket> for S3 {
                 return Ok(Some(()));
             }
             Ok(None)
+        })
+    }
+}
+
+impl Handler<ListObject> for S3 {
+    type Result = ResponseFuture<Result<Vec<Object>, ListObjectError>>;
+
+    fn handle(&mut self, msg: ListObject, _ctx: &mut Self::Context) -> Self::Result {
+        let ListObject { bucket, prefix } = msg;
+        let store = self.store();
+        let bucket_path = self.bucket_path(&bucket);
+        let object_path = self.object_path(&bucket, &prefix);
+        Box::pin(async move {
+            let resp = store
+                .send(crate::stores::messages::Get {
+                    key: bucket_path.clone(),
+                })
+                .await
+                .unwrap()?;
+            if resp.is_none() {
+                return Err(ListObjectError::BucketNotFound);
+            }
+            Ok(store
+                .send(crate::stores::messages::List {
+                    prefix: object_path,
+                })
+                .await
+                .unwrap()?
+                .into_keys()
+                .map(|e| Object {
+                    key: e,
+                    md5sum: String::new(),
+                    sha256sum: String::new(),
+                })
+                .collect())
+        })
+    }
+}
+
+impl Handler<PutObject> for S3 {
+    type Result = ResponseFuture<Result<Object, PutObjectError>>;
+
+    fn handle(&mut self, msg: PutObject, _ctx: &mut Self::Context) -> Self::Result {
+        let PutObject { bucket, key } = msg;
+        let store = self.store();
+        let bucket_path = self.bucket_path(&bucket);
+        let object_path = self.object_path(&bucket, &key);
+        Box::pin(async move {
+            let resp = store
+                .send(crate::stores::messages::Get {
+                    key: bucket_path.clone(),
+                })
+                .await
+                .unwrap()?;
+            if resp.is_none() {
+                return Err(PutObjectError::BucketNotFound);
+            }
+            store
+                .send(crate::stores::messages::Set {
+                    key: object_path.clone(),
+                    value: String::new(),
+                })
+                .await
+                .unwrap()?;
+            Ok(Object {
+                key,
+                md5sum: String::new(),
+                sha256sum: String::new(),
+            })
         })
     }
 }

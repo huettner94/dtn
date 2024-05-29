@@ -18,6 +18,7 @@
 use actix::prelude::*;
 use futures_util::future::FutureExt;
 
+use ::time::OffsetDateTime;
 use hyper::Server;
 use log::info;
 use s3s::{
@@ -27,12 +28,9 @@ use s3s::{
 };
 use tokio::sync::{broadcast, mpsc};
 
-use crate::stores::storeowner::StoreOwner;
 use std::time;
 
 use async_trait::async_trait;
-use futures_util::TryStreamExt;
-use log::debug;
 use s3s::{
     dto::{
         Bucket, DeleteObjectInput, DeleteObjectOutput, GetBucketLocationInput,
@@ -45,13 +43,29 @@ use s3s::{
 };
 use tracing::instrument;
 
-use crate::store::Store;
-
 use super::messages::CreateBucketError;
 
 impl From<super::messages::S3Error> for s3s::S3Error {
     fn from(value: super::messages::S3Error) -> Self {
         s3s::S3Error::with_message(s3s::S3ErrorCode::InternalError, format!("{:?}", value))
+    }
+}
+
+impl From<super::messages::ListObjectError> for s3s::S3Error {
+    fn from(value: super::messages::ListObjectError) -> Self {
+        match value {
+            super::messages::ListObjectError::S3Error(e) => e.into(),
+            super::messages::ListObjectError::BucketNotFound => s3_error!(NoSuchBucket),
+        }
+    }
+}
+
+impl From<super::messages::PutObjectError> for s3s::S3Error {
+    fn from(value: super::messages::PutObjectError) -> Self {
+        match value {
+            super::messages::PutObjectError::S3Error(e) => e.into(),
+            super::messages::PutObjectError::BucketNotFound => s3_error!(NoSuchBucket),
+        }
     }
 }
 
@@ -82,15 +96,12 @@ impl<A: actix::Actor> AddrExt<A> for Addr<A> {
 
 #[derive(Debug)]
 pub struct S3Frontend {
-    store: Store,
     s3: Addr<super::s3::S3>,
 }
 
 impl S3Frontend {
     pub async fn new(s3: Addr<super::s3::S3>) -> Self {
-        let store = crate::store::Store::new("/tmp/replistore");
-        store.load().await.unwrap();
-        S3Frontend { store, s3 }
+        S3Frontend { s3 }
     }
 
     pub async fn run(
@@ -199,73 +210,69 @@ impl s3s::S3 for S3Frontend {
         }
     }
 
-    /*#[instrument]
+    #[instrument]
     async fn list_objects(
         &self,
-        _req: S3Request<ListObjectsInput>,
+        req: S3Request<ListObjectsInput>,
     ) -> S3Result<S3Response<ListObjectsOutput>> {
-        match self.store.get_bucket(&_req.input.bucket).await {
-            Some(bucket) => {
-                let objects: Vec<Object> = bucket
-                    .list_objects()
-                    .await
-                    .iter()
-                    .filter(|e| match &_req.input.prefix {
-                        Some(prefix) => e.get_name().starts_with(prefix),
-                        None => true,
-                    })
-                    .map(|object| Object {
-                        key: Some(object.get_name().to_string()),
-                        last_modified: Some((*object.get_last_modified()).into()),
-                        size: object.get_size() as i64,
+        let objects = self
+            .s3
+            .send_s3(super::messages::ListObject {
+                bucket: req.input.bucket.clone(),
+                prefix: req.input.prefix.unwrap_or_default(),
+            })
+            .await??;
+
+        Ok(S3Response::new(ListObjectsOutput {
+            contents: Some(
+                objects
+                    .into_iter()
+                    .map(|obj| Object {
+                        key: Some(obj.key),
+                        last_modified: Some(OffsetDateTime::now_utc().into()),
+                        size: 0,
                         ..Default::default()
                     })
-                    .collect();
-                Ok(S3Response::new(ListObjectsOutput {
-                    contents: Some(objects),
-                    max_keys: i32::MAX,
-                    name: Some(_req.input.bucket),
-                    ..Default::default()
-                }))
-            }
-            None => Err(s3_error!(NoSuchBucket)),
-        }
+                    .collect(),
+            ),
+            max_keys: i32::MAX,
+            name: Some(req.input.bucket),
+            ..Default::default()
+        }))
     }
 
     #[instrument]
     async fn list_objects_v2(
         &self,
-        _req: S3Request<ListObjectsV2Input>,
+        req: S3Request<ListObjectsV2Input>,
     ) -> S3Result<S3Response<ListObjectsV2Output>> {
-        match self.store.get_bucket(&_req.input.bucket).await {
-            Some(bucket) => {
-                let objects: Vec<Object> = bucket
-                    .list_objects()
-                    .await
-                    .iter()
-                    .filter(|e| match &_req.input.prefix {
-                        Some(prefix) => e.get_name().starts_with(prefix),
-                        None => true,
-                    })
-                    .map(|object| Object {
-                        key: Some(object.get_name().to_string()),
-                        last_modified: Some((*object.get_last_modified()).into()),
-                        size: object.get_size() as i64,
+        let objects = self
+            .s3
+            .send_s3(super::messages::ListObject {
+                bucket: req.input.bucket.clone(),
+                prefix: req.input.prefix.unwrap_or_default(),
+            })
+            .await??;
+
+        Ok(S3Response::new(ListObjectsV2Output {
+            contents: Some(
+                objects
+                    .into_iter()
+                    .map(|obj| Object {
+                        key: Some(obj.key),
+                        last_modified: Some(OffsetDateTime::now_utc().into()),
+                        size: 0,
                         ..Default::default()
                     })
-                    .collect();
-                Ok(S3Response::new(ListObjectsV2Output {
-                    contents: Some(objects),
-                    max_keys: i32::MAX,
-                    name: Some(_req.input.bucket),
-                    ..Default::default()
-                }))
-            }
-            None => Err(s3_error!(NoSuchBucket)),
-        }
+                    .collect(),
+            ),
+            max_keys: i32::MAX,
+            name: Some(req.input.bucket),
+            ..Default::default()
+        }))
     }
 
-    #[instrument]
+    /*#[instrument]
     async fn get_object(
         &self,
         _req: S3Request<GetObjectInput>,
@@ -326,29 +333,25 @@ impl s3s::S3 for S3Frontend {
             },
             None => Err(s3_error!(NoSuchBucket)),
         }
-    }
+    }*/
 
     #[instrument]
     async fn put_object(
         &self,
-        _req: S3Request<PutObjectInput>,
+        req: S3Request<PutObjectInput>,
     ) -> S3Result<S3Response<PutObjectOutput>> {
-        match self.store.get_bucket(&_req.input.bucket).await {
-            Some(bucket) => {
-                let body = _req.input.body.unwrap();
-                let body_stream =
-                    Box::pin(body.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)));
-                let object = bucket
-                    .put_object(&_req.input.key, body_stream)
-                    .await
-                    .unwrap();
-                Ok(S3Response::new(PutObjectOutput {
-                    e_tag: Some(object.get_hashes().get_md5sum().to_string()),
-                    checksum_sha256: Some(object.get_hashes().get_sha2_256sum().to_string()),
-                    ..Default::default()
-                }))
-            }
-            None => Err(s3_error!(NoSuchBucket)),
-        }
-    }*/
+        let object = self
+            .s3
+            .send_s3(super::messages::PutObject {
+                bucket: req.input.bucket,
+                key: req.input.key,
+            })
+            .await??;
+
+        Ok(S3Response::new(PutObjectOutput {
+            e_tag: Some(object.md5sum),
+            checksum_sha256: Some(object.sha256sum),
+            ..Default::default()
+        }))
+    }
 }

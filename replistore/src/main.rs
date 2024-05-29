@@ -3,7 +3,6 @@ use crate::{
     stores::storeowner::StoreOwner,
 };
 use actix::prelude::*;
-use hyper::Server;
 use log::{error, info};
 use tokio::sync::{broadcast, mpsc};
 
@@ -18,7 +17,6 @@ use tracing_subscriber::layer::SubscriberExt;
 
 mod common;
 mod frontend;
-mod store;
 mod stores;
 
 fn init_tracing() {
