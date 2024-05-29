@@ -51,6 +51,17 @@ impl From<super::messages::S3Error> for s3s::S3Error {
     }
 }
 
+impl From<super::messages::CreateBucketError> for s3s::S3Error {
+    fn from(value: super::messages::CreateBucketError) -> Self {
+        match value {
+            super::messages::CreateBucketError::S3Error(e) => e.into(),
+            super::messages::CreateBucketError::BucketAlreadyExists => {
+                s3_error!(BucketAlreadyExists)
+            }
+        }
+    }
+}
+
 impl From<super::messages::ListObjectError> for s3s::S3Error {
     fn from(value: super::messages::ListObjectError) -> Self {
         match value {
@@ -178,19 +189,15 @@ impl s3s::S3 for S3Frontend {
         &self,
         req: S3Request<CreateBucketInput>,
     ) -> S3Result<S3Response<CreateBucketOutput>> {
-        match __self
+        let bucket = self
             .s3
             .send_s3(super::messages::CreateBucket {
                 name: req.input.bucket,
             })
-            .await?
-        {
-            Ok(bucket) => Ok(S3Response::new(CreateBucketOutput {
-                location: Some(format!("/{}", bucket)),
-            })),
-            Err(CreateBucketError::BucketAlreadyExists) => Err(s3_error!(BucketAlreadyExists)),
-            Err(CreateBucketError::S3Error(e)) => Err(e.into()),
-        }
+            .await??;
+        Ok(S3Response::new(CreateBucketOutput {
+            location: Some(format!("/{}", bucket)),
+        }))
     }
 
     #[instrument]
@@ -198,7 +205,7 @@ impl s3s::S3 for S3Frontend {
         &self,
         req: S3Request<HeadBucketInput>,
     ) -> S3Result<S3Response<HeadBucketOutput>> {
-        match __self
+        match self
             .s3
             .send_s3(super::messages::HeadBucket {
                 name: req.input.bucket,
