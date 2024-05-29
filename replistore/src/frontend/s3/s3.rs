@@ -4,7 +4,7 @@ use actix::prelude::*;
 use log::error;
 use time::OffsetDateTime;
 
-use crate::stores::{keyvalue::KeyValueStore, storeowner::StoreOwner};
+use crate::stores::{keyvalue::KeyValueStore, messages::StoreError, storeowner::StoreOwner};
 
 use super::messages::{
     CreateBucket, CreateBucketError, HeadBucket, ListBuckets, ListObject, ListObjectError, Object,
@@ -52,6 +52,36 @@ impl S3 {
             key.to_string(),
             suffix.to_string(),
         ]
+    }
+
+    async fn meta_to_obj(
+        store: &Addr<KeyValueStore>,
+        bucket: &String,
+        obj: String,
+    ) -> Result<Object, StoreError> {
+        let meta = store
+            .send(crate::stores::messages::List {
+                prefix: vec![
+                    "objectmeta".to_string(),
+                    bucket.clone(),
+                    obj.clone(),
+                    String::new(),
+                ],
+            })
+            .await
+            .unwrap()?;
+        let last_modified = OffsetDateTime::from_unix_timestamp(
+            meta.get("last_modified")
+                .map(|e| e.parse().unwrap_or_default())
+                .unwrap_or_default(),
+        )
+        .unwrap();
+        Ok(Object {
+            key: obj,
+            md5sum: String::new(),
+            sha256sum: String::new(),
+            last_modified,
+        })
     }
 }
 
@@ -175,29 +205,7 @@ impl Handler<ListObject> for S3 {
                 .unwrap()?
                 .into_keys()
             {
-                let meta = store
-                    .send(crate::stores::messages::List {
-                        prefix: vec![
-                            "objectmeta".to_string(),
-                            bucket.clone(),
-                            obj.clone(),
-                            String::new(),
-                        ],
-                    })
-                    .await
-                    .unwrap()?;
-                let last_modified = OffsetDateTime::from_unix_timestamp(
-                    meta.get("last_modified")
-                        .map(|e| e.parse().unwrap_or_default())
-                        .unwrap_or_default(),
-                )
-                .unwrap();
-                result.push(Object {
-                    key: obj,
-                    md5sum: String::new(),
-                    sha256sum: String::new(),
-                    last_modified,
-                });
+                result.push(Self::meta_to_obj(&store, &bucket, obj).await?);
             }
             Ok(result)
         })
