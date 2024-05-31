@@ -11,7 +11,10 @@ use tokio_util::{
     compat::TokioAsyncWriteCompatExt,
 };
 
-use super::messages::{BlobInfo, BlobReadError, GetBlob, GetBlobError, PutBlob, PutBlobError};
+use super::messages::{
+    BlobInfo, BlobReadError, DeleteBlob, DeleteBlobError, GetBlob, GetBlobError, PutBlob,
+    PutBlobError,
+};
 
 pub struct ContentAddressableBlobStore {
     name: String,
@@ -152,6 +155,25 @@ impl Handler<GetBlob> for ContentAddressableBlobStore {
                 GetBlobError,
             > = Ok(Box::pin(stream));
             out
+        })
+    }
+}
+
+impl Handler<DeleteBlob> for ContentAddressableBlobStore {
+    type Result = ResponseFuture<Result<(), DeleteBlobError>>;
+
+    fn handle(&mut self, msg: DeleteBlob, _ctx: &mut Self::Context) -> Self::Result {
+        let DeleteBlob { sha256sum } = msg;
+        let filepath = self.get_disk_path(&sha256sum);
+
+        Box::pin(async move {
+            let metadata = tokio::fs::metadata(&filepath).await?;
+            if !metadata.is_file() {
+                return Err(DeleteBlobError::BlobDoesNotExist);
+            }
+
+            tokio::fs::remove_file(&filepath).await?;
+            Ok(())
         })
     }
 }

@@ -13,9 +13,9 @@ use crate::stores::{
 };
 
 use super::messages::{
-    CreateBucket, CreateBucketError, GetObject, GetObjectError, GetObjectResult, HeadBucket,
-    HeadObject, HeadObjectError, ListBuckets, ListObject, ListObjectError, Object, PutObject,
-    PutObjectError, S3Error,
+    CreateBucket, CreateBucketError, DeleteObject, DeleteObjectError, GetObject, GetObjectError,
+    GetObjectResult, HeadBucket, HeadObject, HeadObjectError, ListBuckets, ListObject,
+    ListObjectError, Object, PutObject, PutObjectError, S3Error,
 };
 
 #[derive(Debug)]
@@ -343,6 +343,7 @@ impl Handler<PutObject> for S3 {
         })
     }
 }
+
 impl Handler<GetObject> for S3 {
     type Result = ResponseFuture<Result<GetObjectResult, GetObjectError>>;
 
@@ -383,6 +384,64 @@ impl Handler<GetObject> for S3 {
                 metadata: meta,
                 data: Box::pin(resp.map_err(|e| super::messages::ReadDataError { msg: e.msg })),
             })
+        })
+    }
+}
+
+impl Handler<DeleteObject> for S3 {
+    type Result = ResponseFuture<Result<(), DeleteObjectError>>;
+
+    fn handle(&mut self, msg: DeleteObject, _ctx: &mut Self::Context) -> Self::Result {
+        let DeleteObject { bucket, key } = msg;
+        let store = self.store();
+        let blob_store = self.blob_store();
+        let bucket_path = self.bucket_path(&bucket);
+        let object_path = self.object_path(&bucket, &key);
+        Box::pin(async move {
+            let resp = store
+                .send(crate::stores::messages::Get {
+                    key: bucket_path.clone(),
+                })
+                .await
+                .unwrap()?;
+            if resp.is_none() {
+                return Err(DeleteObjectError::BucketNotFound);
+            }
+
+            let resp = store
+                .send(crate::stores::messages::Get {
+                    key: object_path.clone(),
+                })
+                .await
+                .unwrap()?;
+            if resp.is_none() {
+                return Err(DeleteObjectError::ObjectNotFound);
+            }
+            let meta = Self::meta_to_obj(&store, &bucket, key.clone()).await?;
+
+            store
+                .send(crate::stores::messages::MultiDelete {
+                    data: vec![
+                        object_path,
+                        vec![
+                            "objectmeta".to_string(),
+                            bucket.clone(),
+                            key.clone(),
+                            String::new(),
+                        ],
+                    ],
+                })
+                .await
+                .unwrap()?;
+
+            blob_store
+                .send(crate::stores::messages::DeleteBlob {
+                    sha256sum: meta.sha256sum,
+                })
+                .await
+                .unwrap()?;
+
+            Ok(())
         })
     }
 }

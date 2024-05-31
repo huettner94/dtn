@@ -104,6 +104,19 @@ impl From<super::messages::GetObjectError> for s3s::S3Error {
     }
 }
 
+impl From<super::messages::DeleteObjectError> for s3s::S3Error {
+    fn from(value: super::messages::DeleteObjectError) -> Self {
+        match value {
+            super::messages::DeleteObjectError::S3Error(e) => e.into(),
+            super::messages::DeleteObjectError::BucketNotFound => s3_error!(NoSuchBucket),
+            super::messages::DeleteObjectError::ObjectNotFound => s3_error!(NoSuchKey),
+            super::messages::DeleteObjectError::ReadDataError(e) => {
+                s3s::S3Error::with_message(s3s::S3ErrorCode::InternalError, e.msg)
+            }
+        }
+    }
+}
+
 #[async_trait]
 trait AddrExt<A> {
     async fn send_s3<M>(&self, msg: M) -> Result<M::Result, s3s::S3Error>
@@ -351,24 +364,22 @@ impl s3s::S3 for S3Frontend {
         }))
     }
 
-    /*#[instrument]
+    #[instrument]
     async fn delete_object(
         &self,
-        _req: S3Request<DeleteObjectInput>,
+        req: S3Request<DeleteObjectInput>,
     ) -> S3Result<S3Response<DeleteObjectOutput>> {
-        match self.store.get_bucket(&_req.input.bucket).await {
-            Some(bucket) => match bucket.delete_object(&_req.input.key).await {
-                Some(result) => {
-                    result.unwrap();
-                    Ok(S3Response::new(DeleteObjectOutput {
-                        ..Default::default()
-                    }))
-                }
-                None => Err(s3_error!(NoSuchKey)),
-            },
-            None => Err(s3_error!(NoSuchBucket)),
-        }
-    }*/
+        self.s3
+            .send_s3(super::messages::DeleteObject {
+                bucket: req.input.bucket.clone(),
+                key: req.input.key,
+            })
+            .await??;
+
+        Ok(S3Response::new(DeleteObjectOutput {
+            ..Default::default()
+        }))
+    }
 
     #[instrument]
     async fn put_object(

@@ -95,6 +95,12 @@ pub struct Delete {
 }
 
 #[derive(Message)]
+#[rtype(result = "Result<(), StoreError>")]
+pub struct MultiDelete {
+    pub data: Vec<Vec<String>>,
+}
+
+#[derive(Message)]
 #[rtype(result = "Result<HashMap<String, String>, StoreError>")]
 pub struct List {
     pub prefix: Vec<String>,
@@ -160,5 +166,23 @@ impl From<BlobReadError> for GetBlobError {
     result = "Result<Pin<Box<dyn Stream<Item = Result<Bytes, BlobReadError>> + Send + Sync>>, GetBlobError>"
 )]
 pub struct GetBlob {
+    pub sha256sum: String,
+}
+
+pub enum DeleteBlobError {
+    StoreError(StoreError),
+    IoError(std::io::Error),
+    BlobDoesNotExist,
+}
+
+impl From<std::io::Error> for DeleteBlobError {
+    fn from(value: std::io::Error) -> Self {
+        Self::IoError(value)
+    }
+}
+
+#[derive(Message)]
+#[rtype(result = "Result<(), DeleteBlobError>")]
+pub struct DeleteBlob {
     pub sha256sum: String,
 }

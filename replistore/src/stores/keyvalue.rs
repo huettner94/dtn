@@ -2,7 +2,7 @@ use actix::prelude::*;
 use rocksdb::TransactionDB;
 use std::{collections::HashMap, sync::Arc};
 
-use super::messages::{Delete, Get, List, MultiSet, Set, StoreError};
+use super::messages::{Delete, Get, List, MultiDelete, MultiSet, Set, StoreError};
 
 pub struct KeyValueStore {
     name: String,
@@ -24,6 +24,15 @@ impl KeyValueStore {
 
     fn get_path(&self, keys: Vec<String>) -> String {
         format!("\0store\0{}\0{}", self.name, keys.join("\0"))
+    }
+
+    fn iter_range(&self, key: &[u8]) -> rocksdb::DBIteratorWithThreadMode<'_, TransactionDB> {
+        let mut options = rocksdb::ReadOptions::default();
+        options.set_iterate_range(rocksdb::PrefixRange(key));
+        self.db.iterator_opt(
+            rocksdb::IteratorMode::From(key, rocksdb::Direction::Forward),
+            options,
+        )
     }
 }
 
@@ -75,6 +84,24 @@ impl Handler<Delete> for KeyValueStore {
     }
 }
 
+impl Handler<MultiDelete> for KeyValueStore {
+    type Result = Result<(), StoreError>;
+
+    fn handle(&mut self, msg: MultiDelete, _ctx: &mut Self::Context) -> Self::Result {
+        let MultiDelete { mut data } = msg;
+        let txn = self.db.transaction();
+        for key in data.drain(..) {
+            let path = self.get_path(key);
+            let path_bytes = path.as_bytes();
+            for found in self.iter_range(path_bytes) {
+                txn.delete(found?.0)?
+            }
+        }
+        txn.commit()?;
+        Ok(())
+    }
+}
+
 impl Handler<List> for KeyValueStore {
     type Result = Result<HashMap<String, String>, StoreError>;
 
@@ -82,13 +109,7 @@ impl Handler<List> for KeyValueStore {
         let List { prefix } = msg;
         let path = self.get_path(prefix);
         let path_bytes = path.as_bytes();
-        let mut options = rocksdb::ReadOptions::default();
-        options.set_iterate_range(rocksdb::PrefixRange(path_bytes));
-        self.db
-            .iterator_opt(
-                rocksdb::IteratorMode::From(&path_bytes, rocksdb::Direction::Forward),
-                options,
-            )
+        self.iter_range(path_bytes)
             .try_fold(HashMap::new(), |mut map, e| {
                 let (key, value) = e?;
                 let keystring =

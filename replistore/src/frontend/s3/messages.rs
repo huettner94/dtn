@@ -3,7 +3,7 @@ use std::pin::Pin;
 use actix::prelude::*;
 use time::OffsetDateTime;
 
-use crate::stores::messages::{GetBlobError, PutBlobError, StoreError};
+use crate::stores::messages::{DeleteBlobError, GetBlobError, PutBlobError, StoreError};
 
 #[derive(Debug)]
 pub struct S3Error {
@@ -156,6 +156,38 @@ pub struct GetObjectResult {
 #[derive(Message)]
 #[rtype(result = "Result<GetObjectResult, GetObjectError>")]
 pub struct GetObject {
+    pub bucket: String,
+    pub key: String,
+}
+
+pub enum DeleteObjectError {
+    S3Error(S3Error),
+    BucketNotFound,
+    ObjectNotFound,
+    ReadDataError(ReadDataError),
+}
+
+impl From<StoreError> for DeleteObjectError {
+    fn from(value: StoreError) -> Self {
+        Self::S3Error(value.into())
+    }
+}
+
+impl From<DeleteBlobError> for DeleteObjectError {
+    fn from(value: DeleteBlobError) -> Self {
+        match value {
+            DeleteBlobError::StoreError(e) => e.into(),
+            DeleteBlobError::IoError(e) => {
+                Self::ReadDataError(ReadDataError { msg: e.to_string() })
+            }
+            DeleteBlobError::BlobDoesNotExist => DeleteObjectError::ObjectNotFound,
+        }
+    }
+}
+
+#[derive(Message)]
+#[rtype(result = "Result<(), DeleteObjectError>")]
+pub struct DeleteObject {
     pub bucket: String,
     pub key: String,
 }
