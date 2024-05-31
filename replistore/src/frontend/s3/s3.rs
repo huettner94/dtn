@@ -1,10 +1,16 @@
 use std::collections::HashMap;
 
 use actix::prelude::*;
+use futures::TryStreamExt;
 use log::error;
 use time::OffsetDateTime;
 
-use crate::stores::{keyvalue::KeyValueStore, messages::StoreError, storeowner::StoreOwner};
+use crate::stores::{
+    contentaddressableblob::ContentAddressableBlobStore,
+    keyvalue::KeyValueStore,
+    messages::{PutBlobReadError, StoreError},
+    storeowner::StoreOwner,
+};
 
 use super::messages::{
     CreateBucket, CreateBucketError, HeadBucket, HeadObject, HeadObjectError, ListBuckets,
@@ -15,6 +21,7 @@ use super::messages::{
 pub struct S3 {
     store_owner: Addr<StoreOwner>,
     s3_kv_store: Option<Addr<KeyValueStore>>,
+    s3_blob_store: Option<Addr<ContentAddressableBlobStore>>,
 }
 
 /* Kv Structure
@@ -31,11 +38,16 @@ impl S3 {
         S3 {
             store_owner,
             s3_kv_store: None,
+            s3_blob_store: None,
         }
     }
 
     fn store(&self) -> Addr<KeyValueStore> {
         self.s3_kv_store.clone().unwrap()
+    }
+
+    fn blob_store(&self) -> Addr<ContentAddressableBlobStore> {
+        self.s3_blob_store.clone().unwrap()
     }
 
     fn bucket_path(&self, name: &str) -> Vec<String> {
@@ -59,7 +71,7 @@ impl S3 {
         bucket: &String,
         obj: String,
     ) -> Result<Object, StoreError> {
-        let meta = store
+        let mut meta = store
             .send(crate::stores::messages::List {
                 prefix: vec![
                     "objectmeta".to_string(),
@@ -76,10 +88,12 @@ impl S3 {
                 .unwrap_or_default(),
         )
         .unwrap();
+        let md5sum = meta.remove("md5sum").unwrap_or_default();
+        let sha256sum = meta.remove("sha256sum").unwrap_or_default();
         Ok(Object {
             key: obj,
-            md5sum: String::new(),
-            sha256sum: String::new(),
+            md5sum,
+            sha256sum,
             last_modified,
         })
     }
@@ -103,6 +117,30 @@ impl Actor for S3 {
                     Ok(addr) => act.s3_kv_store = Some(addr),
                     Err(e) => {
                         error!("Error getting keyvalue store {:?}", e);
+                        ctx.stop();
+                    }
+                }
+                fut::ready(())
+            })
+            .wait(ctx);
+
+        let store_owner = self.store_owner.clone();
+        let fut = async move {
+            store_owner
+                .send(
+                    crate::stores::messages::GetOrCreateContentAddressableBlobStore {
+                        name: "s3data".to_string(),
+                        path: "/tmp/replistore/s3data".into(),
+                    },
+                )
+                .await
+        };
+        fut.into_actor(self)
+            .then(|res, act, ctx| {
+                match res.unwrap() {
+                    Ok(addr) => act.s3_blob_store = Some(addr),
+                    Err(e) => {
+                        error!("Error getting blob store {:?}", e);
                         ctx.stop();
                     }
                 }
@@ -246,11 +284,14 @@ impl Handler<PutObject> for S3 {
     type Result = ResponseFuture<Result<Object, PutObjectError>>;
 
     fn handle(&mut self, msg: PutObject, _ctx: &mut Self::Context) -> Self::Result {
-        let PutObject { bucket, key } = msg;
+        let PutObject { bucket, key, data } = msg;
         let store = self.store();
+        let blob_store = self.blob_store();
         let bucket_path = self.bucket_path(&bucket);
         let object_path = self.object_path(&bucket, &key);
         let last_modified_path = self.objectmeta_path(&bucket, &key, "last_modified");
+        let md5sum_path = self.objectmeta_path(&bucket, &key, "md5sum");
+        let sha256sum_path = self.objectmeta_path(&bucket, &key, "sha256sum");
         Box::pin(async move {
             let resp = store
                 .send(crate::stores::messages::Get {
@@ -261,6 +302,14 @@ impl Handler<PutObject> for S3 {
             if resp.is_none() {
                 return Err(PutObjectError::BucketNotFound);
             }
+
+            let hashes = blob_store
+                .send(crate::stores::messages::PutBlob {
+                    data: Box::pin(data.map_err(|e| PutBlobReadError { msg: e.msg })),
+                })
+                .await
+                .unwrap()?;
+
             let last_modified = OffsetDateTime::now_utc();
             store
                 .send(crate::stores::messages::MultiSet {
@@ -270,6 +319,8 @@ impl Handler<PutObject> for S3 {
                             last_modified_path,
                             last_modified.unix_timestamp().to_string(),
                         ),
+                        (md5sum_path, hashes.md5sum),
+                        (sha256sum_path, hashes.sha256sum),
                     ]),
                 })
                 .await

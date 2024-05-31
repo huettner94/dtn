@@ -3,19 +3,25 @@ use rocksdb::TransactionDB;
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use super::{
+    contentaddressableblob::ContentAddressableBlobStore,
     keyvalue::KeyValueStore,
-    messages::{GetOrCreateError, GetOrCreateKeyValueStore, StoreType},
+    messages::{
+        GetOrCreateContentAddressableBlobStore, GetOrCreateError, GetOrCreateKeyValueStore,
+        StoreType,
+    },
 };
 
 pub struct StoreOwner {
     db: Arc<TransactionDB>,
     kv_stores: HashMap<String, Addr<KeyValueStore>>,
+    blob_stores: HashMap<String, Addr<ContentAddressableBlobStore>>,
 }
 
 impl std::fmt::Debug for StoreOwner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("StoreOwner")
             .field("kv_stores", &self.kv_stores)
+            .field("blob_stores", &self.blob_stores)
             .finish()
     }
 }
@@ -26,6 +32,7 @@ impl StoreOwner {
         Ok(StoreOwner {
             db: Arc::new(db),
             kv_stores: HashMap::new(),
+            blob_stores: HashMap::new(),
         })
     }
 
@@ -70,6 +77,28 @@ impl Handler<GetOrCreateKeyValueStore> for StoreOwner {
                 let kv_store = KeyValueStore::new(name.clone(), self.db.clone()).start();
                 self.kv_stores.insert(name, kv_store.clone());
                 Ok(kv_store)
+            }
+        }
+    }
+}
+
+impl Handler<GetOrCreateContentAddressableBlobStore> for StoreOwner {
+    type Result = Result<Addr<ContentAddressableBlobStore>, GetOrCreateError>;
+
+    fn handle(
+        &mut self,
+        msg: GetOrCreateContentAddressableBlobStore,
+        _ctx: &mut Context<Self>,
+    ) -> Self::Result {
+        let GetOrCreateContentAddressableBlobStore { name, path } = msg;
+        self.check_or_create_store_type(&name, StoreType::ContentAddressableBlob)?;
+        match self.blob_stores.get(&name) {
+            Some(addr) => Ok(addr.clone()),
+            None => {
+                let blob_store =
+                    ContentAddressableBlobStore::new(name.clone(), path, self.db.clone()).start();
+                self.blob_stores.insert(name, blob_store.clone());
+                Ok(blob_store)
             }
         }
     }

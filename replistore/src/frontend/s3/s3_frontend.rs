@@ -16,9 +16,9 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 use actix::prelude::*;
+use futures::TryStreamExt;
 use futures_util::future::FutureExt;
 
-use ::time::OffsetDateTime;
 use hyper::Server;
 use log::info;
 use s3s::{
@@ -74,6 +74,9 @@ impl From<super::messages::PutObjectError> for s3s::S3Error {
         match value {
             super::messages::PutObjectError::S3Error(e) => e.into(),
             super::messages::PutObjectError::BucketNotFound => s3_error!(NoSuchBucket),
+            super::messages::PutObjectError::ReadDataError(e) => {
+                s3s::S3Error::with_message(s3s::S3ErrorCode::InternalError, e.msg)
+            }
         }
     }
 }
@@ -303,8 +306,8 @@ impl s3s::S3 for S3Frontend {
         Ok(S3Response::new(HeadObjectOutput {
             last_modified: Some(obj.last_modified.into()),
             content_length: 0,
-            e_tag: None,
-            checksum_sha256: None,
+            e_tag: Some(obj.md5sum),
+            checksum_sha256: Some(obj.sha256sum),
             ..Default::default()
         }))
     }
@@ -366,6 +369,12 @@ impl s3s::S3 for S3Frontend {
             .send_s3(super::messages::PutObject {
                 bucket: req.input.bucket,
                 key: req.input.key,
+                data: Box::pin(
+                    req.input
+                        .body
+                        .unwrap()
+                        .map_err(|e| super::messages::ReadDataError { msg: e.to_string() }),
+                ),
             })
             .await??;
 

@@ -1,7 +1,9 @@
+use std::pin::Pin;
+
 use actix::prelude::*;
 use time::OffsetDateTime;
 
-use crate::stores::messages::StoreError;
+use crate::stores::messages::{PutBlobError, PutBlobReadError, StoreError};
 
 #[derive(Debug)]
 pub struct S3Error {
@@ -49,9 +51,15 @@ pub struct HeadBucket {
     pub name: String,
 }
 
+#[derive(Debug)]
+pub struct ReadDataError {
+    pub msg: String,
+}
+
 pub enum PutObjectError {
     S3Error(S3Error),
     BucketNotFound,
+    ReadDataError(ReadDataError),
 }
 
 impl From<StoreError> for PutObjectError {
@@ -60,11 +68,22 @@ impl From<StoreError> for PutObjectError {
     }
 }
 
+impl From<PutBlobError> for PutObjectError {
+    fn from(value: PutBlobError) -> Self {
+        match value {
+            PutBlobError::StoreError(e) => e.into(),
+            PutBlobError::PutBlobReadError(e) => Self::ReadDataError(ReadDataError { msg: e.msg }),
+            PutBlobError::IoError(e) => Self::ReadDataError(ReadDataError { msg: e.to_string() }),
+        }
+    }
+}
+
 #[derive(Message)]
 #[rtype(result = "Result<Object, PutObjectError>")]
 pub struct PutObject {
     pub bucket: String,
     pub key: String,
+    pub data: Pin<Box<dyn Stream<Item = Result<bytes::Bytes, ReadDataError>> + Send>>,
 }
 
 pub enum ListObjectError {
