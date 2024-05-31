@@ -1,13 +1,17 @@
 use actix::prelude::*;
+use bytes::{Bytes, BytesMut};
 use futures::{SinkExt, StreamExt, TryStreamExt};
 use md5::Md5;
 use rocksdb::TransactionDB;
 use sha2::Digest;
-use std::{path::PathBuf, sync::Arc};
+use std::{path::PathBuf, pin::Pin, sync::Arc};
 use tokio::io::AsyncReadExt;
-use tokio_util::compat::TokioAsyncWriteCompatExt;
+use tokio_util::{
+    codec::{BytesCodec, FramedRead},
+    compat::TokioAsyncWriteCompatExt,
+};
 
-use super::messages::{BlobInfo, PutBlob, PutBlobError};
+use super::messages::{BlobInfo, BlobReadError, GetBlob, GetBlobError, PutBlob, PutBlobError};
 
 pub struct ContentAddressableBlobStore {
     name: String,
@@ -40,7 +44,7 @@ impl ContentAddressableBlobStore {
         self.base_path.join("data")
     }
 
-    fn get_disk_path(&self, sha256sum: String) -> PathBuf {
+    fn get_disk_path(&self, sha256sum: &str) -> PathBuf {
         self.get_disk_base_path().join(sha256sum)
     }
 
@@ -116,5 +120,38 @@ impl Handler<PutBlob> for ContentAddressableBlobStore {
             .into_actor(self) // converts future to ActorFuture
             .map(|res, _act, _ctx| res),
         )
+    }
+}
+
+impl Handler<GetBlob> for ContentAddressableBlobStore {
+    type Result = ResponseFuture<
+        Result<
+            Pin<Box<dyn Stream<Item = Result<Bytes, BlobReadError>> + Send + Sync>>,
+            GetBlobError,
+        >,
+    >;
+
+    fn handle(&mut self, msg: GetBlob, _ctx: &mut Self::Context) -> Self::Result {
+        let GetBlob { sha256sum } = msg;
+        let filepath = self.get_disk_path(&sha256sum);
+
+        Box::pin(async move {
+            let metadata = tokio::fs::metadata(&filepath).await?;
+            if !metadata.is_file() {
+                return Err(GetBlobError::BlobDoesNotExist);
+            }
+
+            let file = tokio::fs::File::open(&filepath).await?;
+            let stream = FramedRead::new(file, BytesCodec::new())
+                .map_ok(BytesMut::freeze)
+                .map_err(|e| BlobReadError { msg: e.to_string() });
+
+            // need a explicit type here, otherwise daemons will arise
+            let out: Result<
+                Pin<Box<dyn Stream<Item = Result<Bytes, BlobReadError>> + Send + Sync>>,
+                GetBlobError,
+            > = Ok(Box::pin(stream));
+            out
+        })
     }
 }

@@ -3,7 +3,7 @@ use std::pin::Pin;
 use actix::prelude::*;
 use time::OffsetDateTime;
 
-use crate::stores::messages::{PutBlobError, PutBlobReadError, StoreError};
+use crate::stores::messages::{GetBlobError, PutBlobError, StoreError};
 
 #[derive(Debug)]
 pub struct S3Error {
@@ -73,7 +73,7 @@ impl From<PutBlobError> for PutObjectError {
     fn from(value: PutBlobError) -> Self {
         match value {
             PutBlobError::StoreError(e) => e.into(),
-            PutBlobError::PutBlobReadError(e) => Self::ReadDataError(ReadDataError { msg: e.msg }),
+            PutBlobError::BlobReadError(e) => Self::ReadDataError(ReadDataError { msg: e.msg }),
             PutBlobError::IoError(e) => Self::ReadDataError(ReadDataError { msg: e.to_string() }),
         }
     }
@@ -120,6 +120,42 @@ impl From<StoreError> for HeadObjectError {
 #[derive(Message)]
 #[rtype(result = "Result<Object, HeadObjectError>")]
 pub struct HeadObject {
+    pub bucket: String,
+    pub key: String,
+}
+
+pub enum GetObjectError {
+    S3Error(S3Error),
+    BucketNotFound,
+    ObjectNotFound,
+    ReadDataError(ReadDataError),
+}
+
+impl From<StoreError> for GetObjectError {
+    fn from(value: StoreError) -> Self {
+        Self::S3Error(value.into())
+    }
+}
+
+impl From<GetBlobError> for GetObjectError {
+    fn from(value: GetBlobError) -> Self {
+        match value {
+            GetBlobError::StoreError(e) => e.into(),
+            GetBlobError::BlobReadError(e) => Self::ReadDataError(ReadDataError { msg: e.msg }),
+            GetBlobError::IoError(e) => Self::ReadDataError(ReadDataError { msg: e.to_string() }),
+            GetBlobError::BlobDoesNotExist => GetObjectError::ObjectNotFound,
+        }
+    }
+}
+
+pub struct GetObjectResult {
+    pub metadata: Object,
+    pub data: Pin<Box<dyn Stream<Item = Result<bytes::Bytes, ReadDataError>> + Send + Sync>>,
+}
+
+#[derive(Message)]
+#[rtype(result = "Result<GetObjectResult, GetObjectError>")]
+pub struct GetObject {
     pub bucket: String,
     pub key: String,
 }

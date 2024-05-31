@@ -8,13 +8,14 @@ use time::OffsetDateTime;
 use crate::stores::{
     contentaddressableblob::ContentAddressableBlobStore,
     keyvalue::KeyValueStore,
-    messages::{PutBlobReadError, StoreError},
+    messages::{BlobReadError, StoreError},
     storeowner::StoreOwner,
 };
 
 use super::messages::{
-    CreateBucket, CreateBucketError, HeadBucket, HeadObject, HeadObjectError, ListBuckets,
-    ListObject, ListObjectError, Object, PutObject, PutObjectError, S3Error,
+    CreateBucket, CreateBucketError, GetObject, GetObjectError, GetObjectResult, HeadBucket,
+    HeadObject, HeadObjectError, ListBuckets, ListObject, ListObjectError, Object, PutObject,
+    PutObjectError, S3Error,
 };
 
 #[derive(Debug)]
@@ -311,7 +312,7 @@ impl Handler<PutObject> for S3 {
 
             let info = blob_store
                 .send(crate::stores::messages::PutBlob {
-                    data: Box::pin(data.map_err(|e| PutBlobReadError { msg: e.msg })),
+                    data: Box::pin(data.map_err(|e| BlobReadError { msg: e.msg })),
                 })
                 .await
                 .unwrap()?;
@@ -338,6 +339,49 @@ impl Handler<PutObject> for S3 {
                 sha256sum: info.sha256sum,
                 size: info.size,
                 last_modified,
+            })
+        })
+    }
+}
+impl Handler<GetObject> for S3 {
+    type Result = ResponseFuture<Result<GetObjectResult, GetObjectError>>;
+
+    fn handle(&mut self, msg: GetObject, _ctx: &mut Self::Context) -> Self::Result {
+        let GetObject { bucket, key } = msg;
+        let store = self.store();
+        let blob_store = self.blob_store();
+        let bucket_path = self.bucket_path(&bucket);
+        let object_path = self.object_path(&bucket, &key);
+        Box::pin(async move {
+            let resp = store
+                .send(crate::stores::messages::Get {
+                    key: bucket_path.clone(),
+                })
+                .await
+                .unwrap()?;
+            if resp.is_none() {
+                return Err(GetObjectError::BucketNotFound);
+            }
+
+            let resp = store
+                .send(crate::stores::messages::Get { key: object_path })
+                .await
+                .unwrap()?;
+            if resp.is_none() {
+                return Err(GetObjectError::ObjectNotFound);
+            }
+            let meta = Self::meta_to_obj(&store, &bucket, key).await?;
+
+            let resp = blob_store
+                .send(crate::stores::messages::GetBlob {
+                    sha256sum: meta.sha256sum.clone(),
+                })
+                .await
+                .unwrap()?;
+
+            Ok(GetObjectResult {
+                metadata: meta,
+                data: Box::pin(resp.map_err(|e| super::messages::ReadDataError { msg: e.msg })),
             })
         })
     }

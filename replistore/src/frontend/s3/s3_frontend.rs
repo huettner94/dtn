@@ -91,6 +91,19 @@ impl From<super::messages::HeadObjectError> for s3s::S3Error {
     }
 }
 
+impl From<super::messages::GetObjectError> for s3s::S3Error {
+    fn from(value: super::messages::GetObjectError) -> Self {
+        match value {
+            super::messages::GetObjectError::S3Error(e) => e.into(),
+            super::messages::GetObjectError::BucketNotFound => s3_error!(NoSuchBucket),
+            super::messages::GetObjectError::ObjectNotFound => s3_error!(NoSuchKey),
+            super::messages::GetObjectError::ReadDataError(e) => {
+                s3s::S3Error::with_message(s3s::S3ErrorCode::InternalError, e.msg)
+            }
+        }
+    }
+}
+
 #[async_trait]
 trait AddrExt<A> {
     async fn send_s3<M>(&self, msg: M) -> Result<M::Result, s3s::S3Error>
@@ -312,32 +325,33 @@ impl s3s::S3 for S3Frontend {
         }))
     }
 
-    /*#[instrument]
+    #[instrument]
     async fn get_object(
         &self,
-        _req: S3Request<GetObjectInput>,
+        req: S3Request<GetObjectInput>,
     ) -> S3Result<S3Response<GetObjectOutput>> {
-        match self.store.get_bucket(&_req.input.bucket).await {
-            Some(bucket) => match bucket.get_object(&_req.input.key).await {
-                Some(object) => {
-                    let stream = object.read().await.unwrap();
-                    Ok(S3Response::new(GetObjectOutput {
-                        body: Some(s3s::dto::StreamingBlob::wrap(stream)),
-                        last_modified: Some((*object.get_last_modified()).into()),
-                        content_length: object.get_size() as i64,
-                        e_tag: Some(object.get_hashes().get_md5sum().to_string()),
-                        checksum_sha256: Some(object.get_hashes().get_sha2_256sum().to_string()),
-                        ..Default::default()
-                    }))
-                }
-                None => Err(s3_error!(NoSuchKey)),
-            },
-            None => Err(s3_error!(NoSuchBucket)),
-        }
+        let result = self
+            .s3
+            .send_s3(super::messages::GetObject {
+                bucket: req.input.bucket.clone(),
+                key: req.input.key,
+            })
+            .await??;
+        let obj = result.metadata;
+
+        Ok(S3Response::new(GetObjectOutput {
+            body: Some(s3s::dto::StreamingBlob::wrap(Box::pin(
+                result.data.map_err(|e| std::io::Error::other(e.msg)),
+            ))),
+            last_modified: Some(obj.last_modified.into()),
+            content_length: obj.size as i64,
+            e_tag: Some(obj.md5sum),
+            checksum_sha256: Some(obj.sha256sum),
+            ..Default::default()
+        }))
     }
 
-
-    #[instrument]
+    /*#[instrument]
     async fn delete_object(
         &self,
         _req: S3Request<DeleteObjectInput>,

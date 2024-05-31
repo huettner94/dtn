@@ -101,13 +101,13 @@ pub struct List {
 }
 
 #[derive(Debug)]
-pub struct PutBlobReadError {
+pub struct BlobReadError {
     pub msg: String,
 }
 
 pub enum PutBlobError {
     StoreError(StoreError),
-    PutBlobReadError(PutBlobReadError),
+    BlobReadError(BlobReadError),
     IoError(std::io::Error),
 }
 
@@ -117,9 +117,9 @@ impl From<std::io::Error> for PutBlobError {
     }
 }
 
-impl From<PutBlobReadError> for PutBlobError {
-    fn from(value: PutBlobReadError) -> Self {
-        Self::PutBlobReadError(value)
+impl From<BlobReadError> for PutBlobError {
+    fn from(value: BlobReadError) -> Self {
+        Self::BlobReadError(value)
     }
 }
 
@@ -133,5 +133,32 @@ pub struct BlobInfo {
 #[derive(Message)]
 #[rtype(result = "Result<BlobInfo, PutBlobError>")]
 pub struct PutBlob {
-    pub data: Pin<Box<dyn Stream<Item = Result<Bytes, PutBlobReadError>> + Send>>,
+    pub data: Pin<Box<dyn Stream<Item = Result<Bytes, BlobReadError>> + Send>>,
+}
+
+pub enum GetBlobError {
+    StoreError(StoreError),
+    BlobReadError(BlobReadError),
+    IoError(std::io::Error),
+    BlobDoesNotExist,
+}
+
+impl From<std::io::Error> for GetBlobError {
+    fn from(value: std::io::Error) -> Self {
+        Self::IoError(value)
+    }
+}
+
+impl From<BlobReadError> for GetBlobError {
+    fn from(value: BlobReadError) -> Self {
+        Self::BlobReadError(value)
+    }
+}
+
+#[derive(Message)]
+#[rtype(
+    result = "Result<Pin<Box<dyn Stream<Item = Result<Bytes, BlobReadError>> + Send + Sync>>, GetBlobError>"
+)]
+pub struct GetBlob {
+    pub sha256sum: String,
 }
