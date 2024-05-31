@@ -36,13 +36,17 @@ impl ContentAddressableBlobStore {
         format!("\0store\0{}\0{}", self.name, keys.join("\0"))
     }
 
+    fn get_disk_base_path(&self) -> PathBuf {
+        self.base_path.join("data")
+    }
+
     fn get_disk_path(&self, sha256sum: String) -> PathBuf {
-        self.base_path.join("data").join(sha256sum)
+        self.get_disk_base_path().join(sha256sum)
     }
 
     fn get_disk_tmp_path(&self) -> PathBuf {
         let uuid = uuid::Uuid::new_v4().to_string();
-        self.base_path.join("data").join("tmp").join(uuid)
+        self.get_disk_base_path().join("tmp").join(uuid)
     }
 
     async fn hash_file(path: &PathBuf) -> Result<(String, String), std::io::Error> {
@@ -71,32 +75,46 @@ impl Actor for ContentAddressableBlobStore {
         let fullpath = self.base_path.join("data").join("tmp");
         let fut = async move { tokio::fs::create_dir_all(&fullpath).await.unwrap() };
 
-        fut.into_actor(self).wait(ctx);
+        fut.into_actor(self).wait(ctx)
     }
 }
 
 impl Handler<PutBlob> for ContentAddressableBlobStore {
-    type Result = ResponseFuture<Result<BlobInfo, PutBlobError>>;
+    type Result = ResponseActFuture<Self, Result<BlobInfo, PutBlobError>>;
 
     fn handle(&mut self, msg: PutBlob, _ctx: &mut Context<Self>) -> Self::Result {
         let PutBlob { data } = msg;
+        let basedir = self.get_disk_base_path();
         let tmpfile = self.get_disk_tmp_path();
 
-        Box::pin(async move {
-            let file = Box::pin(
-                futures_util::AsyncWriteExt::into_sink(
-                    tokio::fs::File::create(&tmpfile).await?.compat_write(),
-                )
-                .sink_map_err(|e| e.into()),
-            );
+        Box::pin(
+            async move {
+                let file = Box::pin(
+                    futures_util::AsyncWriteExt::into_sink(
+                        tokio::fs::File::create(&tmpfile).await?.compat_write(),
+                    )
+                    .sink_map_err(|e| e.into()),
+                );
 
-            data.map_err(|e| Into::<PutBlobError>::into(e))
-                .forward(file)
-                .await?;
+                data.map_err(|e| Into::<PutBlobError>::into(e))
+                    .forward(file)
+                    .await?;
 
-            let (md5sum, sha256sum) = Self::hash_file(&tmpfile).await?;
+                let (md5sum, sha256sum) = Self::hash_file(&tmpfile).await?;
 
-            Ok(BlobInfo { md5sum, sha256sum })
-        })
+                let target_name = basedir.join(&sha256sum);
+                tokio::fs::rename(&tmpfile, &target_name).await?;
+
+                let size = tokio::fs::metadata(&target_name).await?.len();
+
+                Ok(BlobInfo {
+                    md5sum,
+                    sha256sum,
+                    size,
+                })
+            }
+            .into_actor(self) // converts future to ActorFuture
+            .map(|res, _act, _ctx| res),
+        )
     }
 }

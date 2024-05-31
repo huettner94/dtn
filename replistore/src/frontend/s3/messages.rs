@@ -22,6 +22,7 @@ pub struct Object {
     pub md5sum: String,
     pub sha256sum: String,
     pub last_modified: OffsetDateTime,
+    pub size: u64,
 }
 
 #[derive(Message)]

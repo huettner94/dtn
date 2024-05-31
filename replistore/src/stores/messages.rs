@@ -127,6 +127,7 @@ impl From<PutBlobReadError> for PutBlobError {
 pub struct BlobInfo {
     pub md5sum: String,
     pub sha256sum: String,
+    pub size: u64,
 }
 
 #[derive(Message)]

@@ -248,7 +248,7 @@ impl s3s::S3 for S3Frontend {
                     .map(|obj| Object {
                         key: Some(obj.key),
                         last_modified: Some(obj.last_modified.into()),
-                        size: 0,
+                        size: obj.size as i64,
                         ..Default::default()
                     })
                     .collect(),
@@ -279,7 +279,7 @@ impl s3s::S3 for S3Frontend {
                     .map(|obj| Object {
                         key: Some(obj.key),
                         last_modified: Some(obj.last_modified.into()),
-                        size: 0,
+                        size: obj.size as i64,
                         ..Default::default()
                     })
                     .collect(),
@@ -305,7 +305,7 @@ impl s3s::S3 for S3Frontend {
 
         Ok(S3Response::new(HeadObjectOutput {
             last_modified: Some(obj.last_modified.into()),
-            content_length: 0,
+            content_length: obj.size as i64,
             e_tag: Some(obj.md5sum),
             checksum_sha256: Some(obj.sha256sum),
             ..Default::default()

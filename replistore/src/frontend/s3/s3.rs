@@ -90,11 +90,16 @@ impl S3 {
         .unwrap();
         let md5sum = meta.remove("md5sum").unwrap_or_default();
         let sha256sum = meta.remove("sha256sum").unwrap_or_default();
+        let size = meta
+            .get("size")
+            .map(|e| e.parse().unwrap_or_default())
+            .unwrap_or_default();
         Ok(Object {
             key: obj,
             md5sum,
             sha256sum,
             last_modified,
+            size,
         })
     }
 }
@@ -292,6 +297,7 @@ impl Handler<PutObject> for S3 {
         let last_modified_path = self.objectmeta_path(&bucket, &key, "last_modified");
         let md5sum_path = self.objectmeta_path(&bucket, &key, "md5sum");
         let sha256sum_path = self.objectmeta_path(&bucket, &key, "sha256sum");
+        let size_path = self.objectmeta_path(&bucket, &key, "size");
         Box::pin(async move {
             let resp = store
                 .send(crate::stores::messages::Get {
@@ -303,7 +309,7 @@ impl Handler<PutObject> for S3 {
                 return Err(PutObjectError::BucketNotFound);
             }
 
-            let hashes = blob_store
+            let info = blob_store
                 .send(crate::stores::messages::PutBlob {
                     data: Box::pin(data.map_err(|e| PutBlobReadError { msg: e.msg })),
                 })
@@ -319,16 +325,18 @@ impl Handler<PutObject> for S3 {
                             last_modified_path,
                             last_modified.unix_timestamp().to_string(),
                         ),
-                        (md5sum_path, hashes.md5sum),
-                        (sha256sum_path, hashes.sha256sum),
+                        (md5sum_path, info.md5sum.clone()),
+                        (sha256sum_path, info.sha256sum.clone()),
+                        (size_path, info.size.to_string()),
                     ]),
                 })
                 .await
                 .unwrap()?;
             Ok(Object {
                 key,
-                md5sum: String::new(),
-                sha256sum: String::new(),
+                md5sum: info.md5sum,
+                sha256sum: info.sha256sum,
+                size: info.size,
                 last_modified,
             })
         })
