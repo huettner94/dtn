@@ -35,7 +35,7 @@ futures-util = "0.3.30"
 env_logger = "0.11.3"
 openssl = {version = "0.10.64", features = ["vendored"]}
 uuid = {version = "1.8.0", features = ["v4"]}
-console-subscriber = "0.2.0"
+console-subscriber = "0.3.0"
 actix = "0.13.3"
 actix-rt = "2.9.0"
 async-stream = "0.3.5"
