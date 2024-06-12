@@ -19,7 +19,7 @@ mod common;
 mod frontend;
 mod stores;
 
-fn init_tracing() {
+fn init_tracing(settings: &Settings) {
     let tracer = opentelemetry_otlp::new_pipeline()
         .tracing()
         .with_exporter(
@@ -45,23 +45,30 @@ fn init_tracing() {
 
     let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
 
-    let subscriber = tracing_subscriber::Registry::default().with(telemetry);
+    let console_layer = console_subscriber::ConsoleLayer::builder()
+        .server_addr((
+            [127, 0, 0, 1],
+            settings
+                .tokio_tracing_port
+                .clone()
+                .map_or(0, |e| e.parse().unwrap()),
+        ))
+        .spawn();
+
+    let subscriber = tracing_subscriber::Registry::default()
+        .with(telemetry)
+        .with(console_layer);
+
     tracing::subscriber::set_global_default(subscriber).unwrap();
 }
 
 #[actix_rt::main]
 async fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-    init_tracing();
     info!("Starting up");
     let settings: Settings = Settings::from_env();
     info!("Starting with settings: {:?}", settings);
-    if let Some(tokio_tracing_port) = settings.tokio_tracing_port.clone() {
-        info!("Initializing tokio tracing on port {}", tokio_tracing_port);
-        console_subscriber::ConsoleLayer::builder()
-            .server_addr(([127, 0, 0, 1], tokio_tracing_port.parse().unwrap()))
-            .init();
-    }
+    init_tracing(&settings);
 
     let (notify_shutdown, _) = broadcast::channel::<()>(1);
     let (shutdown_complete_tx, mut shutdown_complete_rx) = mpsc::channel::<()>(1);
