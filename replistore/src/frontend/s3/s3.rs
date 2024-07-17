@@ -1,14 +1,14 @@
 use std::collections::HashMap;
 
 use actix::prelude::*;
-use futures::TryStreamExt;
+use futures::{Future, TryStreamExt};
 use log::error;
 use time::OffsetDateTime;
 
 use crate::stores::{
     contentaddressableblob::ContentAddressableBlobStore,
     keyvalue::KeyValueStore,
-    messages::{BlobReadError, StoreError},
+    messages::{BlobReadError, GetOrCreateError, StoreError},
     storeowner::StoreOwner,
 };
 
@@ -27,10 +27,12 @@ pub struct S3 {
 
 /* Kv Structure
  *
- * \0buckets\0<bucket_name>: nil
- * \0objects\0<bucket_name>\0<object_name_path>: nil
- * \0objectmeta\0<bucket_name>\0<object_name_path>\0size: size in bytes
- * \0objectmeta\0<bucket_name>\0<object_name_path>\0last_modified: u64 timestamp
+ * s3_kv_store:
+ *      \0buckets\0<bucket_name>: nil
+ * s3_obj_kv_store:
+ *      \0objects\0<bucket_name>\0<object_name_path>: nil
+ *      \0objectmeta\0<bucket_name>\0<object_name_path>\0size: size in bytes
+ *      \0objectmeta\0<bucket_name>\0<object_name_path>\0last_modified: u64 timestamp
  *
  */
 
@@ -58,6 +60,7 @@ impl S3 {
     fn object_path(&self, bucket: &str, key: &str) -> Vec<String> {
         vec!["objects".to_string(), bucket.to_string(), key.to_string()]
     }
+
     fn objectmeta_path(&self, bucket: &str, key: &str, suffix: &str) -> Vec<String> {
         vec![
             "objectmeta".to_string(),
@@ -65,6 +68,47 @@ impl S3 {
             key.to_string(),
             suffix.to_string(),
         ]
+    }
+
+    fn with_bucket_store<E, F, Fut, S>(
+        &self,
+        bucket: String,
+        not_found_error: E,
+        handler: F,
+    ) -> ResponseFuture<Result<S, E>>
+    where
+        Fut: Future<Output = Result<S, E>>,
+        F: FnOnce(Addr<KeyValueStore>) -> Fut + 'static,
+        E: From<StoreError> + 'static,
+    {
+        let root_store = self.store();
+        let store_owner = self.store_owner.clone();
+        let bucket_path = self.bucket_path(&bucket);
+
+        Box::pin(async move {
+            if root_store
+                .send(crate::stores::messages::Get { key: bucket_path })
+                .await
+                .unwrap()?
+                .is_none()
+            {
+                return Err(not_found_error);
+            }
+
+            match store_owner
+                .send(crate::stores::messages::GetOrCreateKeyValueStore {
+                    name: format!("s3metadata\0{}", bucket).to_string(),
+                })
+                .await
+                .unwrap()
+            {
+                Ok(addr) => handler(addr).await,
+                Err(GetOrCreateError::StoreError(e)) => return Err(e.into()),
+                Err(GetOrCreateError::StoreTypeMissmatch(store, e)) => {
+                    panic!("Error getting s3 meta store {}: {}", store, e)
+                }
+            }
+        })
     }
 
     async fn meta_to_obj(
@@ -113,7 +157,7 @@ impl Actor for S3 {
         let fut = async move {
             store_owner
                 .send(crate::stores::messages::GetOrCreateKeyValueStore {
-                    name: "s3metadata".to_string(),
+                    name: "s3metadata\0root".to_string(),
                 })
                 .await
         };
@@ -227,32 +271,25 @@ impl Handler<ListObject> for S3 {
 
     fn handle(&mut self, msg: ListObject, _ctx: &mut Self::Context) -> Self::Result {
         let ListObject { bucket, prefix } = msg;
-        let store = self.store();
-        let bucket_path = self.bucket_path(&bucket);
         let object_path = self.object_path(&bucket, &prefix);
-        Box::pin(async move {
-            let resp = store
-                .send(crate::stores::messages::Get {
-                    key: bucket_path.clone(),
-                })
-                .await
-                .unwrap()?;
-            if resp.is_none() {
-                return Err(ListObjectError::BucketNotFound);
-            }
-            let mut result = Vec::new();
-            for obj in store
-                .send(crate::stores::messages::List {
-                    prefix: object_path,
-                })
-                .await
-                .unwrap()?
-                .into_keys()
-            {
-                result.push(Self::meta_to_obj(&store, &bucket, obj).await?);
-            }
-            Ok(result)
-        })
+        self.with_bucket_store(
+            bucket.clone(),
+            ListObjectError::BucketNotFound,
+            |store: Addr<KeyValueStore>| async move {
+                let mut result = Vec::new();
+                for obj in store
+                    .send(crate::stores::messages::List {
+                        prefix: object_path,
+                    })
+                    .await
+                    .unwrap()?
+                    .into_keys()
+                {
+                    result.push(Self::meta_to_obj(&store, &bucket, obj).await?);
+                }
+                Ok(result)
+            },
+        )
     }
 }
 
@@ -261,28 +298,21 @@ impl Handler<HeadObject> for S3 {
 
     fn handle(&mut self, msg: HeadObject, _ctx: &mut Self::Context) -> Self::Result {
         let HeadObject { bucket, key } = msg;
-        let store = self.store();
-        let bucket_path = self.bucket_path(&bucket);
         let object_path = self.object_path(&bucket, &key);
-        Box::pin(async move {
-            let resp = store
-                .send(crate::stores::messages::Get {
-                    key: bucket_path.clone(),
-                })
-                .await
-                .unwrap()?;
-            if resp.is_none() {
-                return Err(HeadObjectError::BucketNotFound);
-            }
-            let resp = store
-                .send(crate::stores::messages::Get { key: object_path })
-                .await
-                .unwrap()?;
-            if resp.is_none() {
-                return Err(HeadObjectError::ObjectNotFound);
-            }
-            Ok(Self::meta_to_obj(&store, &bucket, key).await?)
-        })
+        self.with_bucket_store(
+            bucket.clone(),
+            HeadObjectError::BucketNotFound,
+            |store: Addr<KeyValueStore>| async move {
+                let resp = store
+                    .send(crate::stores::messages::Get { key: object_path })
+                    .await
+                    .unwrap()?;
+                if resp.is_none() {
+                    return Err(HeadObjectError::ObjectNotFound);
+                }
+                Ok(Self::meta_to_obj(&store, &bucket, key).await?)
+            },
+        )
     }
 }
 
@@ -291,56 +321,48 @@ impl Handler<PutObject> for S3 {
 
     fn handle(&mut self, msg: PutObject, _ctx: &mut Self::Context) -> Self::Result {
         let PutObject { bucket, key, data } = msg;
-        let store = self.store();
         let blob_store = self.blob_store();
-        let bucket_path = self.bucket_path(&bucket);
         let object_path = self.object_path(&bucket, &key);
         let last_modified_path = self.objectmeta_path(&bucket, &key, "last_modified");
         let md5sum_path = self.objectmeta_path(&bucket, &key, "md5sum");
         let sha256sum_path = self.objectmeta_path(&bucket, &key, "sha256sum");
         let size_path = self.objectmeta_path(&bucket, &key, "size");
-        Box::pin(async move {
-            let resp = store
-                .send(crate::stores::messages::Get {
-                    key: bucket_path.clone(),
-                })
-                .await
-                .unwrap()?;
-            if resp.is_none() {
-                return Err(PutObjectError::BucketNotFound);
-            }
+        self.with_bucket_store(
+            bucket.clone(),
+            PutObjectError::BucketNotFound,
+            |store: Addr<KeyValueStore>| async move {
+                let info = blob_store
+                    .send(crate::stores::messages::PutBlob {
+                        data: Box::pin(data.map_err(|e| BlobReadError { msg: e.msg })),
+                    })
+                    .await
+                    .unwrap()?;
 
-            let info = blob_store
-                .send(crate::stores::messages::PutBlob {
-                    data: Box::pin(data.map_err(|e| BlobReadError { msg: e.msg })),
+                let last_modified = OffsetDateTime::now_utc();
+                store
+                    .send(crate::stores::messages::MultiSet {
+                        data: HashMap::from([
+                            (object_path.clone(), String::new()),
+                            (
+                                last_modified_path,
+                                last_modified.unix_timestamp().to_string(),
+                            ),
+                            (md5sum_path, info.md5sum.clone()),
+                            (sha256sum_path, info.sha256sum.clone()),
+                            (size_path, info.size.to_string()),
+                        ]),
+                    })
+                    .await
+                    .unwrap()?;
+                Ok(Object {
+                    key,
+                    md5sum: info.md5sum,
+                    sha256sum: info.sha256sum,
+                    size: info.size,
+                    last_modified,
                 })
-                .await
-                .unwrap()?;
-
-            let last_modified = OffsetDateTime::now_utc();
-            store
-                .send(crate::stores::messages::MultiSet {
-                    data: HashMap::from([
-                        (object_path.clone(), String::new()),
-                        (
-                            last_modified_path,
-                            last_modified.unix_timestamp().to_string(),
-                        ),
-                        (md5sum_path, info.md5sum.clone()),
-                        (sha256sum_path, info.sha256sum.clone()),
-                        (size_path, info.size.to_string()),
-                    ]),
-                })
-                .await
-                .unwrap()?;
-            Ok(Object {
-                key,
-                md5sum: info.md5sum,
-                sha256sum: info.sha256sum,
-                size: info.size,
-                last_modified,
-            })
-        })
+            },
+        )
     }
 }
 
@@ -349,42 +371,34 @@ impl Handler<GetObject> for S3 {
 
     fn handle(&mut self, msg: GetObject, _ctx: &mut Self::Context) -> Self::Result {
         let GetObject { bucket, key } = msg;
-        let store = self.store();
         let blob_store = self.blob_store();
-        let bucket_path = self.bucket_path(&bucket);
         let object_path = self.object_path(&bucket, &key);
-        Box::pin(async move {
-            let resp = store
-                .send(crate::stores::messages::Get {
-                    key: bucket_path.clone(),
+        self.with_bucket_store(
+            bucket.clone(),
+            GetObjectError::BucketNotFound,
+            |store: Addr<KeyValueStore>| async move {
+                let resp = store
+                    .send(crate::stores::messages::Get { key: object_path })
+                    .await
+                    .unwrap()?;
+                if resp.is_none() {
+                    return Err(GetObjectError::ObjectNotFound);
+                }
+                let meta = Self::meta_to_obj(&store, &bucket, key).await?;
+
+                let resp = blob_store
+                    .send(crate::stores::messages::GetBlob {
+                        sha256sum: meta.sha256sum.clone(),
+                    })
+                    .await
+                    .unwrap()?;
+
+                Ok(GetObjectResult {
+                    metadata: meta,
+                    data: Box::pin(resp.map_err(|e| super::messages::ReadDataError { msg: e.msg })),
                 })
-                .await
-                .unwrap()?;
-            if resp.is_none() {
-                return Err(GetObjectError::BucketNotFound);
-            }
-
-            let resp = store
-                .send(crate::stores::messages::Get { key: object_path })
-                .await
-                .unwrap()?;
-            if resp.is_none() {
-                return Err(GetObjectError::ObjectNotFound);
-            }
-            let meta = Self::meta_to_obj(&store, &bucket, key).await?;
-
-            let resp = blob_store
-                .send(crate::stores::messages::GetBlob {
-                    sha256sum: meta.sha256sum.clone(),
-                })
-                .await
-                .unwrap()?;
-
-            Ok(GetObjectResult {
-                metadata: meta,
-                data: Box::pin(resp.map_err(|e| super::messages::ReadDataError { msg: e.msg })),
-            })
-        })
+            },
+        )
     }
 }
 
@@ -393,55 +407,47 @@ impl Handler<DeleteObject> for S3 {
 
     fn handle(&mut self, msg: DeleteObject, _ctx: &mut Self::Context) -> Self::Result {
         let DeleteObject { bucket, key } = msg;
-        let store = self.store();
         let blob_store = self.blob_store();
-        let bucket_path = self.bucket_path(&bucket);
         let object_path = self.object_path(&bucket, &key);
-        Box::pin(async move {
-            let resp = store
-                .send(crate::stores::messages::Get {
-                    key: bucket_path.clone(),
-                })
-                .await
-                .unwrap()?;
-            if resp.is_none() {
-                return Err(DeleteObjectError::BucketNotFound);
-            }
+        self.with_bucket_store(
+            bucket.clone(),
+            DeleteObjectError::BucketNotFound,
+            |store: Addr<KeyValueStore>| async move {
+                let resp = store
+                    .send(crate::stores::messages::Get {
+                        key: object_path.clone(),
+                    })
+                    .await
+                    .unwrap()?;
+                if resp.is_none() {
+                    return Err(DeleteObjectError::ObjectNotFound);
+                }
+                let meta = Self::meta_to_obj(&store, &bucket, key.clone()).await?;
 
-            let resp = store
-                .send(crate::stores::messages::Get {
-                    key: object_path.clone(),
-                })
-                .await
-                .unwrap()?;
-            if resp.is_none() {
-                return Err(DeleteObjectError::ObjectNotFound);
-            }
-            let meta = Self::meta_to_obj(&store, &bucket, key.clone()).await?;
-
-            store
-                .send(crate::stores::messages::MultiDelete {
-                    data: vec![
-                        object_path,
-                        vec![
-                            "objectmeta".to_string(),
-                            bucket.clone(),
-                            key.clone(),
-                            String::new(),
+                store
+                    .send(crate::stores::messages::MultiDelete {
+                        data: vec![
+                            object_path,
+                            vec![
+                                "objectmeta".to_string(),
+                                bucket.clone(),
+                                key.clone(),
+                                String::new(),
+                            ],
                         ],
-                    ],
-                })
-                .await
-                .unwrap()?;
+                    })
+                    .await
+                    .unwrap()?;
 
-            blob_store
-                .send(crate::stores::messages::DeleteBlob {
-                    sha256sum: meta.sha256sum,
-                })
-                .await
-                .unwrap()?;
+                blob_store
+                    .send(crate::stores::messages::DeleteBlob {
+                        sha256sum: meta.sha256sum,
+                    })
+                    .await
+                    .unwrap()?;
 
-            Ok(())
-        })
+                Ok(())
+            },
+        )
     }
 }
