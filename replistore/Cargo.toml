@@ -29,7 +29,7 @@ dtrd_client = {path = "../client"}
 tokio = { version = "1.34.0", features = ["full", "tracing"] }
 futures-util = "0.3.28"
 s3s = "0.8.0"
-hyper = "0.14.27"
+hyper = "1.0.0"
 anyhow = "1.0.75"
 async-trait = "0.1.74"
 tokio-util = { version = "0.7.10", features = ["full"] }
