@@ -22,7 +22,8 @@ members = [
     "cli",
     "client",
     "dtrd",
-    "tcpcl"
+    "tcpcl",
+    "replistore"
 ]
 
 resolver = "2"
