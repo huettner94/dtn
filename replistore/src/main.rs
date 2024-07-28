@@ -23,6 +23,7 @@ use actix::prelude::*;
 use log::{error, info};
 use tokio::sync::{broadcast, mpsc};
 
+use opentelemetry::trace::TracerProvider;
 use opentelemetry::KeyValue;
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{
@@ -37,7 +38,7 @@ mod frontend;
 mod stores;
 
 fn init_tracing(settings: &Settings) {
-    let tracer = opentelemetry_otlp::new_pipeline()
+    let tracerprovider = opentelemetry_otlp::new_pipeline()
         .tracing()
         .with_exporter(
             opentelemetry_otlp::new_exporter()
@@ -46,7 +47,7 @@ fn init_tracing(settings: &Settings) {
                 .with_timeout(Duration::from_secs(3)),
         )
         .with_trace_config(
-            trace::config()
+            trace::Config::default()
                 .with_sampler(Sampler::AlwaysOn)
                 .with_id_generator(RandomIdGenerator::default())
                 .with_max_events_per_span(64)
@@ -60,6 +61,7 @@ fn init_tracing(settings: &Settings) {
         .install_batch(opentelemetry_sdk::runtime::Tokio)
         .unwrap();
 
+    let tracer = tracerprovider.tracer("replistore");
     let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
 
     let console_layer = console_subscriber::ConsoleLayer::builder()
