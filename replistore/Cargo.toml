@@ -24,7 +24,7 @@ resolver = "2"
 [dependencies]
 log = "0.4"
 env_logger = "0.10.0"
-prost = "0.12.1"
+prost = "0.13.0"
 dtrd_client = {path = "../client"}
 tokio = { version = "1.34.0", features = ["full", "tracing"] }
 futures-util = "0.3.28"
@@ -53,4 +53,4 @@ uuid = {version = "1.8.0", features = ["v4"]}
 rocksdb = { git = "https://github.com/rust-rocksdb/rust-rocksdb" }
 
 [build-dependencies]
-prost-build = { version = "0.12.1" }
+prost-build = { version = "0.13.0" }
