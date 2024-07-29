@@ -17,16 +17,20 @@
 
 use actix::prelude::*;
 use futures::TryStreamExt;
-use futures_util::future::FutureExt;
 
-use hyper::Server;
 use log::info;
 use s3s::{
     auth::SimpleAuth,
     dto::{CreateBucketInput, CreateBucketOutput},
     service::S3ServiceBuilder,
 };
-use tokio::sync::{broadcast, mpsc};
+use tokio::{
+    net::TcpListener,
+    sync::{broadcast, mpsc},
+};
+
+use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::server::conn::auto::Builder as ConnBuilder;
 
 use std::time;
 
@@ -167,19 +171,48 @@ impl S3Frontend {
             b.build()
         };
 
+        let hyper_service = service.into_shared();
+
         // Run server
-        let addr = "0.0.0.0:8080".parse().unwrap();
-        info!("Server listening on {}", addr);
-        let server = Server::try_bind(&addr)
-            .unwrap()
-            .serve(service.into_shared().into_make_service());
+        let listener = TcpListener::bind(("0.0.0.0", 8080)).await?;
+        let local_addr = listener.local_addr()?;
+        info!("Server listening on {}", local_addr);
 
-        info!("server is running at http://{addr}");
-        server
-            .with_graceful_shutdown(shutdown.recv().map(|_| ()))
-            .await?;
+        let http_server = ConnBuilder::new(TokioExecutor::new());
+        let graceful = hyper_util::server::graceful::GracefulShutdown::new();
 
-        info!("Server has shutdown. See you");
+        loop {
+            let (socket, _) = tokio::select! {
+                res =  listener.accept() => {
+                    match res {
+                        Ok(conn) => conn,
+                        Err(err) => {
+                            tracing::error!("error accepting connection: {err}");
+                            continue;
+                        }
+                    }
+                }
+                _ = shutdown.recv() => {
+                    info!("Shutting down s3 frontend");
+                    break;
+                }
+            };
+
+            let conn = http_server.serve_connection(TokioIo::new(socket), hyper_service.clone());
+            let conn = graceful.watch(conn.into_owned());
+            tokio::spawn(async move {
+                let _ = conn.await;
+            });
+        }
+
+        tokio::select! {
+            () = graceful.shutdown() => {
+                 info!("Gracefully shutdown!");
+            },
+            () = tokio::time::sleep(std::time::Duration::from_secs(10)) => {
+                 info!("Waited 10 seconds for graceful shutdown, aborting...");
+            }
+        }
         // _shutdown_complete_sender is explicitly dropped here
         Ok(())
     }
@@ -249,7 +282,9 @@ impl s3s::S3 for S3Frontend {
             })
             .await??
         {
-            Some(_) => Ok(S3Response::new(HeadBucketOutput {})),
+            Some(_) => Ok(S3Response::new(HeadBucketOutput {
+                ..Default::default()
+            })),
             None => Err(s3_error!(NoSuchBucket)),
         }
     }
@@ -274,12 +309,12 @@ impl s3s::S3 for S3Frontend {
                     .map(|obj| Object {
                         key: Some(obj.key),
                         last_modified: Some(obj.last_modified.into()),
-                        size: obj.size as i64,
+                        size: Some(obj.size as i64),
                         ..Default::default()
                     })
                     .collect(),
             ),
-            max_keys: i32::MAX,
+            max_keys: None,
             name: Some(req.input.bucket),
             ..Default::default()
         }))
@@ -305,12 +340,12 @@ impl s3s::S3 for S3Frontend {
                     .map(|obj| Object {
                         key: Some(obj.key),
                         last_modified: Some(obj.last_modified.into()),
-                        size: obj.size as i64,
+                        size: Some(obj.size as i64),
                         ..Default::default()
                     })
                     .collect(),
             ),
-            max_keys: i32::MAX,
+            max_keys: None,
             name: Some(req.input.bucket),
             ..Default::default()
         }))
@@ -331,7 +366,7 @@ impl s3s::S3 for S3Frontend {
 
         Ok(S3Response::new(HeadObjectOutput {
             last_modified: Some(obj.last_modified.into()),
-            content_length: obj.size as i64,
+            content_length: Some(obj.size as i64),
             e_tag: Some(obj.md5sum),
             checksum_sha256: Some(obj.sha256sum),
             ..Default::default()
@@ -357,7 +392,7 @@ impl s3s::S3 for S3Frontend {
                 result.data.map_err(|e| std::io::Error::other(e.msg)),
             ))),
             last_modified: Some(obj.last_modified.into()),
-            content_length: obj.size as i64,
+            content_length: Some(obj.size as i64),
             e_tag: Some(obj.md5sum),
             checksum_sha256: Some(obj.sha256sum),
             ..Default::default()
