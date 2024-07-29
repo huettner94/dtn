@@ -2184,9 +2184,9 @@ checksum = "f3cb5ba0dc43242ce17de99c180e96db90b235b8a9fdc9543c96d2209116bd9f"
 
 [[package]]
 name = "s3s"
-version = "0.8.1"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "17419b26b83f810a49eb1087213e889da16b446f9cf5149aaad777c0b1e5f56f"
+checksum = "67e6cdc8002708b435946eec39afa13c43e4288d1de6316a12816e4cfaaa6c2c"
 dependencies = [
  "arrayvec",
  "async-trait",
@@ -2199,9 +2199,10 @@ dependencies = [
  "futures",
  "hex-simd",
  "hmac",
- "http-body 0.4.6",
+ "http-body 1.0.1",
+ "http-body-util",
  "httparse",
- "hyper 0.14.30",
+ "hyper 1.4.1",
  "itoa",
  "memchr",
  "mime",
