@@ -1,4 +1,4 @@
-// Copyright (C) 2026 Felix Huettner
+// Copyright (C) 2025 Felix Huettner
 //
 // This file is part of DTRD.
 //
@@ -15,17 +15,34 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use std::path::PathBuf;
+mod dtrd;
+pub mod messages;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let proto_path: PathBuf = "../protobuf/replistore/".into();
-    let proto_files: Vec<PathBuf> = proto_path
-        .read_dir()?
-        .filter_map(|p| p.map(|path| path.path()).ok())
-        .collect();
-    println!("{:?}", proto_files);
-    tonic_build::configure()
-        .build_client(false)
-        .compile(&proto_files, &[proto_path])?;
-    Ok(())
+use actix::prelude::*;
+use dtrd::DtrdClient;
+use messages::ReplicateEvent;
+
+#[derive(Debug)]
+pub struct Replicator {
+    client: Addr<DtrdClient>,
+}
+
+impl Replicator {
+    pub fn new() -> Self {
+        Replicator {
+            client: DtrdClient::new("http://localhost:50051".to_string()).start(),
+        }
+    }
+}
+
+impl Actor for Replicator {
+    type Context = Context<Self>;
+}
+
+impl Handler<ReplicateEvent> for Replicator {
+    type Result = ();
+
+    fn handle(&mut self, msg: ReplicateEvent, ctx: &mut Self::Context) -> Self::Result {
+        self.client.do_send(msg);
+    }
 }

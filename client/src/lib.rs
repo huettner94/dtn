@@ -36,6 +36,7 @@ mod adminservice {
 
 pub mod error;
 
+#[derive(Debug)]
 pub struct Client {
     admin_client: AdminServiceClient<Channel>,
     bundle_client: BundleServiceClient<Channel>,

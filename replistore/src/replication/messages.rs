@@ -1,4 +1,4 @@
-// Copyright (C) 2026 Felix Huettner
+// Copyright (C) 2025 Felix Huettner
 //
 // This file is part of DTRD.
 //
@@ -15,17 +15,33 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use std::path::PathBuf;
+use actix::prelude::*;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let proto_path: PathBuf = "../protobuf/replistore/".into();
-    let proto_files: Vec<PathBuf> = proto_path
-        .read_dir()?
-        .filter_map(|p| p.map(|path| path.path()).ok())
-        .collect();
-    println!("{:?}", proto_files);
-    tonic_build::configure()
-        .build_client(false)
-        .compile(&proto_files, &[proto_path])?;
-    Ok(())
+use crate::stores::messages::StoreType;
+
+#[derive(Debug)]
+pub enum Event {
+    Set { key: Vec<String>, value: String },
+    Delete { key: Vec<String> },
+    PrefixDelete { prefix: Vec<String> },
+    DeleteBlob { hash: String },
+}
+
+#[derive(Debug)]
+pub struct StoreEvent {
+    pub store: String,
+    pub store_type: StoreType,
+    pub events: Vec<Event>,
+}
+
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct ReplicateEvent {
+    pub store_event: StoreEvent,
+}
+
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct EventReplicationReceived {
+    pub store_event: StoreEvent,
 }

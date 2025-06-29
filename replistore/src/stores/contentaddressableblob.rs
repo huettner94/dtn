@@ -28,15 +28,21 @@ use tokio_util::{
     compat::TokioAsyncWriteCompatExt,
 };
 
+use crate::replication::{
+    messages::{Event, ReplicateEvent, StoreEvent},
+    Replicator,
+};
+
 use super::messages::{
     BlobInfo, BlobReadError, DeleteBlob, DeleteBlobError, GetBlob, GetBlobError, PutBlob,
-    PutBlobError,
+    PutBlobError, StoreType,
 };
 
 pub struct ContentAddressableBlobStore {
     name: String,
     base_path: PathBuf,
     db: Arc<TransactionDB>,
+    replicator: Addr<Replicator>,
 }
 
 impl std::fmt::Debug for ContentAddressableBlobStore {
@@ -48,11 +54,17 @@ impl std::fmt::Debug for ContentAddressableBlobStore {
 }
 
 impl ContentAddressableBlobStore {
-    pub fn new(name: String, base_path: PathBuf, db: Arc<TransactionDB>) -> Self {
+    pub fn new(
+        name: String,
+        base_path: PathBuf,
+        db: Arc<TransactionDB>,
+        replicator: Addr<Replicator>,
+    ) -> Self {
         ContentAddressableBlobStore {
             name,
             base_path,
             db,
+            replicator,
         }
     }
 
@@ -89,6 +101,16 @@ impl ContentAddressableBlobStore {
         let md5sum = hex::encode(md5_hash.finalize());
         let sha2_256sum = hex::encode(sha2_256_hash.finalize());
         Ok((md5sum, sha2_256sum))
+    }
+
+    fn send_event(&self, event: Event) {
+        self.replicator.do_send(ReplicateEvent {
+            store_event: StoreEvent {
+                store: self.name.clone(),
+                store_type: StoreType::ContentAddressableBlob,
+                events: vec![event],
+            },
+        });
     }
 }
 
@@ -182,6 +204,8 @@ impl Handler<DeleteBlob> for ContentAddressableBlobStore {
     fn handle(&mut self, msg: DeleteBlob, _ctx: &mut Self::Context) -> Self::Result {
         let DeleteBlob { sha256sum } = msg;
         let filepath = self.get_disk_path(&sha256sum);
+
+        self.send_event(Event::DeleteBlob { hash: sha256sum });
 
         Box::pin(async move {
             let metadata = tokio::fs::metadata(&filepath).await?;

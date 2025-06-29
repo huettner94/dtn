@@ -19,11 +19,17 @@ use actix::prelude::*;
 use rocksdb::TransactionDB;
 use std::{collections::HashMap, sync::Arc};
 
-use super::messages::{Delete, Get, List, MultiDelete, MultiSet, Set, StoreError};
+use crate::replication::{
+    messages::{Event, ReplicateEvent, StoreEvent},
+    Replicator,
+};
+
+use super::messages::{Delete, Get, List, MultiDelete, MultiSet, Set, StoreError, StoreType};
 
 pub struct KeyValueStore {
     name: String,
     db: Arc<TransactionDB>,
+    replicator: Addr<Replicator>,
 }
 
 impl std::fmt::Debug for KeyValueStore {
@@ -35,11 +41,15 @@ impl std::fmt::Debug for KeyValueStore {
 }
 
 impl KeyValueStore {
-    pub fn new(name: String, db: Arc<TransactionDB>) -> Self {
-        KeyValueStore { name, db }
+    pub fn new(name: String, db: Arc<TransactionDB>, replicator: Addr<Replicator>) -> Self {
+        KeyValueStore {
+            name,
+            db,
+            replicator,
+        }
     }
 
-    fn get_path(&self, keys: Vec<String>) -> String {
+    fn get_path(&self, keys: &Vec<String>) -> String {
         format!("\0store\0{}\0{}", self.name, keys.join("\0"))
     }
 
@@ -50,6 +60,16 @@ impl KeyValueStore {
             rocksdb::IteratorMode::From(key, rocksdb::Direction::Forward),
             options,
         )
+    }
+
+    fn send_event(&self, events: Vec<Event>) {
+        self.replicator.do_send(ReplicateEvent {
+            store_event: StoreEvent {
+                store: self.name.clone(),
+                store_type: StoreType::KeyValue,
+                events,
+            },
+        });
     }
 }
 
@@ -64,7 +84,7 @@ impl Handler<Get> for KeyValueStore {
         let Get { key } = msg;
         Ok(self
             .db
-            .get(&self.get_path(key))?
+            .get(&self.get_path(&key))?
             .map(|e| String::from_utf8(e).unwrap()))
     }
 }
@@ -74,7 +94,9 @@ impl Handler<Set> for KeyValueStore {
 
     fn handle(&mut self, msg: Set, _ctx: &mut Self::Context) -> Self::Result {
         let Set { key, value } = msg;
-        Ok(self.db.put(&self.get_path(key), value)?)
+        self.db.put(&self.get_path(&key), value.clone())?;
+        self.send_event(vec![Event::Set { key, value }]);
+        Ok(())
     }
 }
 
@@ -84,9 +106,12 @@ impl Handler<MultiSet> for KeyValueStore {
     fn handle(&mut self, msg: MultiSet, _ctx: &mut Self::Context) -> Self::Result {
         let MultiSet { mut data } = msg;
         let txn = self.db.transaction();
+        let mut events = Vec::with_capacity(data.len());
         for (key, value) in data.drain() {
-            txn.put(&self.get_path(key), value)?;
+            txn.put(&self.get_path(&key), value.clone())?;
+            events.push(Event::Set { key, value });
         }
+        self.send_event(events);
         txn.commit()?;
         Ok(())
     }
@@ -97,7 +122,9 @@ impl Handler<Delete> for KeyValueStore {
 
     fn handle(&mut self, msg: Delete, _ctx: &mut Self::Context) -> Self::Result {
         let Delete { key } = msg;
-        Ok(self.db.delete(&self.get_path(key))?)
+        self.db.delete(&self.get_path(&key))?;
+        self.send_event(vec![Event::Delete { key }]);
+        Ok(())
     }
 }
 
@@ -107,13 +134,16 @@ impl Handler<MultiDelete> for KeyValueStore {
     fn handle(&mut self, msg: MultiDelete, _ctx: &mut Self::Context) -> Self::Result {
         let MultiDelete { mut data } = msg;
         let txn = self.db.transaction();
+        let mut events = Vec::with_capacity(data.len());
         for key in data.drain(..) {
-            let path = self.get_path(key);
+            let path = self.get_path(&key);
             let path_bytes = path.as_bytes();
             for found in self.iter_range(path_bytes) {
                 txn.delete(found?.0)?
             }
+            events.push(Event::PrefixDelete { prefix: key });
         }
+        self.send_event(events);
         txn.commit()?;
         Ok(())
     }
@@ -124,7 +154,7 @@ impl Handler<List> for KeyValueStore {
 
     fn handle(&mut self, msg: List, _ctx: &mut Self::Context) -> Self::Result {
         let List { prefix } = msg;
-        let path = self.get_path(prefix);
+        let path = self.get_path(&prefix);
         let path_bytes = path.as_bytes();
         self.iter_range(path_bytes)
             .try_fold(HashMap::new(), |mut map, e| {

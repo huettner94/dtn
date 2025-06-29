@@ -21,6 +21,7 @@ use crate::{
 };
 use actix::prelude::*;
 use log::{error, info};
+use replication::Replicator;
 use tokio::sync::{broadcast, mpsc};
 
 use opentelemetry::trace::TracerProvider;
@@ -35,6 +36,7 @@ use tracing_subscriber::layer::SubscriberExt;
 
 mod common;
 mod frontend;
+mod replication;
 mod stores;
 
 fn init_tracing(settings: &Settings) {
@@ -92,7 +94,9 @@ async fn main() {
     let (notify_shutdown, _) = broadcast::channel::<()>(1);
     let (shutdown_complete_tx, mut shutdown_complete_rx) = mpsc::channel::<()>(1);
 
-    let storeowner = StoreOwner::new("/tmp/replistore/db".into())
+    let replicator = Replicator::new().start();
+
+    let storeowner = StoreOwner::new("/tmp/replistore/db".into(), replicator)
         .unwrap()
         .start();
 
