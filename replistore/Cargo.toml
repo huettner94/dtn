@@ -24,7 +24,7 @@ resolver = "2"
 [dependencies]
 log = "0.4"
 env_logger = "0.11.0"
-prost = "0.13.0"
+prost = "0.14.1"
 dtrd_client = {path = "../client"}
 tokio = { version = "1.34.0", features = ["full", "tracing"] }
 futures-util = "0.3.28"
@@ -55,6 +55,8 @@ opentelemetry-otlp = "0.17.0"
 opentelemetry_sdk = { version = "0.24.0", features = ["rt-tokio"] }
 futures = "0.3.30"
 uuid = {version = "1.8.0", features = ["v4"]}
-# until https://github.com/rust-rocksdb/rust-rocksdb/pull/868/commits/ef029f292c058d3465fcc203b32473ecaddfcd4f is released
+# until https://github.com/rust-rocksdb/rust-rocksdb/pull/868/commits/55d68c30c8d5a1924b794678d9f468f3559c2685 is released
 rocksdb = { git = "https://github.com/rust-rocksdb/rust-rocksdb" }
 
+[build-dependencies]
+prost-build = "0.14.1"
