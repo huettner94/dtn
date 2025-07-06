@@ -16,32 +16,36 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 use actix::prelude::*;
-
-use crate::stores::messages::StoreType;
+use time::OffsetDateTime;
 
 #[derive(Debug)]
-pub enum Event {
-    Set { key: Vec<String>, value: String },
-    Delete { key: Vec<String> },
-    PrefixDelete { prefix: Vec<String> },
-    DeleteBlob { hash: String },
+pub struct ObjectMeta {
+    pub last_modified: OffsetDateTime,
+    pub size: u64,
+    pub md5sum: String,
+    pub sha256sum: String,
 }
 
 #[derive(Debug)]
-pub struct StoreEvent {
-    pub store: String,
-    pub store_type: StoreType,
+pub enum Event {
+    Put { name: String, meta: ObjectMeta },
+    Delete { name: String },
+}
+
+#[derive(Debug)]
+pub struct BucketEvent {
+    pub bucket: String,
     pub events: Vec<Event>,
 }
 
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct ReplicateEvent {
-    pub store_event: StoreEvent,
+    pub bucket_event: BucketEvent,
 }
 
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct EventReplicationReceived {
-    pub store_event: StoreEvent,
+    pub store_event: BucketEvent,
 }

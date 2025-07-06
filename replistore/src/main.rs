@@ -96,11 +96,11 @@ async fn main() {
 
     let replicator = Replicator::new().start();
 
-    let storeowner = StoreOwner::new("/tmp/replistore/db".into(), replicator)
+    let storeowner = StoreOwner::new("/tmp/replistore/db".into())
         .unwrap()
         .start();
 
-    let s3_addr = frontend::s3::s3::S3::new(storeowner.clone()).start();
+    let s3_addr = frontend::s3::s3::S3::new(storeowner.clone(), replicator).start();
 
     let s3_task_shutdown_notifier = notify_shutdown.subscribe();
     let s3_task_shutdown_complete_tx_task = shutdown_complete_tx.clone();

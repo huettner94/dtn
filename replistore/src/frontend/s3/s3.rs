@@ -22,11 +22,17 @@ use futures::{Future, TryStreamExt};
 use log::error;
 use time::OffsetDateTime;
 
-use crate::stores::{
-    contentaddressableblob::ContentAddressableBlobStore,
-    keyvalue::KeyValueStore,
-    messages::{BlobReadError, GetOrCreateError, StoreError},
-    storeowner::StoreOwner,
+use crate::{
+    replication::{
+        messages::{Event, ObjectMeta, ReplicateEvent, BucketEvent},
+        Replicator,
+    },
+    stores::{
+        contentaddressableblob::ContentAddressableBlobStore,
+        keyvalue::KeyValueStore,
+        messages::{BlobReadError, GetOrCreateError, StoreError},
+        storeowner::StoreOwner,
+    },
 };
 
 use super::messages::{
@@ -38,6 +44,7 @@ use super::messages::{
 #[derive(Debug)]
 pub struct S3 {
     store_owner: Addr<StoreOwner>,
+    replicator: Addr<Replicator>,
     s3_kv_store: Option<Addr<KeyValueStore>>,
     s3_blob_store: Option<Addr<ContentAddressableBlobStore>>,
 }
@@ -54,9 +61,10 @@ pub struct S3 {
  */
 
 impl S3 {
-    pub fn new(store_owner: Addr<StoreOwner>) -> Self {
+    pub fn new(store_owner: Addr<StoreOwner>, replicator: Addr<Replicator>) -> Self {
         S3 {
             store_owner,
+            replicator,
             s3_kv_store: None,
             s3_blob_store: None,
         }
@@ -95,10 +103,11 @@ impl S3 {
     ) -> ResponseFuture<Result<S, E>>
     where
         Fut: Future<Output = Result<S, E>>,
-        F: FnOnce(Addr<KeyValueStore>) -> Fut + 'static,
+        F: FnOnce(Addr<KeyValueStore>, Addr<Replicator>) -> Fut + 'static,
         E: From<StoreError> + 'static,
     {
         let root_store = self.store();
+        let replicator = self.replicator.clone();
         let store_owner = self.store_owner.clone();
         let bucket_path = self.bucket_path(&bucket);
 
@@ -119,7 +128,7 @@ impl S3 {
                 .await
                 .unwrap()
             {
-                Ok(addr) => handler(addr).await,
+                Ok(addr) => handler(addr, replicator).await,
                 Err(GetOrCreateError::StoreError(e)) => return Err(e.into()),
                 Err(GetOrCreateError::StoreTypeMissmatch(store, e)) => {
                     panic!("Error getting s3 meta store {}: {}", store, e)
@@ -292,7 +301,7 @@ impl Handler<ListObject> for S3 {
         self.with_bucket_store(
             bucket.clone(),
             ListObjectError::BucketNotFound,
-            |store: Addr<KeyValueStore>| async move {
+            |store, _| async move {
                 let mut result = Vec::new();
                 for obj in store
                     .send(crate::stores::messages::List {
@@ -319,7 +328,7 @@ impl Handler<HeadObject> for S3 {
         self.with_bucket_store(
             bucket.clone(),
             HeadObjectError::BucketNotFound,
-            |store: Addr<KeyValueStore>| async move {
+            |store, _| async move {
                 let resp = store
                     .send(crate::stores::messages::Get { key: object_path })
                     .await
@@ -347,7 +356,7 @@ impl Handler<PutObject> for S3 {
         self.with_bucket_store(
             bucket.clone(),
             PutObjectError::BucketNotFound,
-            |store: Addr<KeyValueStore>| async move {
+            |store, replicator| async move {
                 let info = blob_store
                     .send(crate::stores::messages::PutBlob {
                         data: Box::pin(data.map_err(|e| BlobReadError { msg: e.msg })),
@@ -371,6 +380,22 @@ impl Handler<PutObject> for S3 {
                     })
                     .await
                     .unwrap()?;
+
+                replicator.do_send(ReplicateEvent {
+                    bucket_event: BucketEvent {
+                        bucket,
+                        events: vec![Event::Put {
+                            name: key.clone(),
+                            meta: ObjectMeta {
+                                last_modified,
+                                size: info.size,
+                                md5sum: info.md5sum.clone(),
+                                sha256sum: info.sha256sum.clone(),
+                            },
+                        }],
+                    },
+                });
+
                 Ok(Object {
                     key,
                     md5sum: info.md5sum,
@@ -393,7 +418,7 @@ impl Handler<GetObject> for S3 {
         self.with_bucket_store(
             bucket.clone(),
             GetObjectError::BucketNotFound,
-            |store: Addr<KeyValueStore>| async move {
+            |store, _| async move {
                 let resp = store
                     .send(crate::stores::messages::Get { key: object_path })
                     .await
@@ -429,7 +454,7 @@ impl Handler<DeleteObject> for S3 {
         self.with_bucket_store(
             bucket.clone(),
             DeleteObjectError::BucketNotFound,
-            |store: Addr<KeyValueStore>| async move {
+            |store: Addr<KeyValueStore>, replicator: Addr<Replicator>| async move {
                 let resp = store
                     .send(crate::stores::messages::Get {
                         key: object_path.clone(),
@@ -455,6 +480,13 @@ impl Handler<DeleteObject> for S3 {
                     })
                     .await
                     .unwrap()?;
+
+                replicator.do_send(ReplicateEvent {
+                    bucket_event: BucketEvent {
+                        bucket,
+                        events: vec![Event::Delete { name: key }],
+                    },
+                });
 
                 blob_store
                     .send(crate::stores::messages::DeleteBlob {

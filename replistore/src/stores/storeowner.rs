@@ -19,8 +19,6 @@ use actix::prelude::*;
 use rocksdb::TransactionDB;
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
-use crate::replication::Replicator;
-
 use super::{
     contentaddressableblob::ContentAddressableBlobStore,
     keyvalue::KeyValueStore,
@@ -32,7 +30,6 @@ use super::{
 
 pub struct StoreOwner {
     db: Arc<TransactionDB>,
-    replicator: Addr<Replicator>,
     kv_stores: HashMap<String, Addr<KeyValueStore>>,
     blob_stores: HashMap<String, Addr<ContentAddressableBlobStore>>,
 }
@@ -47,11 +44,10 @@ impl std::fmt::Debug for StoreOwner {
 }
 
 impl StoreOwner {
-    pub fn new(db_path: PathBuf, replicator: Addr<Replicator>) -> Result<Self, rocksdb::Error> {
+    pub fn new(db_path: PathBuf) -> Result<Self, rocksdb::Error> {
         let db = TransactionDB::open_default(db_path)?;
         Ok(StoreOwner {
             db: Arc::new(db),
-            replicator,
             kv_stores: HashMap::new(),
             blob_stores: HashMap::new(),
         })
@@ -95,9 +91,7 @@ impl Handler<GetOrCreateKeyValueStore> for StoreOwner {
         match self.kv_stores.get(&name) {
             Some(addr) => Ok(addr.clone()),
             None => {
-                let kv_store =
-                    KeyValueStore::new(name.clone(), self.db.clone(), self.replicator.clone())
-                        .start();
+                let kv_store = KeyValueStore::new(name.clone(), self.db.clone()).start();
                 self.kv_stores.insert(name, kv_store.clone());
                 Ok(kv_store)
             }
@@ -118,13 +112,8 @@ impl Handler<GetOrCreateContentAddressableBlobStore> for StoreOwner {
         match self.blob_stores.get(&name) {
             Some(addr) => Ok(addr.clone()),
             None => {
-                let blob_store = ContentAddressableBlobStore::new(
-                    name.clone(),
-                    path,
-                    self.db.clone(),
-                    self.replicator.clone(),
-                )
-                .start();
+                let blob_store =
+                    ContentAddressableBlobStore::new(name.clone(), path, self.db.clone()).start();
                 self.blob_stores.insert(name, blob_store.clone());
                 Ok(blob_store)
             }

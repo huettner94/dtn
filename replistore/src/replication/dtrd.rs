@@ -46,11 +46,8 @@ impl Handler<ReplicateEvent> for DtrdClient {
     type Result = ();
 
     fn handle(&mut self, msg: ReplicateEvent, ctx: &mut Self::Context) -> Self::Result {
-        let ReplicateEvent { store_event } = msg;
-        let data = format!(
-            "{}, {}, {:?}",
-            store_event.store, store_event.store_type, store_event.events
-        );
+        let ReplicateEvent { bucket_event } = msg;
+        let data = format!("{}, {:?}", bucket_event.bucket, bucket_event.events);
         let mut client = self.client.as_ref().unwrap().clone();
         let fut = async move {
             client
