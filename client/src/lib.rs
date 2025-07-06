@@ -18,8 +18,8 @@
 use std::str::FromStr;
 
 use crate::error::Error;
-use adminservice::admin_service_client::AdminServiceClient;
 use adminservice::Node;
+use adminservice::admin_service_client::AdminServiceClient;
 use bundleservice::bundle_service_client::BundleServiceClient;
 use futures_util::Stream;
 use futures_util::StreamExt;
@@ -84,7 +84,7 @@ impl Client {
     pub async fn listen_bundles(
         &mut self,
         endpoint: &str,
-    ) -> Result<impl Stream<Item = Result<Vec<u8>, Error>>, Error> {
+    ) -> Result<impl Stream<Item = Result<Vec<u8>, Error>> + use<>, Error> {
         let req = bundleservice::ListenBundleRequest {
             endpoint: endpoint.to_string(),
         };
