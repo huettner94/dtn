@@ -15,18 +15,32 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use actix::prelude::*;
+syntax = "proto3";
 
-include!(concat!(env!("OUT_DIR"), "/replication.messages.rs"));
+package replication.messages;
 
-#[derive(Message)]
-#[rtype(result = "()")]
-pub struct ReplicateEvent {
-    pub bucket_event: BucketEvent,
+import "google/protobuf/timestamp.proto";
+
+message ObjectMeta {
+  google.protobuf.Timestamp last_modified = 1;
+  uint64 size = 2;
+  string md5sum = 3;
+  string sha256sum = 4;
 }
 
-#[derive(Message)]
-#[rtype(result = "()")]
-pub struct EventReplicationReceived {
-    pub store_event: BucketEvent,
+enum EventType {
+  PUT = 0;
+  DELETE = 1;
 }
+
+message Event {
+  EventType type = 1;
+  string object_name = 2;
+  ObjectMeta object_meta = 3;
+}
+
+message BucketEvent {
+  string bucket_name = 1;
+  repeated Event events = 2;
+}
+

@@ -1,8 +1,10 @@
 use actix::prelude::*;
+use bytes::{Bytes, BytesMut};
 use dtrd_client::Client;
 use log::{error, info};
+use prost::Message;
 
-use super::messages::ReplicateEvent;
+use super::messages::{BucketEvent, ReplicateEvent};
 
 #[derive(Debug)]
 pub struct DtrdClient {
@@ -47,11 +49,12 @@ impl Handler<ReplicateEvent> for DtrdClient {
 
     fn handle(&mut self, msg: ReplicateEvent, ctx: &mut Self::Context) -> Self::Result {
         let ReplicateEvent { bucket_event } = msg;
-        let data = format!("{}, {:?}", bucket_event.bucket, bucket_event.events);
+        let mut buf = BytesMut::new();
+        bucket_event.encode(&mut buf).unwrap();
         let mut client = self.client.as_ref().unwrap().clone();
         let fut = async move {
             client
-                .submit_bundle("dtn://defaultnodeid/myendpoint", 30, data.as_bytes())
+                .submit_bundle("dtn://defaultnodeid/myendpoint", 30, &buf)
                 .await
                 .unwrap()
         };
@@ -65,6 +68,8 @@ impl StreamHandler<Result<Vec<u8>, dtrd_client::error::Error>> for DtrdClient {
         item: Result<Vec<u8>, dtrd_client::error::Error>,
         ctx: &mut Self::Context,
     ) {
-        error!("{:?}", item);
+        let buf = Bytes::from(item.unwrap());
+        let event = BucketEvent::decode(buf);
+        println!("{:?}", event.unwrap());
     }
 }

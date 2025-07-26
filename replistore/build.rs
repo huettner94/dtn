@@ -17,7 +17,7 @@
 
 use std::path::PathBuf;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn build_tonic() -> Result<(), Box<dyn std::error::Error>> {
     let proto_path: PathBuf = "../protobuf/replistore/".into();
     let proto_files: Vec<PathBuf> = proto_path
         .read_dir()?
@@ -28,4 +28,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_client(false)
         .compile(&proto_files, &[proto_path])?;
     Ok(())
+}
+
+fn build_prost() -> Result<(), Box<dyn std::error::Error>> {
+    let proto_path: PathBuf = "./protobuf/".into();
+    let proto_files: Vec<PathBuf> = proto_path
+        .read_dir()?
+        .filter_map(|p| p.map(|path| path.path()).ok())
+        .collect();
+    println!("{:?}", proto_files);
+    prost_build::compile_protos(&proto_files, &[proto_path])?;
+    Ok(())
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    build_tonic()?;
+    build_prost()
 }

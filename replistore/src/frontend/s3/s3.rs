@@ -20,12 +20,13 @@ use std::collections::HashMap;
 use actix::prelude::*;
 use futures::{Future, TryStreamExt};
 use log::error;
+use prost_types::Timestamp;
 use time::OffsetDateTime;
 
 use crate::{
     replication::{
-        messages::{Event, ObjectMeta, ReplicateEvent, BucketEvent},
         Replicator,
+        messages::{BucketEvent, Event, EventType, ObjectMeta, ReplicateEvent},
     },
     stores::{
         contentaddressableblob::ContentAddressableBlobStore,
@@ -383,15 +384,19 @@ impl Handler<PutObject> for S3 {
 
                 replicator.do_send(ReplicateEvent {
                     bucket_event: BucketEvent {
-                        bucket,
-                        events: vec![Event::Put {
-                            name: key.clone(),
-                            meta: ObjectMeta {
-                                last_modified,
+                        bucket_name: bucket,
+                        events: vec![Event {
+                            r#type: EventType::Put.into(),
+                            object_name: key.clone(),
+                            object_meta: Some(ObjectMeta {
+                                last_modified: Some(Timestamp {
+                                    seconds: last_modified.unix_timestamp(),
+                                    nanos: 0,
+                                }),
                                 size: info.size,
                                 md5sum: info.md5sum.clone(),
                                 sha256sum: info.sha256sum.clone(),
-                            },
+                            }),
                         }],
                     },
                 });
@@ -483,8 +488,12 @@ impl Handler<DeleteObject> for S3 {
 
                 replicator.do_send(ReplicateEvent {
                     bucket_event: BucketEvent {
-                        bucket,
-                        events: vec![Event::Delete { name: key }],
+                        bucket_name: bucket,
+                        events: vec![Event {
+                            r#type: EventType::Delete.into(),
+                            object_name: key,
+                            object_meta: None,
+                        }],
                     },
                 });
 

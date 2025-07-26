@@ -566,7 +566,7 @@ checksum = "86ed14aa9c9f927213c6e4f3ef75faaad3406134efe84ba2cb7983431d5f0931"
 dependencies = [
  "futures-core",
  "prost 0.13.1",
- "prost-types",
+ "prost-types 0.13.1",
  "tonic",
  "tracing-core",
 ]
@@ -585,7 +585,7 @@ dependencies = [
  "humantime",
  "hyper-util",
  "prost 0.13.1",
- "prost-types",
+ "prost-types 0.13.1",
  "serde",
  "serde_json",
  "thread_local",
@@ -1814,7 +1814,27 @@ dependencies = [
  "petgraph",
  "prettyplease",
  "prost 0.13.1",
- "prost-types",
+ "prost-types 0.13.1",
+ "regex",
+ "syn",
+ "tempfile",
+]
+
+[[package]]
+name = "prost-build"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac6c3320f9abac597dcbc668774ef006702672474aad53c6d596b62e487b40b1"
+dependencies = [
+ "heck",
+ "itertools 0.13.0",
+ "log",
+ "multimap",
+ "once_cell",
+ "petgraph",
+ "prettyplease",
+ "prost 0.14.1",
+ "prost-types 0.14.1",
  "regex",
  "syn",
  "tempfile",
@@ -1853,6 +1873,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cee5168b05f49d4b0ca581206eb14a7b22fafd963efe729ac48eb03266e25cc2"
 dependencies = [
  "prost 0.13.1",
+]
+
+[[package]]
+name = "prost-types"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b9b4db3d6da204ed77bb26ba83b6122a73aeb2e87e25fbf7ad2e84c4ccbf8f72"
+dependencies = [
+ "prost 0.14.1",
 ]
 
 [[package]]
@@ -1979,6 +2008,8 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "prost 0.14.1",
+ "prost-build 0.14.1",
+ "prost-types 0.14.1",
  "rocksdb",
  "s3s",
  "sha2",
@@ -2521,7 +2552,7 @@ checksum = "568392c5a2bd0020723e3f387891176aabafe36fd9fcd074ad309dfa0c8eb964"
 dependencies = [
  "prettyplease",
  "proc-macro2",
- "prost-build",
+ "prost-build 0.13.1",
  "quote",
  "syn",
 ]
