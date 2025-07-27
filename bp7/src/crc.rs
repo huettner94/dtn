@@ -18,8 +18,8 @@
 use std::convert::TryInto;
 
 use serde::{
-    de::{Error, Unexpected, Visitor},
     Deserialize, Serialize,
+    de::{Error, Unexpected, Visitor},
 };
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -92,7 +92,7 @@ impl CRCType {
                 let arr: [u8; 2] = match val.try_into() {
                     Ok(v) => v,
                     Err(_) => {
-                        return Err(Error::invalid_length(len, &"Expected 2 bytes for crc16"))
+                        return Err(Error::invalid_length(len, &"Expected 2 bytes for crc16"));
                     }
                 };
                 Ok(CRCType::CRC16(arr))
@@ -105,7 +105,7 @@ impl CRCType {
                 let arr: [u8; 4] = match val.try_into() {
                     Ok(v) => v,
                     Err(_) => {
-                        return Err(Error::invalid_length(len, &"Expected 4 bytes for crc32"))
+                        return Err(Error::invalid_length(len, &"Expected 4 bytes for crc32"));
                     }
                 };
                 Ok(CRCType::CRC32(arr))

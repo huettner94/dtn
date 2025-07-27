@@ -36,6 +36,7 @@ use std::time;
 
 use async_trait::async_trait;
 use s3s::{
+    S3Request, S3Response, S3Result,
     dto::{
         Bucket, DeleteObjectInput, DeleteObjectOutput, GetBucketLocationInput,
         GetBucketLocationOutput, GetObjectInput, GetObjectOutput, HeadBucketInput,
@@ -43,7 +44,7 @@ use s3s::{
         ListObjectsInput, ListObjectsOutput, ListObjectsV2Input, ListObjectsV2Output, Object,
         Owner, PutObjectInput, PutObjectOutput,
     },
-    s3_error, S3Request, S3Response, S3Result,
+    s3_error,
 };
 use tracing::instrument;
 

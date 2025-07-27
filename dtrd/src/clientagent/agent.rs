@@ -18,7 +18,7 @@
 use std::collections::HashMap;
 
 use bp7::{
-    block::{payload_block::PayloadBlock, Block, CanonicalBlock},
+    block::{Block, CanonicalBlock, payload_block::PayloadBlock},
     blockflags::BlockFlags,
     bundle::Bundle,
     bundleflags::BundleFlags,

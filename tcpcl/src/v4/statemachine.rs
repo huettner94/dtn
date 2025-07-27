@@ -29,7 +29,7 @@ use crate::{
 use futures_util::SinkExt;
 
 use super::messages::{
-    self,
+    self, Codec, MessageType, Messages,
     contact_header::ContactHeader,
     keepalive::Keepalive,
     msg_reject::{self, MsgReject},
@@ -37,7 +37,6 @@ use super::messages::{
     sess_term::{ReasonCode, SessTerm},
     xfer_ack::XferAck,
     xfer_segment::{self, XferSegment},
-    Codec, MessageType, Messages,
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -150,7 +149,9 @@ impl StateMachine {
                 let mru = self.peer_sess_init.as_ref().unwrap().segment_mru;
                 let end_pos = min(tt.pos + mru as usize, tt.transfer.data.len());
                 if tt.pos == tt.transfer.data.len() {
-                    warn!("We should not try to send a transfer if we already sent all data. We just dont do anything");
+                    warn!(
+                        "We should not try to send a transfer if we already sent all data. We just dont do anything"
+                    );
                     return Ok(());
                 }
                 let mut data = Vec::with_capacity(end_pos - tt.pos);
@@ -256,11 +257,17 @@ impl StateMachine {
                     Ok(Messages::XferAck(xa)) => match &mut self.state {
                         States::SendXferSegments(tt) | States::SendXferSegmentsAndAck(tt, _) => {
                             if tt.transfer.id != xa.transfer_id {
-                                panic!("Remote send ack for transfer {}, but we are currently sending {}", xa.transfer_id, tt.transfer.id);
+                                panic!(
+                                    "Remote send ack for transfer {}, but we are currently sending {}",
+                                    xa.transfer_id, tt.transfer.id
+                                );
                             }
                             tt.pos_acked = xa.acknowleged_length as usize;
                             if tt.pos_acked > tt.pos {
-                                error!("Peer acked a transfer further than we have send it (current send potition {}, current acked position {}).", tt.pos, tt.pos_acked);
+                                error!(
+                                    "Peer acked a transfer further than we have send it (current send potition {}, current acked position {}).",
+                                    tt.pos, tt.pos_acked
+                                );
                                 return Err(Errors::MessageError(
                                     messages::Errors::InvalidACKValue,
                                 ));

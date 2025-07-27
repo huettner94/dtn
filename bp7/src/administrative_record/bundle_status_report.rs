@@ -16,9 +16,9 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 use serde::{
+    Deserialize, Serialize,
     de::{Error, Visitor},
     ser::SerializeSeq,
-    Deserialize, Serialize,
 };
 use serde_repr::{Deserialize_repr, Serialize_repr};
 

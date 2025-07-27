@@ -22,8 +22,8 @@ use std::{
 
 use crate::{
     bundlestorageagent::{
-        messages::{DeleteBundle, EventNewBundleStored, FragmentBundle, StoreNewBundle},
         StoredBundle,
+        messages::{DeleteBundle, EventNewBundleStored, FragmentBundle, StoreNewBundle},
     },
     clientagent::messages::{
         ClientDeliverBundle, EventBundleDelivered, EventBundleDeliveryFailed, EventClientConnected,
@@ -38,10 +38,10 @@ use crate::{
 };
 use bp7::{
     administrative_record::{
+        AdministrativeRecord,
         bundle_status_report::{
             BundleStatusInformation, BundleStatusItem, BundleStatusReason, BundleStatusReport,
         },
-        AdministrativeRecord,
     },
     block::payload_block::PayloadBlock,
     block::{Block, CanonicalBlock},
@@ -291,7 +291,10 @@ impl Daemon {
                             return;
                         }
                         SendError::Closed(_) => {
-                            warn!("Client for endpoint {} disconnected while sending bundles. Queueing...", destination);
+                            warn!(
+                                "Client for endpoint {} disconnected while sending bundles. Queueing...",
+                                destination
+                            );
                             queue.push_back(bundle);
                             self.local_connections.remove(destination);
                             return;
@@ -347,7 +350,9 @@ impl Daemon {
                             || bundle.get_bundle_min_size().is_some()
                                 && bundle.get_bundle_min_size().unwrap() > mbs
                         {
-                            debug!("Bundle can not be fragmented as we can not get it that small. Queueing it");
+                            debug!(
+                                "Bundle can not be fragmented as we can not get it that small. Queueing it"
+                            );
                             visited.insert(bundle.get_id());
                             queue.push_back(bundle);
                         } else {
@@ -374,13 +379,19 @@ impl Daemon {
                         .push(bundle),
                     Err(e) => match e {
                         SendError::Full(afb) => {
-                            debug!("Can not continue forwarding to {}. Waiting for some space in the queue", route.next_hop);
+                            debug!(
+                                "Can not continue forwarding to {}. Waiting for some space in the queue",
+                                route.next_hop
+                            );
                             let AgentForwardBundle { bundle, .. } = afb;
                             queue.push_back(bundle);
                             return;
                         }
                         SendError::Closed(_) => {
-                            warn!("Peer for endpoint {} disconnected while forwarding bundles. Queueing...", destination);
+                            warn!(
+                                "Peer for endpoint {} disconnected while forwarding bundles. Queueing...",
+                                destination
+                            );
                             queue.push_back(bundle);
                             self.remote_connections.remove(&destination);
                             return;

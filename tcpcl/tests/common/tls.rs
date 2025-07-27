@@ -21,7 +21,7 @@ use openssl::{
     nid::Nid,
     pkey::{PKey, Private},
     rsa::Rsa,
-    x509::{X509Extension, X509Name, X509},
+    x509::{X509, X509Extension, X509Name},
 };
 
 fn get_cert_with_san(sanname: &str) -> (PKey<Private>, X509) {

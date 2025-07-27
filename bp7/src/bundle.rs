@@ -23,21 +23,21 @@ use std::{
 };
 
 use binascii::hex2bin;
-use serde::{de::Error, de::Visitor, ser::SerializeSeq, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::Error, de::Visitor, ser::SerializeSeq};
 
 use crate::{
+    FragmentationError, SerializationError, Validate,
     block::{Block, CanonicalBlock},
     blockflags::BlockFlags,
     bundleflags::BundleFlags,
     primaryblock::PrimaryBlock,
-    FragmentationError, SerializationError, Validate,
 };
 
 use super::block::payload_block::PayloadBlock;
 
 const BUNDLE_SERIALIZATION_OVERHEAD: u64 = 2; // 1 byte for the start of the cbor list and 1 byte for the end
-                                              // for block with the highest possibe values for all fields + CRC32 is 41 bytes.
-                                              // we need to account for the payload length value encoding as well. To be safe we go to 128 bytes in total.
+// for block with the highest possibe values for all fields + CRC32 is 41 bytes.
+// we need to account for the payload length value encoding as well. To be safe we go to 128 bytes in total.
 const PAYLOAD_BLOCK_SERIALIZATION_OVERHEAD: u64 = 128;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -314,7 +314,10 @@ impl Bundle {
 
             let fragment_length = Vec::<u8>::try_from(&fragment)?.len() as u64;
             if fragment_length > max_size {
-                panic!("Attempted to fragment bundle to size {} but built a fragment of size {}. This is a bug", max_size, fragment_length);
+                panic!(
+                    "Attempted to fragment bundle to size {} but built a fragment of size {}. This is a bug",
+                    max_size, fragment_length
+                );
             }
 
             fragments.push(fragment);
@@ -342,7 +345,9 @@ impl Bundle {
                 .primary_block
                 .equals_ignoring_fragment_offset(&item.primary_block)
         }) {
-            panic!("Tried to reassemble bundles with different primary blocks. They probably belong to different bundles");
+            panic!(
+                "Tried to reassemble bundles with different primary blocks. They probably belong to different bundles"
+            );
         }
 
         let total_data_length = bundles[0].primary_block.total_data_length.unwrap();
@@ -424,8 +429,9 @@ impl Bundle {
 #[cfg(test)]
 mod tests {
     use crate::{
+        FragmentationError,
         block::{
-            hop_count_block::HopCountBlock, payload_block::PayloadBlock, Block, CanonicalBlock,
+            Block, CanonicalBlock, hop_count_block::HopCountBlock, payload_block::PayloadBlock,
         },
         blockflags::BlockFlags,
         bundleflags::BundleFlags,
@@ -433,7 +439,6 @@ mod tests {
         endpoint::Endpoint,
         primaryblock::PrimaryBlock,
         time::{CreationTimestamp, DtnTime},
-        FragmentationError,
     };
 
     use super::Bundle;
@@ -492,10 +497,12 @@ mod tests {
         let fragments = get_test_bundle().fragment(256)?.0;
         let mut current_offset = 0;
         for fragment in &fragments {
-            assert!(fragment
-                .primary_block
-                .bundle_processing_flags
-                .contains(BundleFlags::FRAGMENT));
+            assert!(
+                fragment
+                    .primary_block
+                    .bundle_processing_flags
+                    .contains(BundleFlags::FRAGMENT)
+            );
             assert_eq!(fragment.primary_block.total_data_length.unwrap(), 1024);
             let fragment_length = Vec::<u8>::try_from(fragment)?.len() as u64;
             assert!(fragment_length <= 256);
@@ -545,10 +552,12 @@ mod tests {
 
         let reassembled = &Bundle::reassemble_bundles(fragments_ref).unwrap();
 
-        assert!(!reassembled
-            .primary_block
-            .bundle_processing_flags
-            .contains(BundleFlags::FRAGMENT));
+        assert!(
+            !reassembled
+                .primary_block
+                .bundle_processing_flags
+                .contains(BundleFlags::FRAGMENT)
+        );
         assert!(reassembled.primary_block.fragment_offset.is_none());
         assert!(reassembled.primary_block.total_data_length.is_none());
         assert_eq!(reassembled.payload_block().data.len(), 1024);
@@ -607,10 +616,12 @@ mod tests {
 
         let reassembled = &Bundle::reassemble_bundles(fragments_ref).unwrap();
 
-        assert!(!reassembled
-            .primary_block
-            .bundle_processing_flags
-            .contains(BundleFlags::FRAGMENT));
+        assert!(
+            !reassembled
+                .primary_block
+                .bundle_processing_flags
+                .contains(BundleFlags::FRAGMENT)
+        );
         assert!(reassembled.primary_block.fragment_offset.is_none());
         assert!(reassembled.primary_block.total_data_length.is_none());
         assert_eq!(reassembled.payload_block().data.len(), 1024);

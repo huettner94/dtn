@@ -16,13 +16,13 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 use serde::{
+    Deserialize, Serialize,
     de::{Error, Visitor},
     ser::SerializeSeq,
-    Deserialize, Serialize,
 };
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
-use crate::{administrative_record::bundle_status_report::BundleStatusReport, SerializationError};
+use crate::{SerializationError, administrative_record::bundle_status_report::BundleStatusReport};
 
 pub mod bundle_status_report;
 

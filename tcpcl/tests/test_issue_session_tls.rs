@@ -22,9 +22,9 @@ use openssl::{
     x509::store::X509StoreBuilder,
 };
 use tcpcl::{
+    TLSSettings,
     errors::{ErrorType, Errors},
     session::TCPCLSession,
-    TLSSettings,
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},

@@ -32,7 +32,12 @@ pub struct Replicator {
 impl Replicator {
     pub fn new(settings: &Settings) -> Self {
         Replicator {
-            client: DtrdClient::new(settings.dtrd_url.clone(), settings.dtn_endpoint.clone(), settings.repl_target.clone()).start(),
+            client: DtrdClient::new(
+                settings.dtrd_url.clone(),
+                settings.dtn_endpoint.clone(),
+                settings.repl_target.clone(),
+            )
+            .start(),
         }
     }
 }

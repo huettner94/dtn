@@ -17,10 +17,10 @@
 
 use std::io::Write;
 
-use clap::{error::ErrorKind, CommandFactory, Parser, Subcommand, ValueEnum};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum, error::ErrorKind};
 use dtrd_client::Client;
 use futures_util::StreamExt;
-use tabular::{row, Table};
+use tabular::{Table, row};
 use tokio::fs;
 
 #[derive(Parser)]
@@ -208,7 +208,10 @@ async fn command_bundle_listen(client: &mut Client, endpoint: String, output_mod
                                     println!("Successfully parsed administrative record: {:?}", ar);
                                 }
                                 Err(_) => {
-                                    println!("Is no administrative record. This is the output as string.\n<<<BEGIN\n{}\n<<<END", String::from_utf8_lossy(&data));
+                                    println!(
+                                        "Is no administrative record. This is the output as string.\n<<<BEGIN\n{}\n<<<END",
+                                        String::from_utf8_lossy(&data)
+                                    );
                                 }
                             }
                         }

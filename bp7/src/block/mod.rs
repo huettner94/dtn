@@ -17,7 +17,7 @@
 
 use std::convert::TryFrom;
 
-use serde::{de::Error, de::Visitor, ser::SerializeSeq, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::Error, de::Visitor, ser::SerializeSeq};
 
 use crate::{blockflags::BlockFlags, crc::CRCType, *};
 

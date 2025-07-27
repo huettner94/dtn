@@ -18,9 +18,9 @@
 use std::convert::TryFrom;
 
 use serde::{
+    Deserialize, Serialize,
     de::{Error, Visitor},
     ser::SerializeSeq,
-    Deserialize, Serialize,
 };
 use serde_cbor::Serializer;
 

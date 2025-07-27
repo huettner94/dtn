@@ -18,13 +18,13 @@
 use std::task::Poll;
 
 use actix::Addr;
-use futures_util::{future::FutureExt, Stream};
+use futures_util::{Stream, future::FutureExt};
 
 use adminservice::admin_service_server::{AdminService, AdminServiceServer};
 use bundleservice::bundle_service_server::{BundleService, BundleServiceServer};
 use log::info;
 use tokio::sync::{broadcast, mpsc};
-use tonic::{transport::Server, Response, Status};
+use tonic::{Response, Status, transport::Server};
 use url::Url;
 
 use crate::{

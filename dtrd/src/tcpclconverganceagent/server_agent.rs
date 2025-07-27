@@ -19,7 +19,7 @@ use std::{collections::HashMap, io, net::SocketAddr};
 
 use log::{debug, error, info};
 use openssl::{pkey::PKey, x509::X509};
-use tcpcl::{session::TCPCLSession, TLSSettings};
+use tcpcl::{TLSSettings, session::TCPCLSession};
 use tokio::{
     fs::File,
     io::AsyncReadExt,

@@ -25,7 +25,7 @@ use log::{debug, error, info, warn};
 use openssl::{
     error::ErrorStack,
     ssl::{Ssl, SslAcceptor, SslContext, SslMethod, SslVerifyMode},
-    x509::{store::X509StoreBuilder, X509},
+    x509::{X509, store::X509StoreBuilder},
 };
 use tokio::{
     io::{AsyncRead, AsyncWrite, AsyncWriteExt},
@@ -42,14 +42,14 @@ use x509_parser::{
 };
 
 use crate::{
+    TLSSettings,
     connection_info::ConnectionInfo,
     errors::{ErrorType, Errors, TransferSendErrors},
     transfer::Transfer,
     v4::{
-        messages::{self, sess_term::ReasonCode, xfer_segment, Codec, Messages},
+        messages::{self, Codec, Messages, sess_term::ReasonCode, xfer_segment},
         statemachine::StateMachine,
     },
-    TLSSettings,
 };
 
 pub trait AsyncReadWrite: AsyncRead + AsyncWrite + Send {}
@@ -481,7 +481,9 @@ impl TCPCLSession {
                     }
                     None => {
                         if !x.flags.contains(xfer_segment::MessageFlags::START) {
-                            warn!("Remote did not sent a start flag for a new transfer. Accepting it anyway");
+                            warn!(
+                                "Remote did not sent a start flag for a new transfer. Accepting it anyway"
+                            );
                         }
                         let a = x.to_xfer_ack(x.data.len() as u64);
                         self.receiving_transfer = Some(Transfer {

@@ -19,9 +19,9 @@ use std::fmt::Debug;
 
 use chrono::{DateTime, TimeZone, Utc};
 use serde::{
+    Deserialize, Serialize,
     de::{Error, Visitor},
     ser::SerializeSeq,
-    Deserialize, Serialize,
 };
 
 #[derive(Debug, PartialEq, Eq, Clone)]

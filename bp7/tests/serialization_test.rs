@@ -16,7 +16,8 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 use bp7::{
-    block::{hop_count_block::HopCountBlock, payload_block::PayloadBlock, Block, CanonicalBlock},
+    SerializationError,
+    block::{Block, CanonicalBlock, hop_count_block::HopCountBlock, payload_block::PayloadBlock},
     blockflags::BlockFlags,
     bundle::Bundle,
     bundleflags::BundleFlags,
@@ -24,7 +25,6 @@ use bp7::{
     endpoint::Endpoint,
     primaryblock::PrimaryBlock,
     time::{CreationTimestamp, DtnTime},
-    SerializationError,
 };
 
 #[test]

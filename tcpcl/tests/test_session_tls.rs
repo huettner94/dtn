@@ -21,7 +21,7 @@ use openssl::{
     ssl::{Ssl, SslAcceptor, SslContext, SslMethod, SslVerifyMode},
     x509::store::X509StoreBuilder,
 };
-use tcpcl::{errors::ErrorType, session::TCPCLSession, TLSSettings};
+use tcpcl::{TLSSettings, errors::ErrorType, session::TCPCLSession};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},

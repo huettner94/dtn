@@ -20,7 +20,7 @@ use log::{debug, error, warn};
 
 use crate::common::settings::Settings;
 
-use super::{messages::*, StoredBundle};
+use super::{StoredBundle, messages::*};
 use actix::prelude::*;
 
 #[derive(Default)]
@@ -63,7 +63,9 @@ impl Handler<StoreBundle> for Daemon {
             .source_node
             .matches_node(self.endpoint.as_ref().unwrap())
         {
-            panic!("Received a StoreBundle message but with us as the source node. Use StoreNewBundle instead!")
+            panic!(
+                "Received a StoreBundle message but with us as the source node. Use StoreNewBundle instead!"
+            )
         }
 
         self.store_bundle(bundle, None)
@@ -81,7 +83,9 @@ impl Handler<StoreNewBundle> for Daemon {
             .source_node
             .matches_node(self.endpoint.as_ref().unwrap())
         {
-            panic!("Received a StoreNewBundle message but with some other node as source node. Use StoreBundle instead!")
+            panic!(
+                "Received a StoreNewBundle message but with some other node as source node. Use StoreBundle instead!"
+            )
         }
 
         if bundle.primary_block.fragment_offset.is_some() {

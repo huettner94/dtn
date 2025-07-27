@@ -18,9 +18,9 @@
 use std::fmt::Display;
 
 use serde::{
+    Deserialize, Serialize,
     de::{Error, Unexpected, Visitor},
     ser::SerializeSeq,
-    Deserialize, Serialize,
 };
 use serde_repr::{Deserialize_repr, Serialize_repr};
 

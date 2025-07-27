@@ -19,7 +19,7 @@ use std::convert::TryFrom;
 
 use serde::Serialize;
 
-use crate::{endpoint::Endpoint, Validate};
+use crate::{Validate, endpoint::Endpoint};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PreviousNodeBlock {
