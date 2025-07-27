@@ -18,7 +18,7 @@
 ####################################################################################################
 ## Builder
 ####################################################################################################
-FROM --platform=$BUILDPLATFORM rust:1.79 AS builder
+FROM --platform=$BUILDPLATFORM rust:1.88 AS builder
 
 ARG TARGETPLATFORM
 WORKDIR /dtrd
@@ -70,7 +70,7 @@ RUN if [ "${TARGETPLATFORM}" = "linux/amd64" ]; then \
 ####################################################################################################
 ## Final image
 ####################################################################################################
-FROM rust:1.79
+FROM rust:1.88
 
 # Import from builder.
 COPY --from=builder /etc/passwd /etc/passwd
