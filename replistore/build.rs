@@ -1,4 +1,4 @@
-// Copyright (C) 2026 Felix Huettner
+// Copyright (C) 2023 Felix Huettner
 //
 // This file is part of DTRD.
 //
