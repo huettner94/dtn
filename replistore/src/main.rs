@@ -94,7 +94,7 @@ async fn main() {
     let (notify_shutdown, _) = broadcast::channel::<()>(1);
     let (shutdown_complete_tx, mut shutdown_complete_rx) = mpsc::channel::<()>(1);
 
-    let replicator = Replicator::new().start();
+    let replicator = Replicator::new(&settings).start();
 
     let storeowner = StoreOwner::new("/tmp/replistore/db".into())
         .unwrap()

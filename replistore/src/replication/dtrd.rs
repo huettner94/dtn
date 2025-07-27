@@ -1,7 +1,7 @@
 use actix::prelude::*;
 use bytes::{Bytes, BytesMut};
 use dtrd_client::Client;
-use log::{error, info};
+use log::info;
 use prost::Message;
 
 use super::messages::{BucketEvent, ReplicateEvent};
@@ -9,12 +9,14 @@ use super::messages::{BucketEvent, ReplicateEvent};
 #[derive(Debug)]
 pub struct DtrdClient {
     url: String,
+    endpoint: String,
+    repl_target: String,
     client: Option<Client>,
 }
 
 impl DtrdClient {
-    pub fn new(url: String) -> Self {
-        DtrdClient { url, client: None }
+    pub fn new(url: String, endpoint: String, repl_target: String) -> Self {
+        DtrdClient { url, endpoint, repl_target, client: None }
     }
 }
 
@@ -31,8 +33,9 @@ impl Actor for DtrdClient {
         fut.into_actor(self)
             .then(move |mut ret, act, _ctx| {
                 act.client = Some(ret.clone());
+                let endpoint = act.endpoint.clone();
                 info!("Connected to dtrd");
-                let fut = async move { ret.listen_bundles("dtn://defaultnodeid/myendpoint").await };
+                let fut = async move { ret.listen_bundles(&endpoint).await };
                 fut.into_actor(act)
             })
             .then(move |ret, _act, ctx| {
@@ -52,9 +55,10 @@ impl Handler<ReplicateEvent> for DtrdClient {
         let mut buf = BytesMut::new();
         bucket_event.encode(&mut buf).unwrap();
         let mut client = self.client.as_ref().unwrap().clone();
+        let target = self.repl_target.clone();
         let fut = async move {
             client
-                .submit_bundle("dtn://defaultnodeid/myendpoint", 30, &buf)
+                .submit_bundle(&target, 30, &buf)
                 .await
                 .unwrap()
         };
@@ -66,7 +70,7 @@ impl StreamHandler<Result<Vec<u8>, dtrd_client::error::Error>> for DtrdClient {
     fn handle(
         &mut self,
         item: Result<Vec<u8>, dtrd_client::error::Error>,
-        ctx: &mut Self::Context,
+        _ctx: &mut Self::Context,
     ) {
         let buf = Bytes::from(item.unwrap());
         let event = BucketEvent::decode(buf);

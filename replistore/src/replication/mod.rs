@@ -22,15 +22,17 @@ use actix::prelude::*;
 use dtrd::DtrdClient;
 use messages::ReplicateEvent;
 
+use crate::common::settings::Settings;
+
 #[derive(Debug)]
 pub struct Replicator {
     client: Addr<DtrdClient>,
 }
 
 impl Replicator {
-    pub fn new() -> Self {
+    pub fn new(settings: &Settings) -> Self {
         Replicator {
-            client: DtrdClient::new("http://localhost:50051".to_string()).start(),
+            client: DtrdClient::new(settings.dtrd_url.clone(), settings.dtn_endpoint.clone(), settings.repl_target.clone()).start(),
         }
     }
 }
@@ -42,7 +44,7 @@ impl Actor for Replicator {
 impl Handler<ReplicateEvent> for Replicator {
     type Result = ();
 
-    fn handle(&mut self, msg: ReplicateEvent, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: ReplicateEvent, _ctx: &mut Self::Context) -> Self::Result {
         self.client.do_send(msg);
     }
 }

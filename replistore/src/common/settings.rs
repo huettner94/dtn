@@ -20,12 +20,18 @@ use std::env;
 #[derive(Debug, Clone)]
 pub struct Settings {
     pub tokio_tracing_port: Option<String>,
+    pub dtrd_url: String,
+    pub dtn_endpoint: String,
+    pub repl_target: String,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
             tokio_tracing_port: None,
+            dtrd_url: "http://localhost:50051".to_string(),
+            dtn_endpoint: "dtn://defaultnodeid/myendpoint".to_string(),
+            repl_target: "dtn://defaultnodeid/myotherendpoint".to_string(),
         }
     }
 }
@@ -35,6 +41,15 @@ impl Settings {
         let mut settings = Settings::default();
         if let Ok(setting) = env::var("TOKIO_TRACING_PORT") {
             settings.tokio_tracing_port = Some(setting);
+        };
+        if let Ok(setting) = env::var("DTRD_URL") {
+            settings.dtrd_url = setting;
+        };
+        if let Ok(setting) = env::var("DTN_ENDPOINT") {
+            settings.dtn_endpoint = setting;
+        };
+        if let Ok(setting) = env::var("REPL_TARGET") {
+            settings.repl_target = setting;
         };
         settings
     }
