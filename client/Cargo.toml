@@ -23,10 +23,10 @@ resolver = "2"
 
 [dependencies]
 log = "0.4.21"
-tonic = "0.12.0"
+tonic = "0.14.0"
 prost = "0.13.0"
 futures-util = "0.3.30"
 maybe-async = "0.2.10"
 
 [build-dependencies]
-tonic-build = "0.12.0"
+tonic-build = "0.14.0"
