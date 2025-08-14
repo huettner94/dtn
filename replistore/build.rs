@@ -26,7 +26,7 @@ fn build_tonic() -> Result<(), Box<dyn std::error::Error>> {
     println!("{:?}", proto_files);
     tonic_build::configure()
         .build_client(false)
-        .compile(&proto_files, &[proto_path])?;
+        .compile_protos(&proto_files, &[proto_path])?;
     Ok(())
 }
 
