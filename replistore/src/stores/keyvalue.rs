@@ -39,7 +39,7 @@ impl KeyValueStore {
         KeyValueStore { name, db }
     }
 
-    fn get_path(&self, keys: &Vec<String>) -> String {
+    fn get_path(&self, keys: &[String]) -> String {
         format!("\0store\0{}\0{}", self.name, keys.join("\0"))
     }
 
@@ -64,7 +64,7 @@ impl Handler<Get> for KeyValueStore {
         let Get { key } = msg;
         Ok(self
             .db
-            .get(&self.get_path(&key))?
+            .get(self.get_path(&key))?
             .map(|e| String::from_utf8(e).unwrap()))
     }
 }
@@ -74,7 +74,7 @@ impl Handler<Set> for KeyValueStore {
 
     fn handle(&mut self, msg: Set, _ctx: &mut Self::Context) -> Self::Result {
         let Set { key, value } = msg;
-        self.db.put(&self.get_path(&key), value.clone())?;
+        self.db.put(self.get_path(&key), value.clone())?;
         Ok(())
     }
 }
@@ -86,7 +86,7 @@ impl Handler<MultiSet> for KeyValueStore {
         let MultiSet { mut data } = msg;
         let txn = self.db.transaction();
         for (key, value) in data.drain() {
-            txn.put(&self.get_path(&key), value.clone())?;
+            txn.put(self.get_path(&key), value.clone())?;
         }
         txn.commit()?;
         Ok(())
@@ -98,7 +98,7 @@ impl Handler<Delete> for KeyValueStore {
 
     fn handle(&mut self, msg: Delete, _ctx: &mut Self::Context) -> Self::Result {
         let Delete { key } = msg;
-        self.db.delete(&self.get_path(&key))?;
+        self.db.delete(self.get_path(&key))?;
         Ok(())
     }
 }

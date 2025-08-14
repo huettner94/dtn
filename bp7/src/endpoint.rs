@@ -176,7 +176,7 @@ impl DTNEndpoint {
     }
 
     pub fn matches_node(&self, other: &DTNEndpoint) -> bool {
-        return self.node_name() == other.node_name();
+        self.node_name() == other.node_name()
     }
 
     pub fn get_node_endpoint(&self) -> DTNEndpoint {
@@ -219,10 +219,10 @@ impl<'de> Deserialize<'de> for DTNEndpoint {
                         uri: String::from("none"),
                     });
                 }
-                return Err(Error::invalid_value(
+                Err(Error::invalid_value(
                     Unexpected::Unsigned(v),
                     &"DTN Endpoints may only have 0 as a value",
-                ));
+                ))
             }
 
             fn visit_borrowed_str<E>(self, v: &'de str) -> Result<Self::Value, E>

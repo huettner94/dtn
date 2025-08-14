@@ -192,7 +192,7 @@ impl AdminService for MyAdminService {
                     .remote_endpoint
                     .as_ref()
                     .map(|e| e.to_string())
-                    .unwrap_or_else(|| "".to_string()),
+                    .unwrap_or_default(),
                 temporary: node.temporary,
             })
             .collect();

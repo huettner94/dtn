@@ -157,9 +157,9 @@ impl From<StoreError> for GetObjectError {
 impl From<GetBlobError> for GetObjectError {
     fn from(value: GetBlobError) -> Self {
         match value {
-            GetBlobError::StoreError(e) => e.into(),
-            GetBlobError::BlobReadError(e) => Self::ReadDataError(ReadDataError { msg: e.msg }),
-            GetBlobError::IoError(e) => Self::ReadDataError(ReadDataError { msg: e.to_string() }),
+            GetBlobError::Store(e) => e.into(),
+            GetBlobError::BlobRead(e) => Self::ReadDataError(ReadDataError { msg: e.msg }),
+            GetBlobError::Io(e) => Self::ReadDataError(ReadDataError { msg: e.to_string() }),
             GetBlobError::BlobDoesNotExist => GetObjectError::ObjectNotFound,
         }
     }

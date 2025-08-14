@@ -130,7 +130,7 @@ impl S3 {
                 .unwrap()
             {
                 Ok(addr) => handler(addr, replicator).await,
-                Err(GetOrCreateError::StoreError(e)) => return Err(e.into()),
+                Err(GetOrCreateError::StoreError(e)) => Err(e.into()),
                 Err(GetOrCreateError::StoreTypeMissmatch(store, e)) => {
                     panic!("Error getting s3 meta store {}: {}", store, e)
                 }
@@ -140,14 +140,14 @@ impl S3 {
 
     async fn meta_to_obj(
         store: &Addr<KeyValueStore>,
-        bucket: &String,
+        bucket: &str,
         obj: String,
     ) -> Result<Object, StoreError> {
         let mut meta = store
             .send(crate::stores::messages::List {
                 prefix: vec![
                     "objectmeta".to_string(),
-                    bucket.clone(),
+                    bucket.to_owned(),
                     obj.clone(),
                     String::new(),
                 ],

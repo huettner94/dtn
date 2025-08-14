@@ -165,13 +165,13 @@ impl Handler<Shutdown> for TCPCLSessionAgent {
     type Result = ();
 
     fn handle(&mut self, _msg: Shutdown, ctx: &mut Self::Context) -> Self::Result {
-        if let Some(c) = self.close_channel.take() {
-            if c.send(()).is_err() {
-                warn!(
-                    "Error sending shutdown message to tcpcl session. Forcing it to die by stopping us"
-                );
-                ctx.stop();
-            }
+        if let Some(c) = self.close_channel.take()
+            && c.send(()).is_err()
+        {
+            warn!(
+                "Error sending shutdown message to tcpcl session. Forcing it to die by stopping us"
+            );
+            ctx.stop();
         }
     }
 }

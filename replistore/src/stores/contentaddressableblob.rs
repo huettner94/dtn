@@ -16,17 +16,19 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 use actix::prelude::*;
-use bytes::{Bytes, BytesMut};
+use bytes::BytesMut;
 use futures::{SinkExt, StreamExt, TryStreamExt};
 use md5::Md5;
 use rocksdb::TransactionDB;
 use sha2::Digest;
-use std::{path::PathBuf, pin::Pin, sync::Arc};
+use std::{path::PathBuf, sync::Arc};
 use tokio::io::AsyncReadExt;
 use tokio_util::{
     codec::{BytesCodec, FramedRead},
     compat::TokioAsyncWriteCompatExt,
 };
+
+use crate::stores::messages::GetBlobResult;
 
 use super::messages::{
     BlobInfo, BlobReadError, DeleteBlob, DeleteBlobError, GetBlob, GetBlobError, PutBlob,
@@ -120,7 +122,7 @@ impl Handler<PutBlob> for ContentAddressableBlobStore {
                     .sink_map_err(|e| e.into()),
                 );
 
-                data.map_err(|e| Into::<PutBlobError>::into(e))
+                data.map_err(Into::<PutBlobError>::into)
                     .forward(file)
                     .await?;
 
@@ -144,12 +146,7 @@ impl Handler<PutBlob> for ContentAddressableBlobStore {
 }
 
 impl Handler<GetBlob> for ContentAddressableBlobStore {
-    type Result = ResponseFuture<
-        Result<
-            Pin<Box<dyn Stream<Item = Result<Bytes, BlobReadError>> + Send + Sync>>,
-            GetBlobError,
-        >,
-    >;
+    type Result = ResponseFuture<GetBlobResult>;
 
     fn handle(&mut self, msg: GetBlob, _ctx: &mut Self::Context) -> Self::Result {
         let GetBlob { sha256sum } = msg;
@@ -167,10 +164,7 @@ impl Handler<GetBlob> for ContentAddressableBlobStore {
                 .map_err(|e| BlobReadError { msg: e.to_string() });
 
             // need a explicit type here, otherwise daemons will arise
-            let out: Result<
-                Pin<Box<dyn Stream<Item = Result<Bytes, BlobReadError>> + Send + Sync>>,
-                GetBlobError,
-            > = Ok(Box::pin(stream));
+            let out: GetBlobResult = Ok(Box::pin(stream));
             out
         })
     }

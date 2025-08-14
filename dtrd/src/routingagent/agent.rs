@@ -72,16 +72,11 @@ impl Handler<AddRoute> for Daemon {
             next_hop,
             max_bundle_size,
         } = msg;
-        if self
-            .routes
-            .entry(target)
-            .or_insert_with(HashSet::new)
-            .insert(RouteEntry {
-                route_type,
-                next_hop,
-                max_bundle_size,
-            })
-        {
+        if self.routes.entry(target).or_default().insert(RouteEntry {
+            route_type,
+            next_hop,
+            max_bundle_size,
+        }) {
             self.send_route_update();
         }
     }
@@ -96,10 +91,7 @@ impl Handler<RemoveRoute> for Daemon {
             route_type,
             next_hop,
         } = msg;
-        let endpoint_routes = self
-            .routes
-            .entry(target.clone())
-            .or_insert_with(HashSet::new);
+        let endpoint_routes = self.routes.entry(target.clone()).or_default();
         let entry_to_remove = RouteEntry {
             route_type,
             next_hop: next_hop.clone(),
@@ -147,11 +139,10 @@ impl Daemon {
             })
             .collect();
 
-        if let Some(lrt) = &self.last_routing_table {
-            if lrt == &routes {
-                // This is not one if because of https://github.com/rust-lang/rust/issues/53667
-                return;
-            }
+        if let Some(lrt) = &self.last_routing_table
+            && lrt == &routes
+        {
+            return;
         }
 
         debug!("Routing table changed, sending update.");

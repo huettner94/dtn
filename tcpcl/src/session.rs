@@ -275,8 +275,7 @@ impl TCPCLSession {
             .expect("can not manage the connection > 1 time");
 
         let out = self.drive_statemachine(&mut send_channel_receiver).await;
-        if out.is_err() {
-            let error = out.unwrap_err();
+        if let Err(error) = out {
             warn!("Connection completed with error {:?}", error);
             if self.stream.is_some() {
                 let stream = self.stream.take().unwrap();
@@ -356,10 +355,11 @@ impl TCPCLSession {
                 self.initialized_keepalive = true;
             }
 
-            if self.statemachine.could_send_transfer() && self.transfer_result_sender.is_some() {
-                if let Err(e) = self.transfer_result_sender.take().unwrap().send(Ok(())) {
-                    error!("Error sending error to bundle sender {:?}", e);
-                }
+            if self.statemachine.could_send_transfer()
+                && self.transfer_result_sender.is_some()
+                && let Err(e) = self.transfer_result_sender.take().unwrap().send(Ok(()))
+            {
+                error!("Error sending error to bundle sender {:?}", e);
             }
 
             if self.statemachine.should_close() {
@@ -594,25 +594,24 @@ fn validate_peer_certificate(
                 if let ParsedExtension::SubjectAlternativeName(sans) = extension.parsed_extension()
                 {
                     for san in &sans.general_names {
-                        if let GeneralName::OtherName(oid, value) = san {
-                            if oid.to_id_string() == "1.3.6.1.5.5.7.8.11"
-                                && &value[4..] == peer_node_id.as_bytes()
-                            // we strip of the first 4 bytes as they are the ASN.1 header for a list of one string
-                            {
-                                debug!("Certificate matched");
-                                return Ok(());
-                            }
+                        if let GeneralName::OtherName(oid, value) = san
+                            && oid.to_id_string() == "1.3.6.1.5.5.7.8.11"
+                            && &value[4..] == peer_node_id.as_bytes()
+                        // we strip of the first 4 bytes as they are the ASN.1 header for a list of one string
+                        {
+                            debug!("Certificate matched");
+                            return Ok(());
                         }
                     }
                     // If we did not find a matching other name, then try dns names
                     // TODO: make this configurable
                     if let Host::Domain(peer_name) = peer_url.host().unwrap() {
                         for san in &sans.general_names {
-                            if let GeneralName::DNSName(name) = san {
-                                if name == &peer_name {
-                                    debug!("Certificate matched");
-                                    return Ok(());
-                                }
+                            if let GeneralName::DNSName(name) = san
+                                && name == &peer_name
+                            {
+                                debug!("Certificate matched");
+                                return Ok(());
                             }
                         }
                     }
