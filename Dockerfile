@@ -18,7 +18,7 @@
 ####################################################################################################
 ## Builder
 ####################################################################################################
-FROM --platform=$BUILDPLATFORM rust:1.88 AS builder
+FROM --platform=$BUILDPLATFORM rust:1.89-trixie AS builder
 
 ARG TARGETPLATFORM
 WORKDIR /dtrd
@@ -37,7 +37,6 @@ RUN adduser \
     --uid "${UID}" \
     "${USER}"
 
-RUN set -exu
 RUN apt update
 
 # as a workaround to make registry updates faster
@@ -47,8 +46,14 @@ RUN echo "git-fetch-with-cli = true" >> ~/.cargo/config.toml
 RUN echo "[registries.crates-io]" >> ~/.cargo/config.toml
 RUN echo 'protocol = "sparse"' >> ~/.cargo/config.toml
 
+
+RUN set -eu ;\
+    apt install -y musl-tools musl-dev git protobuf-compiler librocksdb-dev librocksdb9.10 libclang-dev pkg-config libssl-dev;\
+    update-ca-certificates
+
 # per platform config
-RUN if [ "${TARGETPLATFORM}" = "linux/amd64" ]; then \
+RUN set -eu ;\
+    if [ "${TARGETPLATFORM}" = "linux/amd64" ]; then \
     TARGET="x86_64-unknown-linux-gnu"; \
     elif [ "${TARGETPLATFORM}" = "linux/arm64" ]; then \
     TARGET="aarch64-unknown-linux-gnu"; \
@@ -60,26 +65,28 @@ RUN if [ "${TARGETPLATFORM}" = "linux/amd64" ]; then \
     fi; \
     # and now the generic build
     rustup target add "${TARGET}"; \
-    apt install -y musl-tools musl-dev git protobuf-compiler;\
-    update-ca-certificates; \
     rustup component add rustfmt; \
+    export ROCKSDB_LIB_DIR=/usr/lib/x86_64-linux-gnu; \
     cargo build --release --target="${TARGET}"; \
     mkdir /releases; \
-    cp /dtrd/target/${TARGET}/release/dtrd /dtrd/target/${TARGET}/release/dtrd_cli /releases
+    cp /dtrd/target/${TARGET}/release/dtrd /dtrd/target/${TARGET}/release/dtrd_cli /dtrd/target/${TARGET}/releases/replistore /releases
 
 ####################################################################################################
 ## Final image
 ####################################################################################################
-FROM rust:1.88
+FROM rust:1.89-trixie
 
 # Import from builder.
 COPY --from=builder /etc/passwd /etc/passwd
 COPY --from=builder /etc/group /etc/group
 
+# Install needed libs
+RUN apt update && apt install -y librocksdb9.10 libssl-dev
+
 WORKDIR /dtrd
 
 # Copy our build
-COPY --from=builder /releases/dtrd /releases/dtrd_cli ./
+COPY --from=builder /releases/* ./
 ENV PATH="/dtrd:$PATH"
 
 # Use an unprivileged user.
