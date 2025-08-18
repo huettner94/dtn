@@ -40,30 +40,19 @@ mod replication;
 mod stores;
 
 fn init_tracing(settings: &Settings) {
-    let tracerprovider = opentelemetry_otlp::new_pipeline()
-        .tracing()
-        .with_exporter(
-            opentelemetry_otlp::new_exporter()
-                .tonic()
-                .with_endpoint("http://localhost:4317")
-                .with_timeout(Duration::from_secs(3)),
-        )
-        .with_trace_config(
-            trace::Config::default()
-                .with_sampler(Sampler::AlwaysOn)
-                .with_id_generator(RandomIdGenerator::default())
-                .with_max_events_per_span(64)
-                .with_max_attributes_per_span(16)
-                .with_max_events_per_span(16)
-                .with_resource(Resource::new(vec![KeyValue::new(
-                    "service.name",
-                    "replistore",
-                )])),
-        )
-        .install_batch(opentelemetry_sdk::runtime::Tokio)
+    let otlp_exporter = opentelemetry_otlp::SpanExporter::builder()
+        .with_tonic()
+        .with_endpoint("http://localhost:4317")
+        .with_timeout(Duration::from_secs(3))
+        .build()
         .unwrap();
 
-    let tracer = tracerprovider.tracer("replistore");
+    let tracer_provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
+        .with_simple_exporter(otlp_exporter)
+        .with_resource(Resource::builder().with_service_name("replistore").build())
+        .build();
+
+    let tracer = tracer_provider.tracer("replistore");
     let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
 
     let console_layer = console_subscriber::ConsoleLayer::builder()
