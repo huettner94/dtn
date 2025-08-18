@@ -26,7 +26,7 @@ edition = "2024"
 serde = { version = "1.0.200", features = ["derive"] }
 serde_cbor = "0.11.2"
 serde_repr = "0.1.19"
-bitflags = "2.5.0"
+bitflags = "2.9.2"
 chrono = "0.4.38"
 binascii = "0.1.4"
 num_enum = "0.7.2"
