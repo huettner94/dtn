@@ -69,7 +69,7 @@ RUN set -eu ;\
     export ROCKSDB_LIB_DIR=/usr/lib/x86_64-linux-gnu; \
     cargo build --release --target="${TARGET}"; \
     mkdir /releases; \
-    cp /dtrd/target/${TARGET}/release/dtrd /dtrd/target/${TARGET}/release/dtrd_cli /dtrd/target/${TARGET}/releases/replistore /releases
+    cp /dtrd/target/${TARGET}/release/dtrd /dtrd/target/${TARGET}/release/dtrd_cli /dtrd/target/${TARGET}/release/replistore /releases
 
 ####################################################################################################
 ## Final image
