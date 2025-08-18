@@ -24,7 +24,7 @@ fn build_tonic() -> Result<(), Box<dyn std::error::Error>> {
         .filter_map(|p| p.map(|path| path.path()).ok())
         .collect();
     println!("{:?}", proto_files);
-    tonic_build::configure()
+    tonic_prost_build::configure()
         .build_client(false)
         .compile_protos(&proto_files, &[proto_path])?;
     Ok(())

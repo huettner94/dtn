@@ -24,8 +24,9 @@ edition = "2024"
 bp7 = {path = "../bp7"}
 tcpcl = {path = "../tcpcl"}
 log = "0.4.21"
-tonic = "0.12.0"
-prost = "0.13.0"
+tonic = "0.14.1"
+tonic-prost = "0.14.1"
+prost = "0.14.1"
 tokio = { version = "1.37.0", features = ["full", "tracing"] }
 tokio-stream = "0.1.15"
 tokio-util = "0.7.11"
@@ -40,4 +41,4 @@ async-stream = "0.3.5"
 url = "2.5.0"
 
 [build-dependencies]
-tonic-build = "0.12.0"
+tonic-prost-build = "0.14.1"
