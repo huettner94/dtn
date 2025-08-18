@@ -239,10 +239,12 @@ impl s3s::S3 for S3Frontend {
         let buckets = self.s3.send_s3(super::messages::ListBuckets {}).await??;
 
         Ok(S3Response::new(ListBucketsOutput {
+            continuation_token: None,
             buckets: Some(
                 buckets
                     .into_iter()
                     .map(|name| Bucket {
+                        bucket_region: None,
                         creation_date: Some(time::SystemTime::now().into()),
                         name: Some(name.to_string()),
                     })
@@ -252,6 +254,7 @@ impl s3s::S3 for S3Frontend {
                 display_name: Some("ich teste mal".to_string()),
                 id: Some("test".to_string()),
             }),
+            prefix: None,
         }))
     }
 
