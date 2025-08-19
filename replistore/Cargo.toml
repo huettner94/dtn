@@ -55,8 +55,7 @@ opentelemetry-otlp = { version = "0.30.0", features = ["grpc-tonic"] }
 opentelemetry_sdk = { version = "0.30.0", features = ["rt-tokio"] }
 futures = "0.3.30"
 uuid = {version = "1.8.0", features = ["v4"]}
-# until https://github.com/rust-rocksdb/rust-rocksdb/pull/868/commits/55d68c30c8d5a1924b794678d9f468f3559c2685 is released
-rocksdb = { git = "https://github.com/rust-rocksdb/rust-rocksdb" }
+rocksdb = "0.24.0"
 prost-types = "0.14"
 
 [build-dependencies]
