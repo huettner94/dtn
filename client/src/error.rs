@@ -15,6 +15,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+use std::fmt::Display;
+
 use tonic::codegen::http::uri::InvalidUri;
 
 #[derive(Debug)]
@@ -24,6 +26,25 @@ pub enum Error {
     GrpcError(tonic::Status),
     NoMessage,
 }
+
+impl Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::InvalidUrl => f.write_str("Invalid URL"),
+            Error::TransportError(error) => f.write_fmt(format_args!(
+                "Error when communicating with dtrd: {}",
+                error
+            )),
+            Error::GrpcError(status) => f.write_fmt(format_args!(
+                "Error when communicating with dtrd: {}",
+                status
+            )),
+            Error::NoMessage => f.write_str("No Message to be received"),
+        }
+    }
+}
+
+impl std::error::Error for Error {}
 
 impl From<InvalidUri> for Error {
     fn from(_: InvalidUri) -> Self {

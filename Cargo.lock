@@ -2739,6 +2739,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tests"
+version = "0.1.0"
+dependencies = [
+ "dtrd",
+ "dtrd_client",
+ "libc",
+ "tokio",
+]
+
+[[package]]
 name = "thiserror"
 version = "2.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"

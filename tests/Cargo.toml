@@ -15,16 +15,14 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-[workspace]
+[package]
+name = "tests"
+version = "0.1.0"
+edition = "2024"
+publish = false
 
-members = [
-    "bp7",
-    "cli",
-    "client",
-    "dtrd",
-    "tcpcl",
-    "replistore",
-    "tests"
-]
-
-resolver = "2"
+[dev-dependencies]
+libc = "0.2"
+dtrd_client = {path = "../client"}
+dtrd = {path = "../dtrd"}
+tokio = { version = "1.37.0", features = ["macros", "rt-multi-thread", "fs"] }
