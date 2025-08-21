@@ -771,8 +771,10 @@ dependencies = [
  "async-stream",
  "bp7",
  "console-subscriber",
+ "dtrd_client",
  "env_logger",
  "futures-util",
+ "libc",
  "log",
  "openssl",
  "prost 0.14.1",
@@ -2736,16 +2738,6 @@ dependencies = [
  "once_cell",
  "rustix",
  "windows-sys 0.59.0",
-]
-
-[[package]]
-name = "tests"
-version = "0.1.0"
-dependencies = [
- "dtrd",
- "dtrd_client",
- "libc",
- "tokio",
 ]
 
 [[package]]

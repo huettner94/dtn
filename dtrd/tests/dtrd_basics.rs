@@ -23,6 +23,7 @@ use tokio::{
 };
 
 const DUMMY_DATA: &str = "dummydata";
+const DTRD_BIN_PATH: &str = env!("CARGO_BIN_EXE_dtrd");
 
 type Res<T> = Result<T, Box<dyn std::error::Error>>;
 
@@ -32,12 +33,7 @@ struct DtrdRunner {
 
 impl DtrdRunner {
     async fn new() -> Res<Self> {
-        let mut path = std::env::current_dir().unwrap();
-        path.pop();
-        path.push("target");
-        path.push("debug");
-        path.push("dtrd");
-        let cmd = Command::new(path).spawn()?;
+        let cmd = Command::new(DTRD_BIN_PATH).spawn()?;
         sleep(Duration::from_secs(1)).await;
         Ok(DtrdRunner { cmd })
     }
