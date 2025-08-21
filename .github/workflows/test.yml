@@ -20,7 +20,7 @@ name: test
 on:
   push:
     branches:
-    - "**"
+    - "renovate/*"
   pull_request:
     branches:
     - main
