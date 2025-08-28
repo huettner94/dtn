@@ -55,7 +55,7 @@ jobs:
       - name: Install librocksdb
         run: |
           sudo apt update
-          sudo apt install librocksdb8.9
+          sudo apt install librocksdb8.9 librocksdb-dev
 
       - name: Cargo fmt
         run: cargo fmt --all -- --check
