@@ -24,13 +24,9 @@ use log::{error, info};
 use replication::Replicator;
 use tokio::sync::{broadcast, mpsc};
 
-use opentelemetry::KeyValue;
 use opentelemetry::trace::TracerProvider;
 use opentelemetry_otlp::WithExportConfig;
-use opentelemetry_sdk::{
-    Resource,
-    trace::{self, RandomIdGenerator, Sampler},
-};
+use opentelemetry_sdk::Resource;
 use std::time::Duration;
 use tracing_subscriber::layer::SubscriberExt;
 

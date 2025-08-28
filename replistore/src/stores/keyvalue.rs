@@ -16,10 +16,10 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 use actix::prelude::*;
-use rocksdb::TransactionDB;
+use rocksdb::{Transaction, TransactionDB};
 use std::{collections::HashMap, sync::Arc};
 
-use super::messages::{Delete, Get, List, MultiDelete, MultiSet, Set, StoreError};
+use super::messages::{Delete, Get, List, MultiDelete, MultiSet, Set, StoreError, Version};
 
 pub struct KeyValueStore {
     name: String,
@@ -51,6 +51,21 @@ impl KeyValueStore {
             options,
         )
     }
+
+    fn bump_version(
+        &self,
+        version_path: Vec<String>,
+        txn: &Transaction<'_, TransactionDB>,
+    ) -> Result<Version, StoreError> {
+        let mut ver = self
+            .db
+            .get(&self.get_path(&version_path))?
+            .map(|e| u64::from_le_bytes(e.try_into().unwrap()))
+            .unwrap_or_default();
+        ver += 1;
+        txn.put(&self.get_path(&version_path), ver.to_le_bytes())?;
+        Ok(Version(ver))
+    }
 }
 
 impl Actor for KeyValueStore {
@@ -70,44 +85,61 @@ impl Handler<Get> for KeyValueStore {
 }
 
 impl Handler<Set> for KeyValueStore {
-    type Result = Result<(), StoreError>;
+    type Result = Result<Version, StoreError>;
 
     fn handle(&mut self, msg: Set, _ctx: &mut Self::Context) -> Self::Result {
-        let Set { key, value } = msg;
-        self.db.put(self.get_path(&key), value.clone())?;
-        Ok(())
+        let Set {
+            version_path,
+            key,
+            value,
+        } = msg;
+        let txn = self.db.transaction();
+        txn.put(&self.get_path(&key), value.clone())?;
+        let ver = self.bump_version(version_path, &txn)?;
+        txn.commit()?;
+        Ok(ver)
     }
 }
 
 impl Handler<MultiSet> for KeyValueStore {
-    type Result = Result<(), StoreError>;
+    type Result = Result<Version, StoreError>;
 
     fn handle(&mut self, msg: MultiSet, _ctx: &mut Self::Context) -> Self::Result {
-        let MultiSet { mut data } = msg;
+        let MultiSet {
+            mut data,
+            version_path,
+        } = msg;
         let txn = self.db.transaction();
         for (key, value) in data.drain() {
             txn.put(self.get_path(&key), value.clone())?;
         }
+        let ver = self.bump_version(version_path, &txn)?;
         txn.commit()?;
-        Ok(())
+        Ok(ver)
     }
 }
 
 impl Handler<Delete> for KeyValueStore {
-    type Result = Result<(), StoreError>;
+    type Result = Result<Version, StoreError>;
 
     fn handle(&mut self, msg: Delete, _ctx: &mut Self::Context) -> Self::Result {
-        let Delete { key } = msg;
-        self.db.delete(self.get_path(&key))?;
-        Ok(())
+        let Delete { key, version_path } = msg;
+        let txn = self.db.transaction();
+        txn.delete(self.get_path(&key))?;
+        let ver = self.bump_version(version_path, &txn)?;
+        txn.commit()?;
+        Ok(ver)
     }
 }
 
 impl Handler<MultiDelete> for KeyValueStore {
-    type Result = Result<(), StoreError>;
+    type Result = Result<Version, StoreError>;
 
     fn handle(&mut self, msg: MultiDelete, _ctx: &mut Self::Context) -> Self::Result {
-        let MultiDelete { mut data } = msg;
+        let MultiDelete {
+            mut data,
+            version_path,
+        } = msg;
         let txn = self.db.transaction();
         for key in data.drain(..) {
             let path = self.get_path(&key);
@@ -116,8 +148,9 @@ impl Handler<MultiDelete> for KeyValueStore {
                 txn.delete(found?.0)?
             }
         }
+        let ver = self.bump_version(version_path, &txn)?;
         txn.commit()?;
-        Ok(())
+        Ok(ver)
     }
 }
 

@@ -54,7 +54,7 @@ pub struct S3 {
  *
  * s3_kv_store:
  *      \0buckets\0<bucket_name>: nil
- * s3_obj_kv_store:
+ *      \0bucketmeta\0<bucket_name>\0version: version of the bucket
  *      \0objects\0<bucket_name>\0<object_name_path>: nil
  *      \0objectmeta\0<bucket_name>\0<object_name_path>\0size: size in bytes
  *      \0objectmeta\0<bucket_name>\0<object_name_path>\0last_modified: u64 timestamp
@@ -81,6 +81,14 @@ impl S3 {
 
     fn bucket_path(&self, name: &str) -> Vec<String> {
         vec!["buckets".to_string(), name.to_string()]
+    }
+
+    fn bucket_version_path(&self, name: &str) -> Vec<String> {
+        vec![
+            "bucketmeta".to_string(),
+            name.to_string(),
+            "version".to_string(),
+        ]
     }
 
     fn object_path(&self, bucket: &str, key: &str) -> Vec<String> {
@@ -249,6 +257,7 @@ impl Handler<CreateBucket> for S3 {
         let CreateBucket { name } = msg;
         let store = self.store();
         let bucket_path = self.bucket_path(&name);
+        let version_path = self.bucket_version_path(&name);
         Box::pin(async move {
             let resp = store
                 .send(crate::stores::messages::Get {
@@ -263,6 +272,7 @@ impl Handler<CreateBucket> for S3 {
                 .send(crate::stores::messages::Set {
                     key: bucket_path,
                     value: String::new(),
+                    version_path,
                 })
                 .await
                 .unwrap()?;
@@ -354,6 +364,7 @@ impl Handler<PutObject> for S3 {
         let md5sum_path = self.objectmeta_path(&bucket, &key, "md5sum");
         let sha256sum_path = self.objectmeta_path(&bucket, &key, "sha256sum");
         let size_path = self.objectmeta_path(&bucket, &key, "size");
+        let version_path = self.bucket_version_path(&bucket);
         self.with_bucket_store(
             bucket.clone(),
             PutObjectError::BucketNotFound,
@@ -366,7 +377,7 @@ impl Handler<PutObject> for S3 {
                     .unwrap()?;
 
                 let last_modified = OffsetDateTime::now_utc();
-                store
+                let version = store
                     .send(crate::stores::messages::MultiSet {
                         data: HashMap::from([
                             (object_path.clone(), String::new()),
@@ -378,6 +389,7 @@ impl Handler<PutObject> for S3 {
                             (sha256sum_path, info.sha256sum.clone()),
                             (size_path, info.size.to_string()),
                         ]),
+                        version_path,
                     })
                     .await
                     .unwrap()?;
@@ -387,6 +399,7 @@ impl Handler<PutObject> for S3 {
                         bucket_name: bucket,
                         events: vec![Event {
                             r#type: EventType::Put.into(),
+                            version: version.0,
                             object_name: key.clone(),
                             object_meta: Some(ObjectMeta {
                                 last_modified: Some(Timestamp {
@@ -456,6 +469,7 @@ impl Handler<DeleteObject> for S3 {
         let DeleteObject { bucket, key } = msg;
         let blob_store = self.blob_store();
         let object_path = self.object_path(&bucket, &key);
+        let version_path = self.bucket_version_path(&bucket);
         self.with_bucket_store(
             bucket.clone(),
             DeleteObjectError::BucketNotFound,
@@ -471,7 +485,7 @@ impl Handler<DeleteObject> for S3 {
                 }
                 let meta = Self::meta_to_obj(&store, &bucket, key.clone()).await?;
 
-                store
+                let version = store
                     .send(crate::stores::messages::MultiDelete {
                         data: vec![
                             object_path,
@@ -482,6 +496,7 @@ impl Handler<DeleteObject> for S3 {
                                 String::new(),
                             ],
                         ],
+                        version_path,
                     })
                     .await
                     .unwrap()?;
@@ -491,6 +506,7 @@ impl Handler<DeleteObject> for S3 {
                         bucket_name: bucket,
                         events: vec![Event {
                             r#type: EventType::Delete.into(),
+                            version: version.0,
                             object_name: key,
                             object_meta: None,
                         }],

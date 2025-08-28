@@ -86,6 +86,8 @@ pub struct GetOrCreateContentAddressableBlobStore {
     pub path: PathBuf,
 }
 
+pub struct Version(pub u64);
+
 #[derive(Message)]
 #[rtype(result = "Result<Option<String>, StoreError>")]
 pub struct Get {
@@ -93,27 +95,31 @@ pub struct Get {
 }
 
 #[derive(Message)]
-#[rtype(result = "Result<(), StoreError>")]
+#[rtype(result = "Result<Version, StoreError>")]
 pub struct Set {
+    pub version_path: Vec<String>,
     pub key: Vec<String>,
     pub value: String,
 }
 
 #[derive(Message)]
-#[rtype(result = "Result<(), StoreError>")]
+#[rtype(result = "Result<Version, StoreError>")]
 pub struct MultiSet {
+    pub version_path: Vec<String>,
     pub data: HashMap<Vec<String>, String>,
 }
 
 #[derive(Message)]
-#[rtype(result = "Result<(), StoreError>")]
+#[rtype(result = "Result<Version, StoreError>")]
 pub struct Delete {
+    pub version_path: Vec<String>,
     pub key: Vec<String>,
 }
 
 #[derive(Message)]
-#[rtype(result = "Result<(), StoreError>")]
+#[rtype(result = "Result<Version, StoreError>")]
 pub struct MultiDelete {
+    pub version_path: Vec<String>,
     pub data: Vec<Vec<String>>,
 }
 
