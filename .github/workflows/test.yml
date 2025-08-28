@@ -37,6 +37,7 @@ jobs:
 
     env:
       CARGO_TERM_COLOR: always
+      ROCKSDB_LIB_DIR: /usr/lib/x86_64-linux-gnu
 
     steps:
       - uses: actions/checkout@v5
@@ -46,12 +47,17 @@ jobs:
       - run: |
           rustup set auto-self-update disable
           rustup toolchain install stable --profile minimal
-          
+
       - name: Install Protoc
         uses: arduino/setup-protoc@v1
 
       - uses: Swatinem/rust-cache@v2
-      
+
+      - name: Install librocksdb
+        run: |
+          apt update
+          apt install librocksdb8.9
+
       - name: Cargo fmt
         run: cargo fmt --all -- --check
       - name: Cargo check
