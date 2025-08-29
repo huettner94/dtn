@@ -20,36 +20,63 @@ pub mod messages;
 
 use actix::prelude::*;
 use dtrd::DtrdClient;
-use messages::ReplicateEvent;
+use messages::{EventReplicationReceived, ReplicateEvent, SetEventReceiver};
 
-use crate::common::settings::Settings;
+use crate::{common::settings::Settings, frontend::s3::s3::ReceiveEventError};
 
 #[derive(Debug)]
 pub struct Replicator {
-    client: Addr<DtrdClient>,
+    client: Option<Addr<DtrdClient>>,
+    receiver: Option<Recipient<EventReplicationReceived>>,
+    settings: Settings,
 }
 
 impl Replicator {
     pub fn new(settings: &Settings) -> Self {
         Replicator {
-            client: DtrdClient::new(
-                settings.dtrd_url.clone(),
-                settings.dtn_endpoint.clone(),
-                settings.repl_target.clone(),
-            )
-            .start(),
+            client: None,
+            receiver: None,
+            settings: settings.clone(),
         }
     }
 }
 
 impl Actor for Replicator {
     type Context = Context<Self>;
+
+    fn started(&mut self, ctx: &mut Self::Context) {
+        let client = DtrdClient::new(
+            self.settings.dtrd_url.clone(),
+            self.settings.dtn_endpoint.clone(),
+            self.settings.repl_target.clone(),
+            ctx.address(),
+        )
+        .start();
+        self.client = Some(client);
+    }
 }
 
 impl Handler<ReplicateEvent> for Replicator {
     type Result = ();
 
     fn handle(&mut self, msg: ReplicateEvent, _ctx: &mut Self::Context) -> Self::Result {
-        self.client.do_send(msg);
+        self.client.as_ref().unwrap().do_send(msg);
+    }
+}
+
+impl Handler<SetEventReceiver> for Replicator {
+    type Result = ();
+
+    fn handle(&mut self, msg: SetEventReceiver, _ctx: &mut Self::Context) -> Self::Result {
+        self.receiver = Some(msg.recipient);
+    }
+}
+
+impl Handler<EventReplicationReceived> for Replicator {
+    type Result = ResponseFuture<Result<(), ReceiveEventError>>;
+
+    fn handle(&mut self, msg: EventReplicationReceived, _ctx: &mut Self::Context) -> Self::Result {
+        let receiver = self.receiver.clone().unwrap();
+        Box::pin(async move { receiver.send(msg).await.unwrap() })
     }
 }

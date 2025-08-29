@@ -150,11 +150,12 @@ impl<A: actix::Actor> AddrExt<A> for Addr<A> {
 #[derive(Debug)]
 pub struct S3Frontend {
     s3: Addr<super::s3::S3>,
+    s3_port: u16,
 }
 
 impl S3Frontend {
-    pub async fn new(s3: Addr<super::s3::S3>) -> Self {
-        S3Frontend { s3 }
+    pub async fn new(s3: Addr<super::s3::S3>, s3_port: u16) -> Self {
+        S3Frontend { s3, s3_port }
     }
 
     pub async fn run(
@@ -162,6 +163,8 @@ impl S3Frontend {
         mut shutdown: broadcast::Receiver<()>,
         _shutdown_complete_sender: mpsc::Sender<()>,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        let s3_port = self.s3_port;
+
         // Setup S3Frontend service
         let service = {
             let mut b = S3ServiceBuilder::new(self);
@@ -175,7 +178,7 @@ impl S3Frontend {
         let hyper_service = service.into_shared();
 
         // Run server
-        let listener = TcpListener::bind(("0.0.0.0", 8080)).await?;
+        let listener = TcpListener::bind(("0.0.0.0", s3_port)).await?;
         let local_addr = listener.local_addr()?;
         info!("Server listening on {}", local_addr);
 

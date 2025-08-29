@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use std::env;
+use std::{env, path::PathBuf};
 
 #[derive(Debug, Clone)]
 pub struct Settings {
@@ -23,6 +23,8 @@ pub struct Settings {
     pub dtrd_url: String,
     pub dtn_endpoint: String,
     pub repl_target: String,
+    pub storage_dir: PathBuf,
+    pub s3_port: u16,
 }
 
 impl Default for Settings {
@@ -32,6 +34,8 @@ impl Default for Settings {
             dtrd_url: "http://localhost:50051".to_string(),
             dtn_endpoint: "dtn://defaultnodeid/myendpoint".to_string(),
             repl_target: "dtn://defaultnodeid/myotherendpoint".to_string(),
+            storage_dir: PathBuf::from("/tmp/replistore"),
+            s3_port: 8080,
         }
     }
 }
@@ -50,6 +54,12 @@ impl Settings {
         };
         if let Ok(setting) = env::var("REPL_TARGET") {
             settings.repl_target = setting;
+        };
+        if let Ok(setting) = env::var("REPLISTORE_DIR") {
+            settings.storage_dir = PathBuf::from(setting);
+        };
+        if let Ok(setting) = env::var("S3_PORT") {
+            settings.s3_port = u16::from_str_radix(&setting, 10).unwrap();
         };
         settings
     }

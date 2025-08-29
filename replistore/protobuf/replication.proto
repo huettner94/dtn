@@ -40,7 +40,13 @@ message Event {
   ObjectMeta object_meta = 4;
 }
 
+message Object {
+  string sha256sum = 1;
+  bytes data = 2;
+}
+
 message BucketEvent {
   string bucket_name = 1;
   repeated Event events = 2;
+  repeated Object objects = 3;
 }

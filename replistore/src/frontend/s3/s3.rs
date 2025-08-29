@@ -15,18 +15,21 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, path::PathBuf};
 
 use actix::prelude::*;
 use futures::{Future, TryStreamExt};
-use log::error;
+use log::{error, info};
 use prost_types::Timestamp;
 use time::OffsetDateTime;
 
 use crate::{
     replication::{
         Replicator,
-        messages::{BucketEvent, Event, EventType, ObjectMeta, ReplicateEvent},
+        messages::{
+            BucketEvent, Event, EventReplicationReceived, EventType, ObjectMeta, ReplicateEvent,
+            SetEventReceiver,
+        },
     },
     stores::{
         contentaddressableblob::ContentAddressableBlobStore,
@@ -48,6 +51,7 @@ pub struct S3 {
     replicator: Addr<Replicator>,
     s3_kv_store: Option<Addr<KeyValueStore>>,
     s3_blob_store: Option<Addr<ContentAddressableBlobStore>>,
+    storage_dir: PathBuf,
 }
 
 /* Kv Structure
@@ -62,12 +66,17 @@ pub struct S3 {
  */
 
 impl S3 {
-    pub fn new(store_owner: Addr<StoreOwner>, replicator: Addr<Replicator>) -> Self {
+    pub fn new(
+        store_owner: Addr<StoreOwner>,
+        replicator: Addr<Replicator>,
+        storage_dir: PathBuf,
+    ) -> Self {
         S3 {
             store_owner,
             replicator,
             s3_kv_store: None,
             s3_blob_store: None,
+            storage_dir,
         }
     }
 
@@ -188,6 +197,9 @@ impl Actor for S3 {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
+        self.replicator.do_send(SetEventReceiver {
+            recipient: ctx.address().recipient(),
+        });
         let store_owner = self.store_owner.clone();
         let fut = async move {
             store_owner
@@ -210,12 +222,13 @@ impl Actor for S3 {
             .wait(ctx);
 
         let store_owner = self.store_owner.clone();
+        let storage_dir = self.storage_dir.clone();
         let fut = async move {
             store_owner
                 .send(
                     crate::stores::messages::GetOrCreateContentAddressableBlobStore {
                         name: "s3data".to_string(),
-                        path: "/tmp/replistore/s3data".into(),
+                        path: storage_dir.join("s3data").into(),
                     },
                 )
                 .await
@@ -411,6 +424,7 @@ impl Handler<PutObject> for S3 {
                                 sha256sum: info.sha256sum.clone(),
                             }),
                         }],
+                        objects: vec![],
                     },
                 });
 
@@ -510,6 +524,7 @@ impl Handler<DeleteObject> for S3 {
                             object_name: key,
                             object_meta: None,
                         }],
+                        objects: vec![],
                     },
                 });
 
@@ -520,6 +535,53 @@ impl Handler<DeleteObject> for S3 {
                     .await
                     .unwrap()?;
 
+                Ok(())
+            },
+        )
+    }
+}
+
+#[derive(Debug)]
+pub enum ReceiveEventError {
+    S3Error(S3Error),
+    BucketNotExists,
+}
+
+impl From<StoreError> for ReceiveEventError {
+    fn from(value: StoreError) -> Self {
+        Self::S3Error(value.into())
+    }
+}
+
+impl Handler<EventReplicationReceived> for S3 {
+    type Result = ResponseFuture<Result<(), ReceiveEventError>>;
+
+    fn handle(&mut self, msg: EventReplicationReceived, _ctx: &mut Self::Context) -> Self::Result {
+        let EventReplicationReceived {
+            store_event:
+                BucketEvent {
+                    bucket_name: bucket,
+                    events,
+                    objects,
+                },
+        } = msg;
+        let bucket_version_path = self.bucket_version_path(&bucket);
+        self.with_bucket_store(
+            bucket.clone(),
+            ReceiveEventError::BucketNotExists,
+            |store: Addr<KeyValueStore>, _: Addr<Replicator>| async move {
+                for event in events {
+                    let resp = store
+                        .send(crate::stores::messages::Get {
+                            key: bucket_version_path.clone(),
+                        })
+                        .await
+                        .unwrap()?;
+                    info!(
+                        "Comparing bucket versions: current {:?}, expected by event: {}",
+                        resp, event.version
+                    );
+                }
                 Ok(())
             },
         )

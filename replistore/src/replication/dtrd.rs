@@ -21,7 +21,12 @@ use dtrd_client::Client;
 use log::info;
 use prost::Message;
 
-use super::messages::{BucketEvent, ReplicateEvent};
+use crate::replication::messages::EventReplicationReceived;
+
+use super::{
+    Replicator,
+    messages::{BucketEvent, ReplicateEvent},
+};
 
 #[derive(Debug)]
 pub struct DtrdClient {
@@ -29,15 +34,22 @@ pub struct DtrdClient {
     endpoint: String,
     repl_target: String,
     client: Option<Client>,
+    replicator: Addr<Replicator>,
 }
 
 impl DtrdClient {
-    pub fn new(url: String, endpoint: String, repl_target: String) -> Self {
+    pub fn new(
+        url: String,
+        endpoint: String,
+        repl_target: String,
+        replicator: Addr<Replicator>,
+    ) -> Self {
         DtrdClient {
             url,
             endpoint,
             repl_target,
             client: None,
+            replicator,
         }
     }
 }
@@ -87,10 +99,20 @@ impl StreamHandler<Result<Vec<u8>, dtrd_client::error::Error>> for DtrdClient {
     fn handle(
         &mut self,
         item: Result<Vec<u8>, dtrd_client::error::Error>,
-        _ctx: &mut Self::Context,
+        ctx: &mut Self::Context,
     ) {
         let buf = Bytes::from(item.unwrap());
         let event = BucketEvent::decode(buf);
-        println!("{:?}", event.unwrap());
+        info!("Received Event {:?}", event);
+        self.replicator
+            .send(EventReplicationReceived {
+                store_event: event.unwrap(),
+            })
+            .into_actor(self)
+            .then(move |res, _act, _ctx| {
+                info!("Event result {:?}", res.unwrap());
+                fut::ready(())
+            })
+            .spawn(ctx);
     }
 }

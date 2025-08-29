@@ -81,19 +81,21 @@ async fn main() {
 
     let replicator = Replicator::new(&settings).start();
 
-    let storeowner = StoreOwner::new("/tmp/replistore/db".into())
+    let storeowner = StoreOwner::new(settings.storage_dir.join("db"))
         .unwrap()
         .start();
 
-    let s3_addr = frontend::s3::s3::S3::new(storeowner.clone(), replicator).start();
+    let s3_addr =
+        frontend::s3::s3::S3::new(storeowner.clone(), replicator, settings.storage_dir).start();
 
     let s3_task_shutdown_notifier = notify_shutdown.subscribe();
     let s3_task_shutdown_complete_tx_task = shutdown_complete_tx.clone();
     let s3_task_s3_addr = s3_addr.clone();
+    let s3_port = settings.s3_port;
     let s3_task = tokio::task::Builder::new()
         .name("S3")
         .spawn(async move {
-            let s3 = S3Frontend::new(s3_task_s3_addr).await;
+            let s3 = S3Frontend::new(s3_task_s3_addr, s3_port).await;
             match s3
                 .run(s3_task_shutdown_notifier, s3_task_shutdown_complete_tx_task)
                 .await

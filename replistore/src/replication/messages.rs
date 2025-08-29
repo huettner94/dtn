@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+use crate::frontend::s3::s3::ReceiveEventError;
 use actix::prelude::*;
 
 include!(concat!(env!("OUT_DIR"), "/replication.messages.rs"));
@@ -27,6 +28,12 @@ pub struct ReplicateEvent {
 
 #[derive(Message)]
 #[rtype(result = "()")]
+pub struct SetEventReceiver {
+    pub recipient: Recipient<EventReplicationReceived>,
+}
+
+#[derive(Message)]
+#[rtype(result = "Result<(), ReceiveEventError>")]
 pub struct EventReplicationReceived {
     pub store_event: BucketEvent,
 }
