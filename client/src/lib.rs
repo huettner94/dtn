@@ -19,6 +19,8 @@ use std::str::FromStr;
 
 use crate::error::Error;
 use adminservice::Node;
+use adminservice::Route;
+use adminservice::RouteStatus;
 use adminservice::admin_service_client::AdminServiceClient;
 use bundleservice::bundle_service_client::BundleServiceClient;
 use futures_util::Stream;
@@ -136,6 +138,31 @@ impl Client {
     pub async fn remove_node(&mut self, url: String) -> Result<(), Error> {
         let req = adminservice::RemoveNodeRequest { url };
         self.admin_client.remove_node(req).await?.into_inner();
+        Ok(())
+    }
+
+    #[maybe_async]
+    pub async fn list_routes(&mut self) -> Result<Vec<RouteStatus>, Error> {
+        let req = adminservice::ListRoutesRequest {};
+        let resp = self.admin_client.list_routes(req).await?.into_inner();
+        Ok(resp.routes)
+    }
+
+    #[maybe_async]
+    pub async fn add_route(&mut self, target: String, next_hop: String) -> Result<(), Error> {
+        let req = adminservice::AddRouteRequest {
+            route: Some(Route { target, next_hop }),
+        };
+        self.admin_client.add_route(req).await?.into_inner();
+        Ok(())
+    }
+
+    #[maybe_async]
+    pub async fn remove_route(&mut self, target: String, next_hop: String) -> Result<(), Error> {
+        let req = adminservice::RemoveRouteRequest {
+            route: Some(Route { target, next_hop }),
+        };
+        self.admin_client.remove_route(req).await?.into_inner();
         Ok(())
     }
 }

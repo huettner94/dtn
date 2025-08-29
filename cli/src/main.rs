@@ -57,6 +57,10 @@ enum Commands {
         #[clap(subcommand)]
         command: NodeCommands,
     },
+    Route {
+        #[clap(subcommand)]
+        command: RouteCommands,
+    },
 }
 
 #[derive(Subcommand)]
@@ -112,6 +116,23 @@ enum NodeCommands {
     },
 }
 
+#[derive(Subcommand)]
+enum RouteCommands {
+    List,
+    Add {
+        #[clap(short, long, help = "The target the route should apply to")]
+        target: String,
+        #[clap(short, long, help = "The next hop of the traffic")]
+        nexthop: String,
+    },
+    Remove {
+        #[clap(short, long, help = "The target the route should apply to")]
+        target: String,
+        #[clap(short, long, help = "The next hop of the traffic")]
+        nexthop: String,
+    },
+}
+
 #[tokio::main]
 pub async fn main() {
     let cli = Cli::parse();
@@ -150,6 +171,15 @@ pub async fn main() {
             NodeCommands::List => command_node_list(&mut client).await,
             NodeCommands::Add { address } => command_node_add(&mut client, address).await,
             NodeCommands::Remove { address } => command_node_remove(&mut client, address).await,
+        },
+        Commands::Route { command } => match command {
+            RouteCommands::List => command_route_list(&mut client).await,
+            RouteCommands::Add { target, nexthop } => {
+                command_route_add(&mut client, target, nexthop).await
+            }
+            RouteCommands::Remove { target, nexthop } => {
+                command_route_remove(&mut client, target, nexthop).await
+            }
         },
     }
 }
@@ -289,6 +319,54 @@ async fn command_node_remove(client: &mut Client, url: String) {
         Ok(_) => {}
         Err(e) => {
             println!("Error adding node: {:?}", e);
+        }
+    }
+}
+
+async fn command_route_list(client: &mut Client) {
+    match client.list_routes().await {
+        Ok(data) => {
+            let mut table = Table::new("{:<}  {:<}  {:<}  {:<}  {:<}  {:<}");
+            table.add_row(row!(
+                "Target",
+                "Nexthop",
+                "Status",
+                "Prefrered",
+                "Available",
+                "Bundle size limit"
+            ));
+            for route in data {
+                table.add_row(row!(
+                    &route.route.as_ref().unwrap().target,
+                    &route.route.as_ref().unwrap().next_hop,
+                    route.r#type().as_str_name(),
+                    route.preferred,
+                    route.available,
+                    route.max_bundle_size
+                ));
+            }
+            print!("{}", table);
+        }
+        Err(e) => {
+            println!("Error receiving route list: {:?}", e);
+        }
+    }
+}
+
+async fn command_route_add(client: &mut Client, target: String, nexthop: String) {
+    match client.add_route(target, nexthop).await {
+        Ok(_) => {}
+        Err(e) => {
+            println!("Error adding route: {:?}", e);
+        }
+    }
+}
+
+async fn command_route_remove(client: &mut Client, target: String, nexthop: String) {
+    match client.remove_route(target, nexthop).await {
+        Ok(_) => {}
+        Err(e) => {
+            println!("Error adding route: {:?}", e);
         }
     }
 }
