@@ -15,6 +15,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+#[allow(static_mut_refs)]
+use std::sync::atomic::AtomicU16;
 use std::{os::unix::process::ExitStatusExt, time::Duration};
 
 use tokio::{
@@ -25,6 +27,8 @@ use tokio::{
 const DUMMY_DATA: &str = "dummydata";
 const DTRD_BIN_PATH: &str = env!("CARGO_BIN_EXE_dtrd");
 
+static PORT_COUNTER: AtomicU16 = AtomicU16::new(50000);
+
 type Res<T> = Result<T, Box<dyn std::error::Error>>;
 
 struct DtrdRunner {
@@ -32,8 +36,15 @@ struct DtrdRunner {
 }
 
 impl DtrdRunner {
-    async fn new() -> Res<Self> {
-        let cmd = Command::new(DTRD_BIN_PATH).spawn()?;
+    async fn new(node_id: &str, grpc_port: u16, tcpcl_port: u16) -> Res<Self> {
+        let cmd = Command::new(DTRD_BIN_PATH)
+            .env("NODE_ID", node_id)
+            .env(
+                "GRPC_CLIENTAPI_ADDRESS",
+                &format!("127.0.0.1:{}", grpc_port),
+            )
+            .env("TCPCL_LISTEN_ADDRESS", &format!("127.0.0.1:{}", tcpcl_port))
+            .spawn()?;
         sleep(Duration::from_secs(1)).await;
         Ok(DtrdRunner { cmd })
     }
@@ -58,21 +69,123 @@ impl Drop for DtrdRunner {
     }
 }
 
+struct Dtrd {
+    runner: DtrdRunner,
+    client: dtrd_client::Client,
+    grpc_port: u16,
+    tcpcl_port: u16,
+    node_id: String,
+}
+
+impl Dtrd {
+    async fn new() -> Res<Self> {
+        let port_range = PORT_COUNTER.fetch_add(10, std::sync::atomic::Ordering::SeqCst);
+        let node_id = format!("dtn://testrunnode{}", port_range);
+        let grpc_port = port_range + 1;
+        let tcpcl_port = port_range + 2;
+        let runner = DtrdRunner::new(&node_id, grpc_port, tcpcl_port).await?;
+        let client = dtrd_client::Client::new(&format!("http://127.0.0.1:{}", grpc_port)).await?;
+        Ok(Dtrd {
+            runner,
+            client,
+            grpc_port,
+            tcpcl_port,
+            node_id,
+        })
+    }
+
+    async fn stop(self) -> Res<()> {
+        self.runner.stop().await
+    }
+
+    fn with_node_id(&self, suffix: &str) -> String {
+        format!("{}/{}", self.node_id, suffix)
+    }
+
+    async fn connect_to(&mut self, other: &Dtrd) -> Res<()> {
+        self.client
+            .add_node(format!("tcpcl://127.0.0.1:{}", other.tcpcl_port))
+            .await?;
+        sleep(Duration::from_secs(1)).await;
+        assert!(
+            self.client
+                .list_nodes()
+                .await?
+                .iter()
+                .any(|e| e.endpoint == other.node_id)
+        );
+        Ok(())
+    }
+}
+
 #[tokio::test]
 async fn delivers_bundles_locally() -> Result<(), Box<dyn std::error::Error>> {
-    let runner = DtrdRunner::new().await?;
-    let mut client = dtrd_client::Client::new("http://localhost:50051").await?;
-    client
+    let mut dtrd = Dtrd::new().await?;
+    dtrd.client
         .submit_bundle(
-            "dtn://defaultnodeid/testendpoint",
+            &dtrd.with_node_id("testendpoint"),
             60,
             DUMMY_DATA.as_bytes(),
         )
         .await?;
-    let data = client
-        .receive_bundle("dtn://defaultnodeid/testendpoint")
+    let data = dtrd
+        .client
+        .receive_bundle(&dtrd.with_node_id("testendpoint"))
         .await?;
     assert_eq!(&String::from_utf8(data)?, DUMMY_DATA);
-    runner.stop().await?;
+    dtrd.stop().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn delivers_bundles_connected() -> Result<(), Box<dyn std::error::Error>> {
+    let mut dtrd1 = Dtrd::new().await?;
+    let mut dtrd2 = Dtrd::new().await?;
+    dtrd1.connect_to(&dtrd2).await?;
+    dtrd1
+        .client
+        .submit_bundle(
+            &dtrd2.with_node_id("testendpoint"),
+            60,
+            DUMMY_DATA.as_bytes(),
+        )
+        .await?;
+    let data = dtrd2
+        .client
+        .receive_bundle(&dtrd2.with_node_id("testendpoint"))
+        .await?;
+    assert_eq!(&String::from_utf8(data)?, DUMMY_DATA);
+    dtrd1.stop().await?;
+    dtrd2.stop().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn delivers_bundles_routed() -> Result<(), Box<dyn std::error::Error>> {
+    let mut dtrd1 = Dtrd::new().await?;
+    let mut dtrd2 = Dtrd::new().await?;
+    let mut dtrd3 = Dtrd::new().await?;
+    dtrd1.connect_to(&dtrd2).await?;
+    dtrd2.connect_to(&dtrd3).await?;
+    dtrd1
+        .client
+        .add_route(dtrd3.node_id.clone(), dtrd2.node_id.clone())
+        .await?;
+    dtrd1
+        .client
+        .submit_bundle(
+            &dtrd3.with_node_id("testendpoint"),
+            60,
+            DUMMY_DATA.as_bytes(),
+        )
+        .await?;
+    let data = dtrd3
+        .client
+        .receive_bundle(&dtrd3.with_node_id("testendpoint"))
+        .await?;
+    assert_eq!(&String::from_utf8(data)?, DUMMY_DATA);
+    dtrd1.stop().await?;
+    dtrd2.stop().await?;
+    dtrd3.stop().await?;
     Ok(())
 }
