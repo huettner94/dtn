@@ -20,7 +20,7 @@ use crate::{
     stores::storeowner::StoreOwner,
 };
 use actix::prelude::*;
-use log::{error, info};
+use log::{error, info, warn};
 use replication::Replicator;
 use tokio::sync::{broadcast, mpsc};
 
@@ -74,7 +74,7 @@ async fn main() {
     info!("Starting up");
     let settings: Settings = Settings::from_env();
     info!("Starting with settings: {:?}", settings);
-    init_tracing(&settings);
+    //init_tracing(&settings);
 
     let (notify_shutdown, _) = broadcast::channel::<()>(1);
     let (shutdown_complete_tx, mut shutdown_complete_rx) = mpsc::channel::<()>(1);

@@ -101,7 +101,7 @@ impl Actor for ContentAddressableBlobStore {
         let fullpath = self.base_path.join("data").join("tmp");
         let fut = async move { tokio::fs::create_dir_all(&fullpath).await.unwrap() };
 
-        fut.into_actor(self).wait(ctx)
+        fut.into_actor(self).wait(ctx);
     }
 }
 
