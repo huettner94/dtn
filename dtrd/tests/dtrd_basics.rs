@@ -17,7 +17,7 @@
 
 #[allow(static_mut_refs)]
 use std::sync::atomic::AtomicU16;
-use std::{os::unix::process::ExitStatusExt, time::Duration};
+use std::time::Duration;
 
 use tokio::{
     process::{Child, Command},
@@ -51,10 +51,10 @@ impl DtrdRunner {
 
     async fn stop(mut self) -> Res<()> {
         unsafe {
-            libc::kill(self.cmd.id().unwrap() as i32, libc::SIGTERM);
+            libc::kill(self.cmd.id().unwrap() as i32, libc::SIGINT);
         }
         let exit_code = self.cmd.wait().await?;
-        assert_eq!(exit_code.signal().unwrap(), libc::SIGTERM);
+        assert_eq!(exit_code.code().unwrap(), 0);
         Ok(())
     }
 }
