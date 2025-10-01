@@ -81,15 +81,23 @@ impl Handler<ClientSendBundle> for Daemon {
             destination,
             payload,
             lifetime,
+            debug,
         } = msg;
+
+        let bundle_processing_flags = match debug {
+            true => {
+                BundleFlags::BUNDLE_RECEIPTION_STATUS_REQUESTED
+                    | BundleFlags::BUNDLE_FORWARDING_STATUS_REQUEST
+                    | BundleFlags::BUNDLE_DELIVERY_STATUS_REQUESTED
+                    | BundleFlags::BUNDLE_DELETION_STATUS_REQUESTED
+            }
+            false => BundleFlags::empty(),
+        };
 
         let bundle = Bundle {
             primary_block: PrimaryBlock {
                 version: 7,
-                bundle_processing_flags: BundleFlags::BUNDLE_RECEIPTION_STATUS_REQUESTED
-                    | BundleFlags::BUNDLE_FORWARDING_STATUS_REQUEST
-                    | BundleFlags::BUNDLE_DELIVERY_STATUS_REQUESTED
-                    | BundleFlags::BUNDLE_DELETION_STATUS_REQUESTED,
+                bundle_processing_flags,
                 crc: CRCType::NoCRC,
                 destination_endpoint: destination,
                 source_node: self.endpoint.as_ref().unwrap().clone(),

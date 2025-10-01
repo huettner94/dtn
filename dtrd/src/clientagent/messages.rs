@@ -77,6 +77,7 @@ pub struct ClientSendBundle {
     pub destination: Endpoint,
     pub payload: Vec<u8>,
     pub lifetime: u64,
+    pub debug: bool
 }
 #[derive(Message)]
 #[rtype(result = "Vec<Node>")]

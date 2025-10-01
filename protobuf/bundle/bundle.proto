@@ -23,6 +23,7 @@ message SubmitBundleRequest {
   string destination = 1;
   bytes payload = 2;
   uint64 lifetime = 3;
+  bool debug = 4;
 }
 
 message SubmitBundleRespone {

@@ -83,6 +83,8 @@ enum BundleCommands {
             help = "The data to be sent (read from the specified file)"
         )]
         data_file: Option<String>,
+        #[clap(long, help = "If bundle should be traced", required = false)]
+        debug: bool
     },
     Listen {
         #[clap(short, long, help = "The endpoint to listen on")]
@@ -156,8 +158,9 @@ pub async fn main() {
                 lifetime,
                 data,
                 data_file,
+                debug,
             } => {
-                command_bundle_submit(&mut client, destination, lifetime, data, data_file).await;
+                command_bundle_submit(&mut client, destination, lifetime, data, data_file, debug).await;
             }
             BundleCommands::Listen {
                 endpoint,
@@ -190,6 +193,7 @@ async fn command_bundle_submit(
     lifetime: u64,
     data: Option<String>,
     data_file: Option<String>,
+    debug: bool,
 ) {
     if data.is_none() == data_file.is_none() {
         let mut cmd = Cli::command();
@@ -214,7 +218,7 @@ async fn command_bundle_submit(
             })
             .unwrap()
     };
-    match client.submit_bundle(&destination, lifetime, &payload).await {
+    match client.submit_bundle(&destination, lifetime, &payload, debug).await {
         Ok(_) => {
             println!("Bundle submitted successfully");
         }

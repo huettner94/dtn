@@ -17,9 +17,10 @@
 
 #[allow(static_mut_refs)]
 use std::sync::atomic::AtomicU16;
-use std::time::Duration;
+use std::{process::Stdio, time::Duration};
 
 use tokio::{
+    io::{AsyncBufReadExt, BufReader},
     process::{Child, Command},
     time::sleep,
 };
@@ -32,7 +33,7 @@ static PORT_COUNTER: AtomicU16 = AtomicU16::new(50000);
 type Res<T> = Result<T, Box<dyn std::error::Error>>;
 
 struct DtrdRunner {
-    cmd: Child,
+    cmd: Option<Child>,
 }
 
 impl DtrdRunner {
@@ -44,24 +45,45 @@ impl DtrdRunner {
                 &format!("127.0.0.1:{}", grpc_port),
             )
             .env("TCPCL_LISTEN_ADDRESS", &format!("127.0.0.1:{}", tcpcl_port))
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .spawn()?;
         sleep(Duration::from_secs(1)).await;
-        Ok(DtrdRunner { cmd })
+        Ok(DtrdRunner { cmd: Some(cmd) })
     }
 
     async fn stop(mut self) -> Res<()> {
         unsafe {
-            libc::kill(self.cmd.id().unwrap() as i32, libc::SIGINT);
+            libc::kill(
+                self.cmd.as_ref().unwrap().id().unwrap() as i32,
+                libc::SIGINT,
+            );
         }
-        let exit_code = self.cmd.wait().await?;
-        assert_eq!(exit_code.code().unwrap(), 0);
+        let output = self.cmd.take().unwrap().wait_with_output().await?;
+        assert_eq!(output.status.code().unwrap(), 0, "Did not exit with 0");
+
+        // We log to stderr per default
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        let mut lines = stderr.lines();
+
+        while let Some(line) = lines.next() {
+            println!("{}", line);
+            assert!(
+                line.split(']').next().unwrap().contains(" INFO "),
+                "Had log line that was not INFO"
+            );
+        }
+
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert_eq!(stdout.len(), 0, "Stdout should be empty");
+
         Ok(())
     }
 }
 
 impl Drop for DtrdRunner {
     fn drop(&mut self) {
-        if let Some(id) = self.cmd.id() {
+        if let Some(id) = self.cmd.as_ref().and_then(|c| c.id()) {
             unsafe {
                 libc::kill(id as i32, libc::SIGKILL);
             }
@@ -126,6 +148,7 @@ async fn delivers_bundles_locally() -> Result<(), Box<dyn std::error::Error>> {
             &dtrd.with_node_id("testendpoint"),
             60,
             DUMMY_DATA.as_bytes(),
+            false,
         )
         .await?;
     let data = dtrd
@@ -148,6 +171,7 @@ async fn delivers_bundles_connected() -> Result<(), Box<dyn std::error::Error>> 
             &dtrd2.with_node_id("testendpoint"),
             60,
             DUMMY_DATA.as_bytes(),
+            false,
         )
         .await?;
     let data = dtrd2
@@ -177,6 +201,7 @@ async fn delivers_bundles_routed() -> Result<(), Box<dyn std::error::Error>> {
             &dtrd3.with_node_id("testendpoint"),
             60,
             DUMMY_DATA.as_bytes(),
+            false,
         )
         .await?;
     let data = dtrd3

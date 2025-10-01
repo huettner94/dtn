@@ -72,11 +72,13 @@ impl Client {
         target: &str,
         lifetime: u64,
         data: &[u8],
+        debug: bool,
     ) -> Result<(), Error> {
         let req = bundleservice::SubmitBundleRequest {
             destination: target.to_string(),
             lifetime,
             payload: data.to_vec(),
+            debug,
         };
         self.bundle_client.submit_bundle(req).await?;
         Ok(())

@@ -118,6 +118,7 @@ impl BundleService for MyBundleService {
                 destination,
                 payload: req.payload,
                 lifetime: req.lifetime,
+                debug: req.debug,
             })
             .await
             .map_err(|e| tonic::Status::unknown(e.to_string()))?;
