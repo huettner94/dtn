@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use std::{cmp::min, mem, pin::Pin};
+use std::{cmp::min, mem, pin::Pin, sync::Arc};
 
 use log::{error, info, warn};
 use tokio::io::{Interest, WriteHalf};
@@ -397,7 +397,7 @@ impl StateMachine {
         }
     }
 
-    pub fn send_transfer(&mut self, data: Vec<u8>) -> Result<(), TransferSendErrors> {
+    pub fn send_transfer(&mut self, data: Arc<Vec<u8>>) -> Result<(), TransferSendErrors> {
         if self.peer_sess_init.as_ref().unwrap().transfer_mru < data.len() as u64 {
             return Err(TransferSendErrors::BundleTooLarge {
                 max_size: self.peer_sess_init.as_ref().unwrap().transfer_mru,

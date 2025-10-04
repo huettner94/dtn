@@ -15,12 +15,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use std::fmt::Debug;
+use std::{fmt::Debug, sync::Arc};
 
 #[derive(PartialEq, Eq)]
 pub struct Transfer {
     pub id: u64,
-    pub data: Vec<u8>,
+    pub data: Arc<Vec<u8>>,
 }
 
 impl Debug for Transfer {

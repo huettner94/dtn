@@ -111,16 +111,19 @@ impl Handler<ClientSendBundle> for Daemon {
                 total_data_length: None,
             },
             blocks: vec![CanonicalBlock {
-                block: Block::Payload(PayloadBlock { data: payload }),
+                block: Block::Payload(PayloadBlock {
+                    data: payload.as_slice(),
+                }),
                 block_flags: BlockFlags::empty(),
                 block_number: 1,
                 crc: CRCType::NoCRC,
             }],
         };
         debug!("Storing new bundle {:?}", &bundle.primary_block);
+        let bundle_data = bundle.try_into().unwrap();
         Box::pin(async move {
             crate::bundlestorageagent::agent::Daemon::from_registry()
-                .send(StoreNewBundle { bundle })
+                .send(StoreNewBundle { bundle_data })
                 .await
                 .unwrap()
         })

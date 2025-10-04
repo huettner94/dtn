@@ -19,10 +19,10 @@ use std::{
     cmp::{max, min},
     convert::{TryFrom, TryInto},
     fmt::Write,
+    marker::PhantomData,
     ops::ControlFlow,
 };
 
-use binascii::hex2bin;
 use serde::{Deserialize, Serialize, de::Error, de::Visitor, ser::SerializeSeq};
 
 use crate::{
@@ -40,13 +40,13 @@ const BUNDLE_SERIALIZATION_OVERHEAD: u64 = 2; // 1 byte for the start of the cbo
 // we need to account for the payload length value encoding as well. To be safe we go to 128 bytes in total.
 const PAYLOAD_BLOCK_SERIALIZATION_OVERHEAD: u64 = 128;
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct Bundle {
+#[derive(Debug, PartialEq, Eq)]
+pub struct Bundle<'a> {
     pub primary_block: PrimaryBlock,
-    pub blocks: Vec<CanonicalBlock>,
+    pub blocks: Vec<CanonicalBlock<'a>>,
 }
 
-impl Serialize for Bundle {
+impl<'a> Serialize for Bundle<'a> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -60,14 +60,16 @@ impl Serialize for Bundle {
     }
 }
 
-impl<'de> Deserialize<'de> for Bundle {
+impl<'de: 'a, 'a> Deserialize<'de> for Bundle<'a> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        struct BundleVisitor;
-        impl<'de> Visitor<'de> for BundleVisitor {
-            type Value = Bundle;
+        struct BundleVisitor<'a> {
+            phantom: PhantomData<&'a bool>,
+        }
+        impl<'de: 'a, 'a> Visitor<'de> for BundleVisitor<'a> {
+            type Value = Bundle<'a>;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
                 formatter.write_str("bundle")
@@ -98,11 +100,13 @@ impl<'de> Deserialize<'de> for Bundle {
                 })
             }
         }
-        deserializer.deserialize_seq(BundleVisitor)
+        deserializer.deserialize_seq(BundleVisitor {
+            phantom: PhantomData,
+        })
     }
 }
 
-impl Validate for Bundle {
+impl<'a> Validate for Bundle<'a> {
     fn validate(&self) -> bool {
         if !self.primary_block.validate() {
             return false;
@@ -116,15 +120,15 @@ impl Validate for Bundle {
     }
 }
 
-impl TryFrom<Vec<u8>> for Bundle {
+impl<'a> TryFrom<&'a [u8]> for Bundle<'a> {
     type Error = SerializationError;
 
-    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
-        serde_cbor::from_slice(&value).map_err(SerializationError::SerializationError)
+    fn try_from(value: &'a [u8]) -> Result<Self, Self::Error> {
+        serde_cbor::from_slice(value).map_err(SerializationError::SerializationError)
     }
 }
 
-impl TryFrom<Bundle> for Vec<u8> {
+impl<'a> TryFrom<Bundle<'a>> for Vec<u8> {
     type Error = SerializationError;
 
     fn try_from(value: Bundle) -> Result<Self, Self::Error> {
@@ -132,7 +136,7 @@ impl TryFrom<Bundle> for Vec<u8> {
     }
 }
 
-impl TryFrom<&Bundle> for Vec<u8> {
+impl<'a> TryFrom<&Bundle<'a>> for Vec<u8> {
     type Error = SerializationError;
 
     fn try_from(value: &Bundle) -> Result<Self, Self::Error> {
@@ -140,7 +144,7 @@ impl TryFrom<&Bundle> for Vec<u8> {
     }
 }
 
-impl Bundle {
+impl<'a> Bundle<'a> {
     pub fn as_hex(&self) -> Result<String, SerializationError> {
         let vec: Vec<u8> = self.try_into()?;
         let mut s = String::with_capacity(2 * vec.len());
@@ -150,13 +154,7 @@ impl Bundle {
         Ok(s)
     }
 
-    pub fn from_hex(hex: &str) -> Result<Bundle, SerializationError> {
-        let mut val = vec![0; hex.len() / 2];
-        hex2bin(hex.as_bytes(), &mut val).unwrap();
-        val.try_into()
-    }
-
-    fn payload_canonical_block(&self) -> &CanonicalBlock {
+    fn payload_canonical_block(&'_ self) -> &'_ CanonicalBlock<'a> {
         for block in &self.blocks {
             if let Block::Payload(_) = &block.block {
                 return block;
@@ -165,23 +163,17 @@ impl Bundle {
         panic!("All Bundles MUST contain a payload block");
     }
 
-    pub fn payload_block(&self) -> &PayloadBlock {
+    pub fn payload_block(&'_ self) -> &'_ PayloadBlock<'a> {
         match &self.payload_canonical_block().block {
             Block::Payload(p) => p,
-            _ => panic!("The payload block is always the payload block"),
+            _ => unreachable!("The payload block is always the payload block"),
         }
     }
 
-    fn mut_payload_block(&mut self) -> &mut PayloadBlock {
-        for block in &mut self.blocks {
-            if let Block::Payload(p) = &mut block.block {
-                return p;
-            }
-        }
-        panic!("All Bundles MUST contain a payload block");
-    }
-
-    pub fn fragment(self, max_size: u64) -> Result<(Vec<Bundle>, u64, u64), FragmentationError> {
+    pub fn fragment(
+        self,
+        max_size: u64,
+    ) -> Result<(Vec<Bundle<'a>>, u64, u64), FragmentationError> {
         if Vec::<u8>::try_from(&self)?.len() as u64 <= max_size {
             panic!(
                 "Fragmentation not needed, bundle already smaller than {}",
@@ -268,7 +260,10 @@ impl Bundle {
 
         let current_payload_canonical_block = self.payload_canonical_block();
         let payload_canonical_block = CanonicalBlock {
-            block: Block::Payload(PayloadBlock { data: Vec::new() }),
+            // Data will be overwritten later
+            block: Block::Payload(PayloadBlock {
+                data: self.payload_block().data,
+            }),
             block_flags: current_payload_canonical_block.block_flags,
             block_number: current_payload_canonical_block.block_number,
             crc: current_payload_canonical_block.crc,
@@ -303,13 +298,12 @@ impl Bundle {
             }
 
             let payload_block = PayloadBlock {
-                data: self.payload_block().data[current_payload_offset as usize
-                    ..(current_payload_offset + payload_length_for_fragment) as usize]
-                    .to_vec(),
+                data: &self.payload_block().data[current_payload_offset as usize
+                    ..(current_payload_offset + payload_length_for_fragment) as usize],
             };
             fragment.blocks.push(CanonicalBlock {
                 block: Block::Payload(payload_block),
-                ..payload_canonical_block.clone()
+                ..payload_canonical_block
             });
 
             let fragment_length = Vec::<u8>::try_from(&fragment)?.len() as u64;
@@ -327,7 +321,7 @@ impl Bundle {
         Ok((fragments, first_fragment_min_size, fragment_min_size))
     }
 
-    pub fn can_reassemble_bundles(bundles: &mut Vec<&Bundle>) -> bool {
+    pub fn can_reassemble_bundles(bundles: &mut Vec<Bundle>) -> bool {
         if bundles.is_empty() {
             return false;
         }
@@ -390,14 +384,14 @@ impl Bundle {
         true
     }
 
-    pub fn reassemble_bundles(mut bundles: Vec<&Bundle>) -> Option<Bundle> {
+    pub fn reassemble_bundles(mut bundles: Vec<Bundle<'a>>) -> Result<Vec<u8>, Vec<Bundle<'a>>> {
         if !Bundle::can_reassemble_bundles(&mut bundles) {
-            return None;
+            return Err(bundles);
         }
 
         let total_data_length = bundles[0].primary_block.total_data_length.unwrap();
 
-        let mut main_bundle = bundles.drain(0..1).next().unwrap().clone();
+        let mut main_bundle = bundles.drain(0..1).next().unwrap();
         main_bundle
             .primary_block
             .bundle_processing_flags
@@ -405,24 +399,26 @@ impl Bundle {
         main_bundle.primary_block.fragment_offset = None;
         main_bundle.primary_block.total_data_length = None;
 
-        let payload_block = main_bundle.mut_payload_block();
-        payload_block
-            .data
-            .reserve_exact((total_data_length as usize) - payload_block.data.len());
-        let mut current_len = payload_block.data.len();
+        let mut data = Vec::with_capacity(total_data_length as usize);
+        data.extend_from_slice(main_bundle.payload_block().data);
+
+        let mut current_len = data.len();
         for bundle in bundles {
             let fragment_offset = bundle.primary_block.fragment_offset.unwrap() as usize;
             if fragment_offset + bundle.payload_block().data.len() < current_len {
                 continue;
             }
             let start = current_len - fragment_offset;
-            payload_block
-                .data
-                .extend_from_slice(&bundle.payload_block().data[start..]);
-            current_len = payload_block.data.len();
+            data.extend_from_slice(&bundle.payload_block().data[start..]);
+            current_len = data.len();
         }
 
-        Some(main_bundle)
+        for b in &mut main_bundle.blocks {
+            if let Block::Payload(p) = &mut b.block {
+                p.data = &data;
+            }
+        }
+        Ok(main_bundle.try_into().unwrap())
     }
 }
 
@@ -451,8 +447,7 @@ mod tests {
         data
     }
 
-    fn get_test_bundle() -> Bundle {
-        let data = get_bundle_data();
+    fn get_test_bundle<'a>(data: &'a [u8]) -> Bundle<'a> {
         Bundle {
             primary_block: PrimaryBlock {
                 version: 7,
@@ -482,7 +477,7 @@ mod tests {
                     crc: CRCType::NoCRC,
                 },
                 CanonicalBlock {
-                    block: Block::Payload(PayloadBlock { data }),
+                    block: Block::Payload(PayloadBlock { data: &data }),
                     block_number: 1,
                     block_flags: BlockFlags::empty(),
                     crc: CRCType::NoCRC,
@@ -494,7 +489,9 @@ mod tests {
 
     #[test]
     fn fragment_bundle() -> Result<(), FragmentationError> {
-        let fragments = get_test_bundle().fragment(256)?.0;
+        let testdata = get_bundle_data();
+        let bundle = get_test_bundle(&testdata);
+        let fragments = bundle.fragment(256)?.0;
         let mut current_offset = 0;
         for fragment in &fragments {
             assert!(
@@ -521,7 +518,9 @@ mod tests {
 
     #[test]
     fn double_fragment_bundle() -> Result<(), FragmentationError> {
-        let mut fragments_first = get_test_bundle().fragment(750)?.0;
+        let testdata = get_bundle_data();
+        let bundle = get_test_bundle(&testdata);
+        let mut fragments_first = bundle.fragment(750)?.0;
         let fragments: Vec<Bundle> = fragments_first
             .drain(0..fragments_first.len())
             .flat_map(|f| f.fragment(600).unwrap().0)
@@ -546,29 +545,33 @@ mod tests {
 
     #[test]
     fn reassembly_bundle_2_frags() -> Result<(), FragmentationError> {
-        let fragments = get_test_bundle().fragment(800)?.0;
+        let testdata = get_bundle_data();
+        let bundle = get_test_bundle(&testdata);
+        let fragments = bundle.fragment(800)?.0;
         assert_eq!(fragments.len(), 2);
-        let fragments_ref = fragments.iter().collect();
 
-        let reassembled = &Bundle::reassemble_bundles(fragments_ref).unwrap();
+        let reassembled = Bundle::reassemble_bundles(fragments).unwrap();
+        let parsed: Bundle<'_> = reassembled.as_slice().try_into().unwrap();
 
         assert!(
-            !reassembled
+            !parsed
                 .primary_block
                 .bundle_processing_flags
                 .contains(BundleFlags::FRAGMENT)
         );
-        assert!(reassembled.primary_block.fragment_offset.is_none());
-        assert!(reassembled.primary_block.total_data_length.is_none());
-        assert_eq!(reassembled.payload_block().data.len(), 1024);
-        assert_eq!(reassembled.payload_block().data, get_bundle_data());
+        assert!(parsed.primary_block.fragment_offset.is_none());
+        assert!(parsed.primary_block.total_data_length.is_none());
+        assert_eq!(parsed.payload_block().data.len(), 1024);
+        assert_eq!(parsed.payload_block().data, get_bundle_data());
 
         Ok(())
     }
 
     #[test]
     fn reassmeble_double_fragment_bundle() -> Result<(), FragmentationError> {
-        let mut fragments_first = get_test_bundle().fragment(750)?.0;
+        let testdata = get_bundle_data();
+        let bundle = get_test_bundle(&testdata);
+        let mut fragments_first = bundle.fragment(750)?.0;
         let mut fragments: Vec<Bundle> = fragments_first
             .drain(0..fragments_first.len())
             .flat_map(|f| f.fragment(600).unwrap().0)
@@ -592,40 +595,43 @@ mod tests {
         // just to test reordering
         fragments.swap(0, 2);
         fragments.swap(1, 3);
-        let fragments_ref = fragments.iter().collect();
 
-        let reassembled_bundles = Bundle::reassemble_bundles(fragments_ref);
-        assert!(reassembled_bundles.is_some());
-        let reassembled = reassembled_bundles.unwrap();
-        assert!(reassembled.primary_block.fragment_offset.is_none());
-        assert!(reassembled.primary_block.total_data_length.is_none());
-        assert_eq!(reassembled.payload_block().data.len(), 1024);
-        assert_eq!(reassembled.payload_block().data, get_bundle_data());
+        let reassembled = Bundle::reassemble_bundles(fragments).unwrap();
+        let parsed: Bundle<'_> = reassembled.as_slice().try_into().unwrap();
+        assert!(parsed.primary_block.fragment_offset.is_none());
+        assert!(parsed.primary_block.total_data_length.is_none());
+        assert_eq!(parsed.payload_block().data.len(), 1024);
+        assert_eq!(parsed.payload_block().data, get_bundle_data());
 
         Ok(())
     }
 
     #[test]
     fn reassembly_bundle_overlap() -> Result<(), FragmentationError> {
-        let mut fragments = get_test_bundle().fragment(800)?.0;
+        let testdata = get_bundle_data();
+        let bundle = get_test_bundle(&testdata);
+        let mut fragments = bundle.fragment(800)?.0;
         assert_eq!(fragments.len(), 2);
-        let tmpdata = fragments[1].payload_block().data[0];
-        fragments[0].mut_payload_block().data.push(tmpdata);
+        for b in &mut fragments[0].blocks {
+            if let Block::Payload(p) = &mut b.block {
+                let len = p.data.len();
+                p.data = &testdata[0..len + 2];
+            }
+        }
 
-        let fragments_ref = fragments.iter().collect();
-
-        let reassembled = &Bundle::reassemble_bundles(fragments_ref).unwrap();
+        let reassembled = &Bundle::reassemble_bundles(fragments).unwrap();
+        let parsed: Bundle<'_> = reassembled.as_slice().try_into().unwrap();
 
         assert!(
-            !reassembled
+            !parsed
                 .primary_block
                 .bundle_processing_flags
                 .contains(BundleFlags::FRAGMENT)
         );
-        assert!(reassembled.primary_block.fragment_offset.is_none());
-        assert!(reassembled.primary_block.total_data_length.is_none());
-        assert_eq!(reassembled.payload_block().data.len(), 1024);
-        assert_eq!(reassembled.payload_block().data, get_bundle_data());
+        assert!(parsed.primary_block.fragment_offset.is_none());
+        assert!(parsed.primary_block.total_data_length.is_none());
+        assert_eq!(parsed.payload_block().data.len(), 1024);
+        assert_eq!(parsed.payload_block().data, get_bundle_data());
 
         Ok(())
     }

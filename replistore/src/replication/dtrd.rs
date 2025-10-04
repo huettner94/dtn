@@ -90,7 +90,7 @@ impl Handler<ReplicateEvent> for DtrdClient {
         bucket_event.encode(&mut buf).unwrap();
         let mut client = self.client.as_ref().unwrap().clone();
         let target = self.repl_target.clone();
-        let fut = async move { client.submit_bundle(&target, 30, &buf).await.unwrap() };
+        let fut = async move { client.submit_bundle(&target, 30, &buf, false).await.unwrap() };
         fut.into_actor(self).wait(ctx);
     }
 }

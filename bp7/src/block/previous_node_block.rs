@@ -23,6 +23,7 @@ use crate::{Validate, endpoint::Endpoint};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PreviousNodeBlock {
+    //TODO: this should probably be something more reasonable
     pub data: Vec<u8>,
 }
 

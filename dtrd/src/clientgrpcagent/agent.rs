@@ -39,7 +39,7 @@ use crate::{
     common::settings::Settings,
     routingagent::messages::RouteType,
 };
-use bp7::endpoint::Endpoint;
+use bp7::{bundle::Bundle, endpoint::Endpoint};
 
 mod bundleservice {
     tonic::include_proto!("dtn_bundle");
@@ -64,25 +64,21 @@ impl Stream for ListenBundleResponseTransformer {
     ) -> std::task::Poll<Option<Self::Item>> {
         match self.rec.poll_recv(cx) {
             Poll::Ready(Some(cdb)) => {
-                let lbr = bundleservice::ListenBundleResponse {
-                    source: cdb
-                        .bundle
-                        .get_bundle()
-                        .primary_block
-                        .source_node
-                        .to_string(),
-                    payload: cdb.bundle.get_bundle().payload_block().data.clone(), //TODO: this seems heavy
-                };
-                cdb.responder.do_send(EventBundleDelivered {
-                    endpoint: cdb
-                        .bundle
-                        .get_bundle()
-                        .primary_block
-                        .destination_endpoint
-                        .clone(),
-                    bundle: cdb.bundle.clone(),
-                });
-                Poll::Ready(Some(Ok(lbr)))
+                if let Some(bundle_data) = cdb.bundle.get_bundle_data() {
+                    let bundle: Bundle = bundle_data.as_slice().try_into().unwrap();
+                    let payload = bundle.payload_block().data.to_vec();
+                    let lbr = bundleservice::ListenBundleResponse {
+                        source: cdb.bundle.get_primary_block().source_node.to_string(),
+                        payload,
+                    };
+                    cdb.responder.do_send(EventBundleDelivered {
+                        endpoint: cdb.bundle.get_primary_block().destination_endpoint.clone(),
+                        bundle: cdb.bundle.clone(),
+                    });
+                    Poll::Ready(Some(Ok(lbr)))
+                } else {
+                    Poll::Pending
+                }
             }
             Poll::Ready(None) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,

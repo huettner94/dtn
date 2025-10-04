@@ -16,6 +16,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 use std::convert::TryFrom;
+use std::marker::PhantomData;
 
 use serde::{Deserialize, Serialize, de::Error, de::Visitor, ser::SerializeSeq};
 
@@ -54,24 +55,36 @@ enum BlockType {
     HopCount = 10,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum Block {
-    Payload(PayloadBlock),
+#[derive(Debug, PartialEq, Eq)]
+pub enum Block<'a> {
+    Payload(PayloadBlock<'a>),
     PreviousNode(PreviousNodeBlock),
     BundleAge(BundleAgeBlock),
     HopCount(HopCountBlock),
-    Unkown(UnkownBlock),
+    Unkown(UnkownBlock<'a>),
+}
+
+impl<'a> Clone for Block<'a> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Payload(_) => panic!("May not clone a Payload Block"),
+            Self::PreviousNode(b) => Self::PreviousNode(b.clone()),
+            Self::BundleAge(b) => Self::BundleAge(b.clone()),
+            Self::HopCount(b) => Self::HopCount(b.clone()),
+            Self::Unkown(b) => Self::Unkown(b.clone()),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct CanonicalBlock {
-    pub block: Block,
+pub struct CanonicalBlock<'a> {
+    pub block: Block<'a>,
     pub block_number: u64,
     pub block_flags: BlockFlags,
     pub crc: CRCType,
 }
 
-impl Serialize for CanonicalBlock {
+impl<'a> Serialize for CanonicalBlock<'a> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -117,14 +130,16 @@ impl Serialize for CanonicalBlock {
     }
 }
 
-impl<'de> Deserialize<'de> for CanonicalBlock {
+impl<'de: 'a, 'a> Deserialize<'de> for CanonicalBlock<'a> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        struct BlockVisitor;
-        impl<'de> Visitor<'de> for BlockVisitor {
-            type Value = CanonicalBlock;
+        struct BlockVisitor<'a> {
+            phantom: PhantomData<&'a bool>,
+        }
+        impl<'de: 'a, 'a> Visitor<'de> for BlockVisitor<'a> {
+            type Value = CanonicalBlock<'a>;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
                 formatter.write_str("block")
@@ -159,19 +174,23 @@ impl<'de> Deserialize<'de> for CanonicalBlock {
                 let data_bytes: &[u8] = seq
                     .next_element()?
                     .ok_or(Error::custom("Error for field 'data'"))?;
-                let data: Vec<u8> = Vec::from(data_bytes);
                 let block = match &block_type {
-                    Ok(BlockType::Payload) => Block::Payload(PayloadBlock { data }),
-                    Ok(BlockType::PreviousNode) => Block::PreviousNode(PreviousNodeBlock { data }),
+                    Ok(BlockType::Payload) => Block::Payload(PayloadBlock { data: data_bytes }),
+                    Ok(BlockType::PreviousNode) => {
+                        let data: Vec<u8> = Vec::from(data_bytes);
+                        Block::PreviousNode(PreviousNodeBlock { data })
+                    }
                     Ok(BlockType::BundleAge) => {
+                        let data: Vec<u8> = Vec::from(data_bytes);
                         Block::BundleAge(BundleAgeBlock::try_from(data).map_err(Error::custom)?)
                     }
                     Ok(BlockType::HopCount) => {
+                        let data: Vec<u8> = Vec::from(data_bytes);
                         Block::HopCount(HopCountBlock::try_from(data).map_err(Error::custom)?)
                     }
                     Err(_) => Block::Unkown(UnkownBlock {
                         block_type: block_type_num,
-                        data,
+                        data: data_bytes,
                     }),
                 };
 
@@ -187,11 +206,13 @@ impl<'de> Deserialize<'de> for CanonicalBlock {
                 })
             }
         }
-        deserializer.deserialize_seq(BlockVisitor)
+        deserializer.deserialize_seq(BlockVisitor {
+            phantom: PhantomData,
+        })
     }
 }
 
-impl Validate for CanonicalBlock {
+impl<'a> Validate for CanonicalBlock<'a> {
     fn validate(&self) -> bool {
         /*if !self.block.validate() {
             return false;

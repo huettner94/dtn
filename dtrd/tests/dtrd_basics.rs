@@ -20,7 +20,6 @@ use std::sync::atomic::AtomicU16;
 use std::{process::Stdio, time::Duration};
 
 use tokio::{
-    io::{AsyncBufReadExt, BufReader},
     process::{Child, Command},
     time::sleep,
 };

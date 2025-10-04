@@ -17,6 +17,7 @@
 
 use std::{
     pin::Pin,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -107,7 +108,10 @@ impl Stream {
     }
 }
 
-type TransferRequest = (Vec<u8>, oneshot::Sender<Result<(), TransferSendErrors>>);
+type TransferRequest = (
+    Arc<Vec<u8>>,
+    oneshot::Sender<Result<(), TransferSendErrors>>,
+);
 
 const STARTUP_IDLE_INTERVAL: u16 = 60;
 
@@ -468,7 +472,9 @@ impl TCPCLSession {
                 let ack = match &mut self.receiving_transfer {
                     Some(t) => {
                         if t.id == x.transfer_id {
-                            t.data.extend_from_slice(&x.data);
+                            Arc::get_mut(&mut t.data)
+                                .expect("we are the only ones currently receiving")
+                                .extend_from_slice(&x.data);
                             x.to_xfer_ack(t.data.len() as u64)
                         } else {
                             warn!(
@@ -488,7 +494,7 @@ impl TCPCLSession {
                         let a = x.to_xfer_ack(x.data.len() as u64);
                         self.receiving_transfer = Some(Transfer {
                             id: x.transfer_id,
-                            data: x.data,
+                            data: Arc::new(x.data),
                         });
                         a
                     }

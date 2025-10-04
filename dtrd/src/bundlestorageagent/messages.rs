@@ -15,50 +15,51 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use bp7::{bundle::Bundle, endpoint::Endpoint};
+use bp7::endpoint::Endpoint;
 
-use super::StoredBundle;
+use crate::bundlestorageagent::StoredBundleRef;
+
 use actix::prelude::*;
 
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct EventNewBundleStored {
-    pub bundle: StoredBundle,
+    pub bundle: StoredBundleRef,
 }
 
 #[derive(Message)]
 #[rtype(result = "Result<(), ()>")]
 pub struct StoreBundle {
-    pub bundle: Bundle,
+    pub bundle_data: Vec<u8>,
 }
 
 #[derive(Message)]
 #[rtype(result = "Result<(), ()>")]
 pub struct StoreNewBundle {
-    pub bundle: Bundle,
+    pub bundle_data: Vec<u8>,
 }
 
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct FragmentBundle {
-    pub bundle: StoredBundle,
+    pub bundleref: StoredBundleRef,
     pub target_size: u64,
 }
 
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct DeleteBundle {
-    pub bundle: StoredBundle,
+    pub bundle: StoredBundleRef,
 }
 
 #[derive(Message)]
-#[rtype(result = "Result<Vec<StoredBundle>, String>")]
+#[rtype(result = "Result<Vec<StoredBundleRef>, String>")]
 pub struct GetBundleForDestination {
     pub destination: Endpoint,
 }
 
 #[derive(Message)]
-#[rtype(result = "Result<Vec<StoredBundle>, String>")]
+#[rtype(result = "Result<Vec<StoredBundleRef>, String>")]
 pub struct GetBundleForNode {
     pub destination: Endpoint,
 }

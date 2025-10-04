@@ -19,12 +19,12 @@ use actix::prelude::*;
 use bp7::endpoint::Endpoint;
 use url::Url;
 
-use crate::bundlestorageagent::StoredBundle;
+use crate::bundlestorageagent::StoredBundleRef;
 
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct AgentForwardBundle {
-    pub bundle: StoredBundle,
+    pub bundle: StoredBundleRef,
     pub responder: Recipient<EventBundleForwarded>,
 }
 
@@ -32,14 +32,14 @@ pub struct AgentForwardBundle {
 #[rtype(result = "()")]
 pub struct EventBundleForwarded {
     pub endpoint: Endpoint,
-    pub bundle: StoredBundle,
+    pub bundle: StoredBundleRef,
 }
 
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct EventBundleForwardingFailed {
     pub endpoint: Endpoint,
-    pub bundle: StoredBundle,
+    pub bundle: StoredBundleRef,
 }
 
 #[derive(Message)]

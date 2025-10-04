@@ -15,10 +15,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use crate::{
-    bundlestorageagent::StoredBundle, nodeagent::messages::Node,
-    routingagent::messages::RouteStatus,
-};
+use crate::bundlestorageagent::StoredBundleRef;
+use crate::nodeagent::messages::Node;
+use crate::routingagent::messages::RouteStatus;
 use actix::prelude::*;
 use bp7::endpoint::Endpoint;
 use tokio::sync::mpsc;
@@ -27,7 +26,7 @@ use url::Url;
 #[derive(Message, Debug)]
 #[rtype(result = "()")]
 pub struct ClientDeliverBundle {
-    pub bundle: StoredBundle,
+    pub bundle: StoredBundleRef,
     pub responder: Recipient<EventBundleDelivered>,
 }
 
@@ -35,14 +34,14 @@ pub struct ClientDeliverBundle {
 #[rtype(result = "()")]
 pub struct EventBundleDelivered {
     pub endpoint: Endpoint,
-    pub bundle: StoredBundle,
+    pub bundle: StoredBundleRef,
 }
 
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct EventBundleDeliveryFailed {
     pub endpoint: Endpoint,
-    pub bundle: StoredBundle,
+    pub bundle: StoredBundleRef,
 }
 
 #[derive(Message)]
@@ -77,7 +76,7 @@ pub struct ClientSendBundle {
     pub destination: Endpoint,
     pub payload: Vec<u8>,
     pub lifetime: u64,
-    pub debug: bool
+    pub debug: bool,
 }
 #[derive(Message)]
 #[rtype(result = "Vec<Node>")]

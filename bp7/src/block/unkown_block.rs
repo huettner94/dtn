@@ -20,21 +20,21 @@ use serde::Serialize;
 use crate::Validate;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct UnkownBlock {
+pub struct UnkownBlock<'a> {
     pub block_type: u64,
-    pub data: Vec<u8>,
+    pub data: &'a [u8],
 }
 
-impl Serialize for UnkownBlock {
+impl<'a> Serialize for UnkownBlock<'a> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        serializer.serialize_bytes(&self.data)
+        serializer.serialize_bytes(self.data)
     }
 }
 
-impl Validate for UnkownBlock {
+impl<'a> Validate for UnkownBlock<'a> {
     fn validate(&self) -> bool {
         true
     }

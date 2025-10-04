@@ -20,7 +20,7 @@ use crate::{
     stores::storeowner::StoreOwner,
 };
 use actix::prelude::*;
-use log::{error, info, warn};
+use log::{error, info};
 use replication::Replicator;
 use tokio::sync::{broadcast, mpsc};
 

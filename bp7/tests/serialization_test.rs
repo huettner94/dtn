@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+use binascii::hex2bin;
 use bp7::{
     SerializationError,
     block::{Block, CanonicalBlock, hop_count_block::HopCountBlock, payload_block::PayloadBlock},
@@ -30,8 +31,11 @@ use bp7::{
 #[test]
 fn test_rand_bundle_1() -> Result<(), SerializationError> {
     const BUNDLE_SRC: &str = "9F88071A00020004008201702F2F6E6F646533312F6D61766C696E6B8201702F2F6E6F6465322F696E636F6D696E678201702F2F6E6F6465322F696E636F6D696E67821B0000009E9DE3DEFE001A0036EE80850A020000448218200085010100004443414243FF";
+    const BUNDLE_DATA: [u8; 4] = [67, 65, 66, 67];
 
-    let recovered = Bundle::from_hex(BUNDLE_SRC)?;
+    let mut hexsrc = vec![0; BUNDLE_SRC.len() / 2];
+    hex2bin(BUNDLE_SRC.as_bytes(), &mut hexsrc).unwrap();
+    let recovered: Bundle<'_> = hexsrc.as_slice().try_into().unwrap();
 
     let expected_bundle: Bundle = Bundle {
         primary_block: PrimaryBlock {
@@ -63,9 +67,7 @@ fn test_rand_bundle_1() -> Result<(), SerializationError> {
                 crc: CRCType::NoCRC,
             },
             CanonicalBlock {
-                block: Block::Payload(PayloadBlock {
-                    data: [67, 65, 66, 67].into(),
-                }),
+                block: Block::Payload(PayloadBlock { data: &BUNDLE_DATA }),
                 block_number: 1,
                 block_flags: BlockFlags::empty(),
                 crc: CRCType::NoCRC,

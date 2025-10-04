@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use std::{net::SocketAddrV4, str::FromStr};
+use std::{net::SocketAddrV4, str::FromStr, sync::Arc};
 
 use tcpcl::{
     errors::{ErrorType, Errors},
@@ -218,7 +218,7 @@ async fn test_xfer_single_segment_receive() -> Result<(), ErrorType> {
 
     let received = receive_channel.recv().await.unwrap();
     assert_eq!(received.id, 1);
-    assert_eq!(received.data, [0x55, 0xAA]);
+    assert_eq!(Arc::try_unwrap(received.data).unwrap(), [0x55, 0xAA]);
 
     Ok(())
 }
@@ -284,7 +284,10 @@ async fn test_xfer_single_multi_receive() -> Result<(), ErrorType> {
 
     let received = receive_channel.recv().await.unwrap();
     assert_eq!(received.id, 1);
-    assert_eq!(received.data, [0x55, 0xAA, 0xAA, 0x55]);
+    assert_eq!(
+        Arc::try_unwrap(received.data).unwrap(),
+        [0x55, 0xAA, 0xAA, 0x55]
+    );
 
     Ok(())
 }
@@ -326,7 +329,7 @@ async fn test_xfer_single_segment_send() -> Result<(), ErrorType> {
     tokio::spawn(async move {
         established_channel.await.unwrap();
         send_channel
-            .send(([0x55, 0xAA].into(), transfer_result_sender))
+            .send((Arc::new([0x55, 0xAA].into()), transfer_result_sender))
             .await
             .unwrap();
     });
@@ -400,7 +403,10 @@ async fn test_xfer_multi_segment_send() -> Result<(), ErrorType> {
     tokio::spawn(async move {
         established_channel.await.unwrap();
         send_channel
-            .send(([0x55, 0xAA, 0xAA, 0x55].into(), transfer_result_sender))
+            .send((
+                Arc::new([0x55, 0xAA, 0xAA, 0x55].into()),
+                transfer_result_sender,
+            ))
             .await
             .unwrap();
     });

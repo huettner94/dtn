@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use std::net::SocketAddr;
+use std::{net::SocketAddr, sync::Arc};
 
 use bp7::endpoint::Endpoint;
 use log::{debug, error, warn};
@@ -49,7 +49,10 @@ pub struct NewClientConnectedOnSocket {
     pub address: SocketAddr,
 }
 
-type TCPCLSendChannel = mpsc::Sender<(Vec<u8>, oneshot::Sender<Result<(), TransferSendErrors>>)>;
+type TCPCLSendChannel = mpsc::Sender<(
+    Arc<Vec<u8>>,
+    oneshot::Sender<Result<(), TransferSendErrors>>,
+)>;
 
 pub struct TCPCLSessionAgent {
     close_channel: Option<oneshot::Sender<()>>,
@@ -76,11 +79,11 @@ impl Actor for TCPCLSessionAgent {
 
 impl StreamHandler<Transfer> for TCPCLSessionAgent {
     fn handle(&mut self, item: Transfer, ctx: &mut Self::Context) {
-        match item.data.try_into() {
-            Ok(bundle) => {
-                let transferid = item.id;
-                crate::bundlestorageagent::agent::Daemon::from_registry()
-                    .send(StoreBundle { bundle })
+        let bundle_data =
+            Arc::try_unwrap(item.data).expect("We get exclusive ownership from tcpcl");
+        let transferid = item.id;
+        crate::bundlestorageagent::agent::Daemon::from_registry()
+                    .send(StoreBundle { bundle_data })
                     .into_actor(self)
                     .then(move |res, _act, _ctx| {
                         match res.unwrap() {
@@ -89,11 +92,6 @@ impl StreamHandler<Transfer> for TCPCLSessionAgent {
                         };
                         fut::ready(())})
                     .spawn(ctx);
-            }
-            Err(e) => {
-                error!("Error deserializing bundle from remote: {:?}", e);
-            }
-        };
     }
 }
 
@@ -104,18 +102,13 @@ impl Handler<AgentForwardBundle> for TCPCLSessionAgent {
         let AgentForwardBundle { bundle, responder } = msg;
         let (result_sender, result_receiver) = oneshot::channel();
 
-        let bundle_data = match bundle.get_bundle().try_into() {
-            Ok(bundle_data) => bundle_data,
-            Err(e) => {
-                error!("Error serializing bundle: {:?}", e);
+        let bundle_data = match bundle.get_bundle_data() {
+            Some(bundle_data) => bundle_data,
+            None => {
                 return;
             }
         };
-        let bundle_endpoint = bundle
-            .get_bundle()
-            .primary_block
-            .destination_endpoint
-            .clone();
+        let bundle_endpoint = bundle.get_primary_block().destination_endpoint.clone();
 
         let channel = self.send_channel.clone();
         let fut = async move { channel.send((bundle_data, result_sender)).await };

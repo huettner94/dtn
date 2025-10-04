@@ -22,7 +22,7 @@ use std::{
 
 use crate::{
     bundlestorageagent::{
-        StoredBundle,
+        StoredBundleRef,
         messages::{DeleteBundle, EventNewBundleStored, FragmentBundle, StoreNewBundle},
     },
     clientagent::messages::{
@@ -60,10 +60,10 @@ use actix::prelude::*;
 #[derive(Default)]
 pub struct Daemon {
     endpoint: Option<Endpoint>,
-    bundles_pending_local_delivery: HashMap<Endpoint, Vec<StoredBundle>>,
-    bundles_pending_forwarding: HashMap<Endpoint, Vec<StoredBundle>>,
-    local_bundles: HashMap<Endpoint, VecDeque<StoredBundle>>,
-    remote_bundles: HashMap<Endpoint, VecDeque<StoredBundle>>,
+    bundles_pending_local_delivery: HashMap<Endpoint, Vec<StoredBundleRef>>,
+    bundles_pending_forwarding: HashMap<Endpoint, Vec<StoredBundleRef>>,
+    local_bundles: HashMap<Endpoint, VecDeque<StoredBundleRef>>,
+    remote_bundles: HashMap<Endpoint, VecDeque<StoredBundleRef>>,
     local_connections: HashMap<Endpoint, Recipient<ClientDeliverBundle>>,
     remote_connections: HashMap<Endpoint, Recipient<AgentForwardBundle>>,
     remote_routes: HashMap<Endpoint, NexthopInfo>,
@@ -85,11 +85,7 @@ impl Handler<EventNewBundleStored> for Daemon {
 
     fn handle(&mut self, msg: EventNewBundleStored, ctx: &mut Self::Context) -> Self::Result {
         let EventNewBundleStored { bundle } = msg;
-        let destination = bundle
-            .get_bundle()
-            .primary_block
-            .destination_endpoint
-            .clone();
+        let destination = bundle.get_primary_block().destination_endpoint.clone();
         if self.endpoint.as_ref().unwrap().matches_node(&destination) {
             self.local_bundles
                 .entry(destination.clone())
@@ -97,7 +93,7 @@ impl Handler<EventNewBundleStored> for Daemon {
                 .push_back(bundle);
             self.deliver_local_bundles(&destination, ctx)
         } else {
-            self.send_status_report_received(bundle.get_bundle());
+            self.send_status_report_received(&bundle);
             self.remote_bundles
                 .entry(destination.get_node_endpoint())
                 .or_default()
@@ -115,7 +111,7 @@ impl Handler<EventBundleDelivered> for Daemon {
         if let Some(pending) = self.bundles_pending_local_delivery.get_mut(&endpoint) {
             pending.retain(|e| e != bundle)
         }
-        self.send_status_report_delivered(bundle.get_bundle());
+        self.send_status_report_delivered(&bundle);
 
         crate::bundlestorageagent::agent::Daemon::from_registry().do_send(DeleteBundle { bundle });
 
@@ -201,7 +197,7 @@ impl Handler<EventBundleForwarded> for Daemon {
         if let Some(pending) = self.bundles_pending_forwarding.get_mut(&endpoint) {
             pending.retain(|e| e != bundle)
         }
-        self.send_status_report_forwarded(bundle.get_bundle());
+        self.send_status_report_forwarded(&bundle);
 
         crate::bundlestorageagent::agent::Daemon::from_registry().do_send(DeleteBundle { bundle });
 
@@ -267,9 +263,9 @@ impl Daemon {
             while let Some(bundle) = queue.pop_front() {
                 debug!(
                     "locally delivering bundle {:?}",
-                    &bundle.get_bundle().primary_block
+                    &bundle.get_primary_block()
                 );
-                if bundle.get_bundle().primary_block.fragment_offset.is_some() {
+                if bundle.get_primary_block().fragment_offset.is_some() {
                     panic!(
                         "Bundle is a fragment. It should have been reassembled before calling this"
                     );
@@ -336,15 +332,14 @@ impl Daemon {
                 }
                 debug!(
                     "forwarding bundle {:?} to {:?}",
-                    &bundle.get_bundle().primary_block,
+                    &bundle.get_primary_block(),
                     destination
                 );
 
                 match max_bundle_size {
                     Some(mbs) if bundle.get_bundle_size() > mbs => {
                         if bundle
-                            .get_bundle()
-                            .primary_block
+                            .get_primary_block()
                             .bundle_processing_flags
                             .contains(BundleFlags::MUST_NOT_FRAGMENT)
                             || bundle.get_bundle_min_size().is_some()
@@ -358,7 +353,7 @@ impl Daemon {
                         } else {
                             crate::bundlestorageagent::agent::Daemon::from_registry().do_send(
                                 FragmentBundle {
-                                    bundle,
+                                    bundleref: bundle,
                                     target_size: mbs,
                                 },
                             );
@@ -404,7 +399,7 @@ impl Daemon {
 
     fn send_status_report(
         &mut self,
-        bundle: &Bundle,
+        bundle: &StoredBundleRef,
         reason: BundleStatusReason,
         is_received: bool,
         is_forwarded: bool,
@@ -428,7 +423,8 @@ impl Daemon {
             is_asserted: is_deleted,
             timestamp: if is_deleted { Some(now) } else { None },
         };
-        match AdministrativeRecord::BundleStatusReport(BundleStatusReport {
+        let pb = bundle.get_primary_block();
+        let ar = AdministrativeRecord::BundleStatusReport(BundleStatusReport {
             status_information: BundleStatusInformation {
                 received_bundle: received_info,
                 forwarded_bundle: forwarded_info,
@@ -436,43 +432,43 @@ impl Daemon {
                 deleted_bundle: deleted_info,
             },
             reason,
-            bundle_source: bundle.primary_block.source_node.clone(),
-            bundle_creation_timestamp: bundle.primary_block.creation_timestamp.clone(),
-            fragment_offset: bundle.primary_block.fragment_offset,
-            fragment_length: bundle.primary_block.total_data_length,
-        })
-        .try_into()
-        {
+            bundle_source: pb.source_node.clone(),
+            bundle_creation_timestamp: pb.creation_timestamp.clone(),
+            fragment_offset: pb.fragment_offset,
+            fragment_length: pb.total_data_length,
+        });
+        match TryInto::<Vec<u8>>::try_into(ar) {
             Ok(data) => {
-                let bundle = Bundle {
+                let bundle_data = Bundle {
                     primary_block: PrimaryBlock {
                         version: 7,
                         bundle_processing_flags: BundleFlags::ADMINISTRATIVE_RECORD,
                         crc: CRCType::NoCRC,
-                        destination_endpoint: bundle.primary_block.report_to.clone(),
+                        destination_endpoint: pb.report_to.clone(),
                         source_node: self.endpoint.as_ref().unwrap().clone(),
                         report_to: self.endpoint.as_ref().unwrap().clone(),
                         creation_timestamp: CreationTimestamp {
                             creation_time: DtnTime::now(),
-                            sequence_number: 0, // TODO: Needs to increase for all of the same timestamp
+                            sequence_number: 0, // uniqueness guaranteed in BSA
                         },
-                        lifetime: bundle.primary_block.lifetime,
+                        lifetime: pb.lifetime,
                         fragment_offset: None,
                         total_data_length: None,
                     },
                     blocks: vec![CanonicalBlock {
-                        block: Block::Payload(PayloadBlock { data }),
+                        block: Block::Payload(PayloadBlock {
+                            data: data.as_slice(),
+                        }),
                         block_flags: BlockFlags::empty(),
                         block_number: 1,
                         crc: CRCType::NoCRC,
                     }],
-                };
-                debug!(
-                    "Dispatching administrative record bundle {:?}",
-                    &bundle.primary_block
-                );
+                }
+                .try_into()
+                .unwrap();
+                debug!("Dispatching administrative record bundle {:?}", pb);
                 crate::bundlestorageagent::agent::Daemon::from_registry()
-                    .do_send(StoreNewBundle { bundle });
+                    .do_send(StoreNewBundle { bundle_data });
             }
             Err(e) => {
                 warn!("Error serializing bundle status report: {:?}", e)
@@ -480,9 +476,9 @@ impl Daemon {
         };
     }
 
-    fn send_status_report_delivered(&mut self, bundle: &Bundle) {
+    fn send_status_report_delivered(&mut self, bundle: &StoredBundleRef) {
         if !bundle
-            .primary_block
+            .get_primary_block()
             .bundle_processing_flags
             .contains(BundleFlags::BUNDLE_DELIVERY_STATUS_REQUESTED)
         {
@@ -498,9 +494,9 @@ impl Daemon {
         );
     }
 
-    fn send_status_report_forwarded(&mut self, bundle: &Bundle) {
+    fn send_status_report_forwarded(&mut self, bundle: &StoredBundleRef) {
         if !bundle
-            .primary_block
+            .get_primary_block()
             .bundle_processing_flags
             .contains(BundleFlags::BUNDLE_FORWARDING_STATUS_REQUEST)
         {
@@ -516,9 +512,9 @@ impl Daemon {
         );
     }
 
-    fn send_status_report_received(&mut self, bundle: &Bundle) {
+    fn send_status_report_received(&mut self, bundle: &StoredBundleRef) {
         if !bundle
-            .primary_block
+            .get_primary_block()
             .bundle_processing_flags
             .contains(BundleFlags::BUNDLE_RECEIPTION_STATUS_REQUESTED)
         {
