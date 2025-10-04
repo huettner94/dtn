@@ -49,7 +49,7 @@ impl<'de> Deserialize<'de> for CRCType {
         D: serde::Deserializer<'de>,
     {
         struct CRCVisitor;
-        impl<'de> Visitor<'de> for CRCVisitor {
+        impl Visitor<'_> for CRCVisitor {
             type Value = CRCType;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {

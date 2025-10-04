@@ -23,7 +23,6 @@ use serde::{
     de::{Error, Visitor},
     ser::SerializeSeq,
 };
-
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct CreationTimestamp {
     pub creation_time: DtnTime,
@@ -75,6 +74,8 @@ impl<'de> Deserialize<'de> for CreationTimestamp {
     }
 }
 
+const DTN_UNIX_DIFFERENCE_MS: i64 = 946_684_800_000; // 946684800 seconds between 1970-01-01 and 2000-01-01
+
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct DtnTime {
@@ -97,9 +98,10 @@ impl From<DtnTime> for DateTime<Utc> {
     }
 }
 
+#[allow(clippy::cast_possible_wrap)]
 impl From<&DtnTime> for DateTime<Utc> {
     fn from(dtn: &DtnTime) -> Self {
-        let millis = (dtn.timestamp as i64) + 946684800000; // 946684800 seconds between 1970-01-01 and 2000-01-01
+        let millis = (dtn.timestamp as i64) + DTN_UNIX_DIFFERENCE_MS;
         Utc.timestamp_millis_opt(millis).unwrap()
     }
 }
@@ -112,9 +114,9 @@ impl From<DateTime<Utc>> for DtnTime {
 
 impl From<&DateTime<Utc>> for DtnTime {
     fn from(utc: &DateTime<Utc>) -> Self {
-        let millis = utc.timestamp_millis() - 946684800000; // 946684800 seconds between 1970-01-01 and 2000-01-01
+        let millis = utc.timestamp_millis() - DTN_UNIX_DIFFERENCE_MS;
         DtnTime {
-            timestamp: millis as u64,
+            timestamp: millis.try_into().unwrap(),
         }
     }
 }
@@ -138,9 +140,9 @@ mod tests {
         assert_eq!(
             serde_cbor::to_vec(&CreationTimestamp {
                 creation_time: DtnTime {
-                    timestamp: 123456789
+                    timestamp: 123_456_789
                 },
-                sequence_number: 987654321
+                sequence_number: 987_654_321
             })?,
             CREATION_TIMESTAMP_SERIALIZATION
         );
@@ -154,9 +156,9 @@ mod tests {
             val,
             CreationTimestamp {
                 creation_time: DtnTime {
-                    timestamp: 123456789
+                    timestamp: 123_456_789
                 },
-                sequence_number: 987654321
+                sequence_number: 987_654_321
             }
         );
         Ok(())
@@ -168,7 +170,7 @@ mod tests {
     fn serialize_dtntime() -> Result<(), serde_cbor::Error> {
         assert_eq!(
             serde_cbor::to_vec(&DtnTime {
-                timestamp: 123456789
+                timestamp: 123_456_789
             })?,
             DTNTIME_SERIALIZATION
         );
@@ -181,7 +183,7 @@ mod tests {
         assert_eq!(
             val,
             DtnTime {
-                timestamp: 123456789
+                timestamp: 123_456_789
             }
         );
         Ok(())

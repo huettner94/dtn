@@ -35,10 +35,10 @@ use crate::{
 
 use super::block::payload_block::PayloadBlock;
 
-const BUNDLE_SERIALIZATION_OVERHEAD: u64 = 2; // 1 byte for the start of the cbor list and 1 byte for the end
+const BUNDLE_SERIALIZATION_OVERHEAD: usize = 2; // 1 byte for the start of the cbor list and 1 byte for the end
 // for block with the highest possibe values for all fields + CRC32 is 41 bytes.
 // we need to account for the payload length value encoding as well. To be safe we go to 128 bytes in total.
-const PAYLOAD_BLOCK_SERIALIZATION_OVERHEAD: u64 = 128;
+const PAYLOAD_BLOCK_SERIALIZATION_OVERHEAD: usize = 128;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Bundle<'a> {
@@ -46,7 +46,7 @@ pub struct Bundle<'a> {
     pub blocks: Vec<CanonicalBlock<'a>>,
 }
 
-impl<'a> Serialize for Bundle<'a> {
+impl Serialize for Bundle<'_> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -106,7 +106,7 @@ impl<'de: 'a, 'a> Deserialize<'de> for Bundle<'a> {
     }
 }
 
-impl<'a> Validate for Bundle<'a> {
+impl Validate for Bundle<'_> {
     fn validate(&self) -> bool {
         if !self.primary_block.validate() {
             return false;
@@ -128,7 +128,7 @@ impl<'a> TryFrom<&'a [u8]> for Bundle<'a> {
     }
 }
 
-impl<'a> TryFrom<Bundle<'a>> for Vec<u8> {
+impl TryFrom<Bundle<'_>> for Vec<u8> {
     type Error = SerializationError;
 
     fn try_from(value: Bundle) -> Result<Self, Self::Error> {
@@ -136,7 +136,7 @@ impl<'a> TryFrom<Bundle<'a>> for Vec<u8> {
     }
 }
 
-impl<'a> TryFrom<&Bundle<'a>> for Vec<u8> {
+impl TryFrom<&Bundle<'_>> for Vec<u8> {
     type Error = SerializationError;
 
     fn try_from(value: &Bundle) -> Result<Self, Self::Error> {
@@ -170,16 +170,15 @@ impl<'a> Bundle<'a> {
         }
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     pub fn fragment(
         self,
-        max_size: u64,
+        max_size: usize,
     ) -> Result<(Vec<Bundle<'a>>, u64, u64), FragmentationError> {
-        if Vec::<u8>::try_from(&self)?.len() as u64 <= max_size {
-            panic!(
-                "Fragmentation not needed, bundle already smaller than {}",
-                max_size
-            );
-        }
+        assert!(
+            Vec::<u8>::try_from(&self)?.len() > max_size,
+            "Fragmentation not needed, bundle already smaller than {max_size}",
+        );
         if self
             .primary_block
             .bundle_processing_flags
@@ -197,7 +196,7 @@ impl<'a> Bundle<'a> {
             return Err(FragmentationError::BundleInvalid);
         }
 
-        let primary_block_size = serde_cbor::to_vec(&self.primary_block)?.len() as u64;
+        let primary_block_size = serde_cbor::to_vec(&self.primary_block)?.len();
         let mut first_fragment_min_size = primary_block_size
             + PAYLOAD_BLOCK_SERIALIZATION_OVERHEAD
             + BUNDLE_SERIALIZATION_OVERHEAD;
@@ -206,7 +205,7 @@ impl<'a> Bundle<'a> {
             if matches!(block.block, Block::Payload(_)) {
                 continue;
             }
-            let block_size = serde_cbor::to_vec(block)?.len() as u64;
+            let block_size = serde_cbor::to_vec(block)?.len();
             first_fragment_min_size += block_size;
             if block
                 .block_flags
@@ -217,25 +216,25 @@ impl<'a> Bundle<'a> {
         }
         if first_fragment_min_size > max_size || fragment_min_size > max_size {
             return Err(FragmentationError::CanNotFragmentThatSmall(
-                first_fragment_min_size,
+                first_fragment_min_size as u64,
             ));
         }
 
         let mut fragments = Vec::new();
-        let mut current_payload_offset: u64 = 0;
-        let payload_length = self.payload_block().data.len() as u64;
+        let mut current_payload_offset: usize = 0;
+        let payload_length = self.payload_block().data.len();
 
-        let global_payload_offset = self.primary_block.fragment_offset.unwrap_or(0); // 0 if the bundle was no fragment before
+        let global_payload_offset = self.primary_block.fragment_offset.map_or(0, |e| e as usize); // 0 if the bundle was no fragment before
         let total_data_length = self
             .primary_block
             .total_data_length
-            .unwrap_or(payload_length); // default if the bundle was no fragment before
+            .map_or(payload_length, |e| e as usize);
 
         let new_primary_block = PrimaryBlock {
             bundle_processing_flags: self.primary_block.bundle_processing_flags
                 | BundleFlags::FRAGMENT,
             fragment_offset: Some(0),
-            total_data_length: Some(total_data_length),
+            total_data_length: Some(total_data_length as u64),
             ..self.primary_block.clone()
         };
 
@@ -272,7 +271,7 @@ impl<'a> Bundle<'a> {
         while current_payload_offset < payload_length {
             let mut fragment = Bundle {
                 primary_block: PrimaryBlock {
-                    fragment_offset: Some(global_payload_offset + current_payload_offset),
+                    fragment_offset: Some((global_payload_offset + current_payload_offset) as u64),
                     ..new_primary_block.clone()
                 },
                 blocks: if current_payload_offset == 0 {
@@ -293,32 +292,35 @@ impl<'a> Bundle<'a> {
                 max_size - fragment_size,
             );
 
-            if payload_length_for_fragment < 1 {
-                panic!("Would create a bundle with a payload block of size 0");
-            }
+            assert!(
+                payload_length_for_fragment >= 1,
+                "Would create a bundle with a payload block of size 0"
+            );
 
             let payload_block = PayloadBlock {
-                data: &self.payload_block().data[current_payload_offset as usize
-                    ..(current_payload_offset + payload_length_for_fragment) as usize],
+                data: &self.payload_block().data[current_payload_offset
+                    ..(current_payload_offset + payload_length_for_fragment)],
             };
             fragment.blocks.push(CanonicalBlock {
                 block: Block::Payload(payload_block),
                 ..payload_canonical_block
             });
 
-            let fragment_length = Vec::<u8>::try_from(&fragment)?.len() as u64;
-            if fragment_length > max_size {
-                panic!(
-                    "Attempted to fragment bundle to size {} but built a fragment of size {}. This is a bug",
-                    max_size, fragment_length
-                );
-            }
+            let fragment_length = Vec::<u8>::try_from(&fragment)?.len();
+            assert!(
+                fragment_length <= max_size,
+                "Attempted to fragment bundle to size {max_size} but built a fragment of size {fragment_length}. This is a bug",
+            );
 
             fragments.push(fragment);
             current_payload_offset += payload_length_for_fragment;
         }
 
-        Ok((fragments, first_fragment_min_size, fragment_min_size))
+        Ok((
+            fragments,
+            first_fragment_min_size as u64,
+            fragment_min_size as u64,
+        ))
     }
 
     pub fn can_reassemble_bundles(bundles: &mut Vec<Bundle>) -> bool {
@@ -368,10 +370,10 @@ impl<'a> Bundle<'a> {
                     // We have some range duplicated, but that should not be an issue
                     return ControlFlow::Continue(max(acc, offset + len));
                 }
-                if acc != offset {
-                    ControlFlow::Break(false)
-                } else {
+                if acc == offset {
                     ControlFlow::Continue(offset + len)
+                } else {
+                    ControlFlow::Break(false)
                 }
             }) {
             ControlFlow::Continue(len) => len == total_data_length,
@@ -384,6 +386,7 @@ impl<'a> Bundle<'a> {
         true
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     pub fn reassemble_bundles(mut bundles: Vec<Bundle<'a>>) -> Result<Vec<u8>, Vec<Bundle<'a>>> {
         if !Bundle::can_reassemble_bundles(&mut bundles) {
             return Err(bundles);
@@ -439,15 +442,16 @@ mod tests {
 
     use super::Bundle;
 
+    #[allow(clippy::cast_possible_truncation)]
     fn get_bundle_data() -> Vec<u8> {
         let mut data: Vec<u8> = Vec::new();
-        for i in 0..1024 {
+        for i in 0..1024u16 {
             data.push(i as u8);
         }
         data
     }
 
-    fn get_test_bundle<'a>(data: &'a [u8]) -> Bundle<'a> {
+    fn get_test_bundle(data: &[u8]) -> Bundle<'_> {
         Bundle {
             primary_block: PrimaryBlock {
                 version: 7,
@@ -458,11 +462,11 @@ mod tests {
                 report_to: Endpoint::new("dtn://node2/incoming").unwrap(),
                 creation_timestamp: CreationTimestamp {
                     creation_time: DtnTime {
-                        timestamp: 681253789438,
+                        timestamp: 681_253_789_438,
                     },
                     sequence_number: 0,
                 },
-                lifetime: 3600000,
+                lifetime: 3_600_000,
                 fragment_offset: None,
                 total_data_length: None,
             },
@@ -477,7 +481,7 @@ mod tests {
                     crc: CRCType::NoCRC,
                 },
                 CanonicalBlock {
-                    block: Block::Payload(PayloadBlock { data: &data }),
+                    block: Block::Payload(PayloadBlock { data }),
                     block_number: 1,
                     block_flags: BlockFlags::empty(),
                     crc: CRCType::NoCRC,

@@ -23,15 +23,15 @@ use crate::Validate;
 bitflags! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     pub struct BundleFlags: u64 {
-        const FRAGMENT = 0x000001;
-        const ADMINISTRATIVE_RECORD = 0x000002;
-        const MUST_NOT_FRAGMENT = 0x000004;
-        const APPLICATION_ACKNOWLEGEMENT_REQUESTED = 0x000020;
-        const STATUS_TIME_REQUESTED = 0x000040;
-        const BUNDLE_RECEIPTION_STATUS_REQUESTED = 0x004000;
-        const BUNDLE_FORWARDING_STATUS_REQUEST = 0x010000;
-        const BUNDLE_DELIVERY_STATUS_REQUESTED = 0x020000;
-        const BUNDLE_DELETION_STATUS_REQUESTED = 0x040000;
+        const FRAGMENT = 0x0000_0001;
+        const ADMINISTRATIVE_RECORD = 0x0000_0002;
+        const MUST_NOT_FRAGMENT = 0x0000_0004;
+        const APPLICATION_ACKNOWLEGEMENT_REQUESTED = 0x0000_0020;
+        const STATUS_TIME_REQUESTED = 0x0000_0040;
+        const BUNDLE_RECEIPTION_STATUS_REQUESTED = 0x0000_4000;
+        const BUNDLE_FORWARDING_STATUS_REQUEST = 0x0001_0000;
+        const BUNDLE_DELIVERY_STATUS_REQUESTED = 0x0002_0000;
+        const BUNDLE_DELETION_STATUS_REQUESTED = 0x0004_0000;
     }
 }
 
@@ -50,7 +50,7 @@ impl<'de> Deserialize<'de> for BundleFlags {
         D: serde::Deserializer<'de>,
     {
         struct BundleFlagsVisitor;
-        impl<'de> Visitor<'de> for BundleFlagsVisitor {
+        impl Visitor<'_> for BundleFlagsVisitor {
             type Value = BundleFlags;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {

@@ -170,7 +170,8 @@ impl TCPCLSession {
             Some(s) => Some(TCPCLSession::make_ssl_context(s)?),
             None => None,
         };
-        let peer_url = Url::parse(&format!("tcpcl://{}", stream.peer_addr().unwrap())).unwrap();
+        let peer_url = Url::parse(&format!("tcpcl://{}", stream.peer_addr().unwrap()))
+            .expect("This is our url");
 
         Ok(TCPCLSession {
             is_server: true,
@@ -205,8 +206,8 @@ impl TCPCLSession {
             .and_then(|mut r| r.pop().ok_or(ErrorType::DnsError))?;
         let stream = TcpStream::connect(addr)
             .await
-            .map_err::<ErrorType, _>(|e| e.into())?;
-        debug!("Connected to peer at {}", url);
+            .map_err::<ErrorType, _>(std::convert::Into::into)?;
+        debug!("Connected to peer at {url}");
         let can_tls = tls_settings.is_some();
         let established_channel = oneshot::channel();
         let close_channel = oneshot::channel();
@@ -280,18 +281,17 @@ impl TCPCLSession {
 
         let out = self.drive_statemachine(&mut send_channel_receiver).await;
         if let Err(error) = out {
-            warn!("Connection completed with error {:?}", error);
+            warn!("Connection completed with error {error:?}");
             if self.stream.is_some() {
                 let stream = self.stream.take().unwrap();
                 if let Err(internal_error) = stream.shutdown().await {
-                    warn!("error shuting down the socket: {:?}", internal_error);
+                    warn!("error shuting down the socket: {internal_error:?}");
                     return Err(error);
                 }
             }
             return Err(error);
-        } else {
-            debug!("Connection has completed");
         }
+        debug!("Connection has completed");
         Ok(())
     }
 
@@ -338,8 +338,8 @@ impl TCPCLSession {
                     .unwrap()
                     .send(self.connection_info.clone())
                 {
-                    warn!("Error sending connection info: {:?}", e);
-                };
+                    warn!("Error sending connection info: {e:?}");
+                }
             }
 
             if !self.initialized_keepalive && self.statemachine.is_established() {
@@ -363,7 +363,7 @@ impl TCPCLSession {
                 && self.transfer_result_sender.is_some()
                 && let Err(e) = self.transfer_result_sender.take().unwrap().send(Ok(()))
             {
-                error!("Error sending error to bundle sender {:?}", e);
+                error!("Error sending error to bundle sender {e:?}");
             }
 
             if self.statemachine.should_close() {
@@ -386,21 +386,21 @@ impl TCPCLSession {
                         }
                         Some(message) => {
                             match self.read_message(message).await {
-                                Ok(_) => {},
+                                Ok(()) => {},
                                 Err(e) => {return Err(e)},
-                            };
+                            }
                         }
                     }
                 }
                 res = async { self.statemachine.send_message(write_stream).await }, if stream_interest.is_writable() => {
-                    res?
+                    res?;
                 }
                 transfer = async { send_channel_receiver.as_mut().unwrap().recv().await }, if send_channel_receiver.is_some() && self.statemachine.could_send_transfer() => {
                     match transfer {
                         Some((bundle_data, result_sender)) => {
                             if let Err(transfer_err) = self.statemachine.send_transfer(bundle_data) {
                                 if let Err(e) = result_sender.send(Err(transfer_err)) {
-                                    error!("Error sending error to bundle sender {:?}", e);
+                                    error!("Error sending error to bundle sender {e:?}");
                                 }
                             } else {
                                 self.transfer_result_sender = Some(result_sender);
@@ -431,15 +431,15 @@ impl TCPCLSession {
         let msg = self.statemachine.decode_message(message);
         match msg {
             Ok(Messages::ContactHeader(h)) => {
-                debug!("Got contact header: {:?}", h);
+                debug!("Got contact header: {h:?}");
             }
             Ok(Messages::SessInit(s)) => {
-                debug!("Got sessinit: {:?}", s);
+                debug!("Got sessinit: {s:?}");
                 if self.statemachine.should_use_tls() {
                     let peer_node_id = s.node_id;
                     let x509 = self.stream.as_mut().unwrap().get_peer_certificate();
                     if validate_peer_certificate(
-                        peer_node_id.clone(),
+                        &peer_node_id,
                         &self.connection_info.peer_url,
                         x509,
                     )
@@ -450,14 +450,14 @@ impl TCPCLSession {
                 }
             }
             Ok(Messages::SessTerm(s)) => {
-                debug!("Got sessterm: {:?}", s);
+                debug!("Got sessterm: {s:?}");
             }
             Ok(Messages::Keepalive(_)) => {
                 debug!("Got keepalive");
                 self.last_received_keepalive = Instant::now();
             }
             Ok(Messages::XferSegment(x)) => {
-                debug!("Got xfer segment {:?}", x);
+                debug!("Got xfer segment {x:?}");
                 if self.receiving_transfer.is_some()
                     && x.flags.contains(xfer_segment::MessageFlags::START)
                 {
@@ -469,35 +469,32 @@ impl TCPCLSession {
                     //TODO close connection
                 }
 
-                let ack = match &mut self.receiving_transfer {
-                    Some(t) => {
-                        if t.id == x.transfer_id {
-                            Arc::get_mut(&mut t.data)
-                                .expect("we are the only ones currently receiving")
-                                .extend_from_slice(&x.data);
-                            x.to_xfer_ack(t.data.len() as u64)
-                        } else {
-                            warn!(
-                                "Remote sent transfer with id {} while {} is still being received",
-                                x.transfer_id, t.id
-                            );
-                            //TODO close connection
-                            return Ok(());
-                        }
+                let ack = if let Some(t) = &mut self.receiving_transfer {
+                    if t.id == x.transfer_id {
+                        Arc::get_mut(&mut t.data)
+                            .expect("we are the only ones currently receiving")
+                            .extend_from_slice(&x.data);
+                        x.to_xfer_ack(t.data.len() as u64)
+                    } else {
+                        warn!(
+                            "Remote sent transfer with id {} while {} is still being received",
+                            x.transfer_id, t.id
+                        );
+                        //TODO close connection
+                        return Ok(());
                     }
-                    None => {
-                        if !x.flags.contains(xfer_segment::MessageFlags::START) {
-                            warn!(
-                                "Remote did not sent a start flag for a new transfer. Accepting it anyway"
-                            );
-                        }
-                        let a = x.to_xfer_ack(x.data.len() as u64);
-                        self.receiving_transfer = Some(Transfer {
-                            id: x.transfer_id,
-                            data: Arc::new(x.data),
-                        });
-                        a
+                } else {
+                    if !x.flags.contains(xfer_segment::MessageFlags::START) {
+                        warn!(
+                            "Remote did not sent a start flag for a new transfer. Accepting it anyway"
+                        );
                     }
+                    let a = x.to_xfer_ack(x.data.len() as u64);
+                    self.receiving_transfer = Some(Transfer {
+                        id: x.transfer_id,
+                        data: Arc::new(x.data),
+                    });
+                    a
                 };
 
                 if x.flags.contains(xfer_segment::MessageFlags::END) {
@@ -508,9 +505,9 @@ impl TCPCLSession {
                         .send(self.receiving_transfer.take().unwrap())
                         .await
                     {
-                        warn!("Error sending transfer to receive channel: {:?}", e);
+                        warn!("Error sending transfer to receive channel: {e:?}");
                         //TODO close connection
-                    };
+                    }
                 }
                 self.statemachine.send_ack(ack);
             }
@@ -518,10 +515,10 @@ impl TCPCLSession {
                 //statemachine cares about it
             }
             Ok(Messages::XferRefuse(x)) => {
-                warn!("Got xfer refuse, no idea what to do now: {:?}", x);
+                warn!("Got xfer refuse, no idea what to do now: {x:?}");
             }
             Ok(Messages::MsgReject(m)) => {
-                info!("Got msg reject: {:?}. Will close the connection now", m);
+                info!("Got msg reject: {m:?}. Will close the connection now");
                 return Err(Errors::RemoteRejected.into());
             }
             e @ Err(Errors::MessageError(messages::Errors::InvalidHeader)) => {
@@ -533,20 +530,14 @@ impl TCPCLSession {
                 return Err(e.unwrap_err().into());
             }
             Err(Errors::MessageError(messages::Errors::UnkownCriticalSessionExtension(ext))) => {
-                warn!(
-                    "Remote send critical session extension {} that we dont know",
-                    ext
-                );
+                warn!("Remote send critical session extension {ext} that we dont know",);
                 return Err(Errors::MessageError(
                     messages::Errors::UnkownCriticalSessionExtension(ext),
                 )
                 .into());
             }
             Err(Errors::MessageError(messages::Errors::UnkownCriticalTransferExtension(ext))) => {
-                warn!(
-                    "Remote send critical transfer extension {} that we dont know",
-                    ext
-                );
+                warn!("Remote send critical transfer extension {ext} that we dont know",);
                 return Err(Errors::MessageError(
                     messages::Errors::UnkownCriticalTransferExtension(ext),
                 )
@@ -556,10 +547,7 @@ impl TCPCLSession {
                 warn!("Received a unkown message type");
             }
             Err(Errors::MessageTypeInappropriate(mt)) => {
-                warn!(
-                    "Remote send message type currently not applicable: {:?}",
-                    mt
-                );
+                warn!("Remote send message type currently not applicable: {mt:?}",);
             }
             Err(Errors::RemoteRejected) => {
                 warn!("In the remote rejected state");
@@ -579,7 +567,7 @@ impl TCPCLSession {
                 return Err(e.unwrap_err().into());
             }
             e @ Err(Errors::MessageError(messages::Errors::IoError(_))) => {
-                warn!("We had some io error {:?}", e);
+                warn!("We had some io error {e:?}");
                 return Err(e.unwrap_err().into());
             }
         }
@@ -588,7 +576,7 @@ impl TCPCLSession {
 }
 
 fn validate_peer_certificate(
-    peer_node_id: String,
+    peer_node_id: &str,
     peer_url: &Url,
     x509: Option<&X509>,
 ) -> Result<(), ()> {

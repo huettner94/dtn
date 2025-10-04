@@ -20,7 +20,13 @@ use log::{debug, warn};
 
 use crate::{bundlestorageagent::StoredBundleRef, common::settings::Settings};
 
-use super::{StoredBundle, messages::*};
+use super::{
+    StoredBundle,
+    messages::{
+        DeleteBundle, EventNewBundleStored, FragmentBundle, GetBundleForDestination,
+        GetBundleForNode, StoreBundle, StoreNewBundle,
+    },
+};
 use actix::prelude::*;
 
 #[derive(Default)]
@@ -53,7 +59,7 @@ impl actix::Supervised for Daemon {}
 impl SystemService for Daemon {}
 
 impl Handler<StoreBundle> for Daemon {
-    type Result = Result<(), ()>;
+    type Result = ();
 
     fn handle(&mut self, msg: StoreBundle, _ctx: &mut Context<Self>) -> Self::Result {
         let StoreBundle { bundle_data } = msg;
@@ -90,9 +96,10 @@ impl Handler<StoreNewBundle> for Daemon {
             )
         }
 
-        if bundle.primary_block.fragment_offset.is_some() {
-            panic!("Do not send fragments to StoreNewBundle")
-        }
+        assert!(
+            bundle.primary_block.fragment_offset.is_none(),
+            "Do not send fragments to StoreNewBundle"
+        );
 
         let timestamp = bundle.primary_block.creation_timestamp.creation_time;
         let sequence_number = if Some(timestamp) == self.last_created_dtn_time {
@@ -103,10 +110,7 @@ impl Handler<StoreNewBundle> for Daemon {
             self.last_sequence_number = 0;
             0
         };
-        debug!(
-            "Decided sequence number {:?} for new bundle",
-            sequence_number
-        );
+        debug!("Decided sequence number {sequence_number:?} for new bundle",);
         bundle.primary_block.creation_timestamp.sequence_number = sequence_number;
 
         debug!("Storing Bundle {:?} for later", bundle.primary_block);
@@ -130,15 +134,15 @@ impl Handler<FragmentBundle> for Daemon {
             bundleref,
             target_size,
         } = msg;
-        let mut sb = match self.bundles.iter().position(|b| b == bundleref) {
-            Some(idx) => self.bundles.remove(idx),
-            None => {
-                warn!("Trying to fragment bundle, but could not find it. Not fragmenting it.");
-                return;
-            }
+        let mut sb = if let Some(idx) = self.bundles.iter().position(|b| b == bundleref) {
+            self.bundles.remove(idx)
+        } else {
+            warn!("Trying to fragment bundle, but could not find it. Not fragmenting it.");
+            return;
         };
 
-        match sb.get_bundle().fragment(target_size) {
+        #[allow(clippy::cast_possible_truncation)]
+        match sb.get_bundle().fragment(target_size as usize) {
             Ok((bundles, first_min_size, min_size)) => {
                 let mut iterator = bundles.into_iter();
                 self.store_bundle(
@@ -148,16 +152,14 @@ impl Handler<FragmentBundle> for Daemon {
                         .try_into()
                         .unwrap(),
                     Some(first_min_size),
-                )
-                .unwrap();
+                );
                 for bundle in iterator {
-                    self.store_bundle(bundle.try_into().unwrap(), Some(min_size))
-                        .unwrap();
+                    self.store_bundle(bundle.try_into().unwrap(), Some(min_size));
                 }
             }
             Err(e) => match e {
                 bp7::FragmentationError::SerializationError(e) => {
-                    panic!("Error fragmenting bundle: {:?}", e)
+                    panic!("Error fragmenting bundle: {e:?}")
                 }
                 bp7::FragmentationError::CanNotFragmentThatSmall(min_size) => {
                     sb.min_size = Some(min_size);
@@ -239,7 +241,7 @@ impl Handler<GetBundleForNode> for Daemon {
 }
 
 impl Daemon {
-    fn store_bundle(&mut self, bundle_data: Vec<u8>, min_size: Option<u64>) -> Result<(), ()> {
+    fn store_bundle(&mut self, bundle_data: Vec<u8>, min_size: Option<u64>) -> () {
         let mut sb: StoredBundle = bundle_data.into();
         sb.min_size = min_size;
         let bundle: Bundle = sb.get_bundle();
@@ -273,8 +275,6 @@ impl Daemon {
             crate::bundleprotocolagent::agent::Daemon::from_registry()
                 .do_send(EventNewBundleStored { bundle: sbr });
         }
-
-        Ok(())
     }
 
     fn try_defragment_bundle(&mut self, bundle: &StoredBundle) -> Option<StoredBundle> {

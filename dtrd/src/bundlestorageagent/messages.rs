@@ -28,7 +28,7 @@ pub struct EventNewBundleStored {
 }
 
 #[derive(Message)]
-#[rtype(result = "Result<(), ()>")]
+#[rtype(result = "()")]
 pub struct StoreBundle {
     pub bundle_data: Vec<u8>,
 }

@@ -51,9 +51,10 @@ pub struct SessTerm {
 
 impl SessTerm {
     pub fn new(reason: ReasonCode, reply: bool) -> Self {
-        let flags = match reply {
-            true => MessageFlags::REPLY,
-            false => MessageFlags::empty(),
+        let flags = if reply {
+            MessageFlags::REPLY
+        } else {
+            MessageFlags::empty()
         };
         SessTerm { flags, reason }
     }

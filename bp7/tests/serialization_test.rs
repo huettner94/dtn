@@ -48,11 +48,11 @@ fn test_rand_bundle_1() -> Result<(), SerializationError> {
             report_to: Endpoint::new("dtn://node2/incoming").unwrap(),
             creation_timestamp: CreationTimestamp {
                 creation_time: DtnTime {
-                    timestamp: 681253789438,
+                    timestamp: 681_253_789_438,
                 },
                 sequence_number: 0,
             },
-            lifetime: 3600000,
+            lifetime: 3_600_000,
             fragment_offset: None,
             total_data_length: None,
         },

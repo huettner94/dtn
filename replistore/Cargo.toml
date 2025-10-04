@@ -61,3 +61,6 @@ prost-types = "0.14"
 [build-dependencies]
 tonic-prost-build = "0.14.1"
 prost-build = "0.14.1"
+
+[lints]
+workspace = true

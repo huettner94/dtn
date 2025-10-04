@@ -31,3 +31,6 @@ maybe-async = "0.2.10"
 
 [build-dependencies]
 tonic-prost-build = "0.14.1"
+
+[lints]
+workspace = true

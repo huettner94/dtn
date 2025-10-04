@@ -20,7 +20,8 @@ use std::marker::PhantomData;
 
 use serde::{Deserialize, Serialize, de::Error, de::Visitor, ser::SerializeSeq};
 
-use crate::{blockflags::BlockFlags, crc::CRCType, *};
+use crate::Validate;
+use crate::{blockflags::BlockFlags, crc::CRCType};
 
 use self::bundle_age_block::BundleAgeBlock;
 use self::hop_count_block::HopCountBlock;
@@ -64,7 +65,7 @@ pub enum Block<'a> {
     Unkown(UnkownBlock<'a>),
 }
 
-impl<'a> Clone for Block<'a> {
+impl Clone for Block<'_> {
     fn clone(&self) -> Self {
         match self {
             Self::Payload(_) => panic!("May not clone a Payload Block"),
@@ -84,7 +85,7 @@ pub struct CanonicalBlock<'a> {
     pub crc: CRCType,
 }
 
-impl<'a> Serialize for CanonicalBlock<'a> {
+impl Serialize for CanonicalBlock<'_> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -124,7 +125,7 @@ impl<'a> Serialize for CanonicalBlock<'a> {
                 CRCType::NoCRC => panic!("Attempting to serialize content when we dont have a CRC"),
                 CRCType::CRC16(x) => seq.serialize_element(&x)?,
                 CRCType::CRC32(x) => seq.serialize_element(&x)?,
-            };
+            }
         }
         seq.end()
     }
@@ -212,7 +213,7 @@ impl<'de: 'a, 'a> Deserialize<'de> for CanonicalBlock<'a> {
     }
 }
 
-impl<'a> Validate for CanonicalBlock<'a> {
+impl Validate for CanonicalBlock<'_> {
     fn validate(&self) -> bool {
         /*if !self.block.validate() {
             return false;

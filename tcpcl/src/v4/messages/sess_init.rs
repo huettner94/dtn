@@ -22,8 +22,8 @@ use bytes::BytesMut;
 use bitflags::bitflags;
 
 const KEEPALIVE_DEFAULT_INTERVAL: u16 = 60;
-pub const MAX_SEGMENT_MRU: u64 = 100 * 1024;
-pub const MAX_TRANSFER_MRU: u64 = 1024 * 1024;
+pub const MAX_SEGMENT_MRU: usize = 100 * 1024;
+pub const MAX_TRANSFER_MRU: usize = 1024 * 1024;
 
 bitflags! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -59,7 +59,7 @@ impl SessionExtension {
         target.reserve(5 + self.value.len());
         target.push(self.flags.bits());
         target.extend_from_slice(&self.extension_type.to_be_bytes());
-        target.extend_from_slice(&(self.value.len() as u16).to_be_bytes());
+        target.extend_from_slice(&u16::try_from(self.value.len()).unwrap().to_be_bytes());
         target.extend_from_slice(&self.value);
     }
 }
@@ -77,8 +77,8 @@ impl SessInit {
     pub fn new(node_id: String) -> Self {
         SessInit {
             keepalive_interval: KEEPALIVE_DEFAULT_INTERVAL,
-            segment_mru: MAX_SEGMENT_MRU,
-            transfer_mru: MAX_TRANSFER_MRU,
+            segment_mru: MAX_SEGMENT_MRU as u64,
+            transfer_mru: MAX_TRANSFER_MRU as u64,
             node_id,
             session_extensions: Vec::new(),
         }
@@ -92,10 +92,10 @@ impl SessInit {
         // We can not use get here, since we MUST NOT advance the cursor of `src` until we are sure
         // we can read a full frame
         let mut min_size: usize = 2 + 8 + 8 + 2 + 4;
-        let node_id_length = u16::from_be_bytes(src[18..20].try_into().unwrap());
-        min_size += node_id_length as usize;
+        let node_id_length = u16::from_be_bytes(src[18..20].try_into().unwrap()) as usize;
+        min_size += node_id_length;
         let session_extensions_length = u32::from_be_bytes(
-            src[20 + node_id_length as usize..24 + node_id_length as usize]
+            src[20 + node_id_length..24 + node_id_length]
                 .try_into()
                 .unwrap(),
         );
@@ -111,8 +111,8 @@ impl SessInit {
         let transfer_mru = src.get_u64();
 
         src.advance(2); // this is the node_id_length we read previously
-        let node_id_vec = src.get(0..node_id_length as usize).unwrap().to_vec();
-        src.advance(node_id_length as usize);
+        let node_id_vec = src.get(0..node_id_length).unwrap().to_vec();
+        src.advance(node_id_length);
         let node_id = String::from_utf8(node_id_vec)
             .map_err(|_| crate::v4::messages::Errors::NodeIdInvalid)?;
 
@@ -143,14 +143,14 @@ impl SessInit {
         dst.put_u16(self.keepalive_interval);
         dst.put_u64(self.segment_mru);
         dst.put_u64(self.transfer_mru);
-        dst.put_u16(self.node_id.len() as u16);
+        dst.put_u16(self.node_id.len().try_into().unwrap());
         dst.put(self.node_id.as_bytes());
 
         let mut session_extension_bytes: Vec<u8> = Vec::new();
         for session_extension in &self.session_extensions {
             session_extension.write(&mut session_extension_bytes);
         }
-        dst.put_u32(session_extension_bytes.len() as u32);
+        dst.put_u32(session_extension_bytes.len().try_into().unwrap());
         dst.put(&session_extension_bytes[..]);
     }
 }

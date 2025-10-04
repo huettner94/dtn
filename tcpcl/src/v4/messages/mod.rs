@@ -120,7 +120,7 @@ impl Decoder for Codec {
 
         if src.is_empty() {
             return Ok(None);
-        };
+        }
         if self.curr_message_type.is_none() {
             let message_type = src.get_u8();
             match message_type.try_into() {

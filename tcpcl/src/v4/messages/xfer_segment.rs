@@ -57,7 +57,7 @@ impl TransferExtension {
         target.reserve(5 + self.value.len());
         target.push(self.flags.bits());
         target.extend_from_slice(&self.extension_type.to_be_bytes());
-        target.extend_from_slice(&(self.value.len() as u16).to_be_bytes());
+        target.extend_from_slice(&u16::try_from(self.value.len()).unwrap().to_be_bytes());
         target.extend_from_slice(&self.value);
     }
 }
@@ -120,9 +120,11 @@ impl XferSegment {
                 return Ok(None);
             }
         }
+
+        #[allow(clippy::cast_possible_truncation)]
         let data_length =
             u64::from_be_bytes(src[min_size - 8..min_size].try_into().unwrap()) as usize;
-        if data_length > super::sess_init::MAX_SEGMENT_MRU as usize {
+        if data_length > super::sess_init::MAX_SEGMENT_MRU {
             return Err(crate::v4::messages::Errors::SegmentTooLong);
         }
 

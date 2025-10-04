@@ -26,7 +26,7 @@ pub struct PayloadBlock<'a> {
     pub data: &'a [u8],
 }
 
-impl<'a> Debug for PayloadBlock<'a> {
+impl Debug for PayloadBlock<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PayloadBlock")
             .field("data (length)", &self.data.len())
@@ -34,7 +34,7 @@ impl<'a> Debug for PayloadBlock<'a> {
     }
 }
 
-impl<'a> Serialize for PayloadBlock<'a> {
+impl Serialize for PayloadBlock<'_> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -43,7 +43,7 @@ impl<'a> Serialize for PayloadBlock<'a> {
     }
 }
 
-impl<'a> Validate for PayloadBlock<'a> {
+impl Validate for PayloadBlock<'_> {
     fn validate(&self) -> bool {
         true
     }

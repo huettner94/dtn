@@ -25,7 +25,7 @@ pub struct UnkownBlock<'a> {
     pub data: &'a [u8],
 }
 
-impl<'a> Serialize for UnkownBlock<'a> {
+impl Serialize for UnkownBlock<'_> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -34,7 +34,7 @@ impl<'a> Serialize for UnkownBlock<'a> {
     }
 }
 
-impl<'a> Validate for UnkownBlock<'a> {
+impl Validate for UnkownBlock<'_> {
     fn validate(&self) -> bool {
         true
     }

@@ -46,3 +46,6 @@ tonic-prost-build = "0.14.1"
 [dev-dependencies]
 libc = "0.2"
 dtrd_client = {path = "../client"}
+
+[lints]
+workspace = true

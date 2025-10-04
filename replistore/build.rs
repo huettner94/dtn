@@ -23,7 +23,7 @@ fn build_tonic() -> Result<(), Box<dyn std::error::Error>> {
         .read_dir()?
         .filter_map(|p| p.map(|path| path.path()).ok())
         .collect();
-    println!("{:?}", proto_files);
+    println!("{proto_files:?}");
     tonic_prost_build::configure()
         .build_client(false)
         .compile_protos(&proto_files, &[proto_path])?;
@@ -36,7 +36,7 @@ fn build_prost() -> Result<(), Box<dyn std::error::Error>> {
         .read_dir()?
         .filter_map(|p| p.map(|path| path.path()).ok())
         .collect();
-    println!("{:?}", proto_files);
+    println!("{proto_files:?}");
     prost_build::compile_protos(&proto_files, &[proto_path])?;
     Ok(())
 }

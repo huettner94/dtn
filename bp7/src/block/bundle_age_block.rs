@@ -46,7 +46,7 @@ impl<'de> Deserialize<'de> for BundleAgeBlock {
         D: serde::Deserializer<'de>,
     {
         struct BundleAgeBlockVisitor;
-        impl<'de> Visitor<'de> for BundleAgeBlockVisitor {
+        impl Visitor<'_> for BundleAgeBlockVisitor {
             type Value = BundleAgeBlock;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {

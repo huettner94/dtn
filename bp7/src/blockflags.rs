@@ -45,7 +45,7 @@ impl<'de> Deserialize<'de> for BlockFlags {
         D: serde::Deserializer<'de>,
     {
         struct BlockFlagsVisitor;
-        impl<'de> Visitor<'de> for BlockFlagsVisitor {
+        impl Visitor<'_> for BlockFlagsVisitor {
             type Value = BlockFlags;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {

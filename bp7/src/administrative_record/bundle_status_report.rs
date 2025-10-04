@@ -307,7 +307,7 @@ mod tests {
                     received_bundle: BundleStatusItem {
                         is_asserted: true,
                         timestamp: Some(DtnTime {
-                            timestamp: 123456789
+                            timestamp: 123_456_789
                         }),
                     },
                     forwarded_bundle: BundleStatusItem {
@@ -327,9 +327,9 @@ mod tests {
                 bundle_source: Endpoint::new("dtn://test/abc").unwrap(),
                 bundle_creation_timestamp: CreationTimestamp {
                     creation_time: DtnTime {
-                        timestamp: 123456789
+                        timestamp: 123_456_789
                     },
-                    sequence_number: 987654321,
+                    sequence_number: 987_654_321,
                 },
                 fragment_offset: None,
                 fragment_length: None
@@ -349,7 +349,7 @@ mod tests {
                     received_bundle: BundleStatusItem {
                         is_asserted: true,
                         timestamp: Some(DtnTime {
-                            timestamp: 123456789
+                            timestamp: 123_456_789
                         }),
                     },
                     forwarded_bundle: BundleStatusItem {
@@ -369,9 +369,9 @@ mod tests {
                 bundle_source: Endpoint::new("dtn://test/abc").unwrap(),
                 bundle_creation_timestamp: CreationTimestamp {
                     creation_time: DtnTime {
-                        timestamp: 123456789
+                        timestamp: 123_456_789
                     },
-                    sequence_number: 987654321,
+                    sequence_number: 987_654_321,
                 },
                 fragment_offset: None,
                 fragment_length: None

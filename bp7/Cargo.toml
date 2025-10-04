@@ -30,3 +30,6 @@ bitflags = "2.9.2"
 chrono = "0.4.38"
 binascii = "0.1.4"
 num_enum = "0.7.2"
+
+[lints]
+workspace = true

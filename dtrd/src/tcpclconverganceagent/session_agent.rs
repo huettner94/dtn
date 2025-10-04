@@ -86,10 +86,10 @@ impl StreamHandler<Transfer> for TCPCLSessionAgent {
                     .send(StoreBundle { bundle_data })
                     .into_actor(self)
                     .then(move |res, _act, _ctx| {
-                        match res.unwrap() {
-                            Ok(_) => {debug!("Successfully received transfer {}", transferid)},
-                            Err(_) => {error!("Error storing transfered bundle with id {}. It would have been better if we did not ack it", transferid)},
-                        };
+                        match res {
+                            Ok(()) => {debug!("Successfully received transfer {transferid}")},
+                            Err(_) => {error!("Error storing transfered bundle with id {transferid}. It would have been better if we did not ack it")},
+                        }
                         fut::ready(())})
                     .spawn(ctx);
     }
@@ -102,11 +102,8 @@ impl Handler<AgentForwardBundle> for TCPCLSessionAgent {
         let AgentForwardBundle { bundle, responder } = msg;
         let (result_sender, result_receiver) = oneshot::channel();
 
-        let bundle_data = match bundle.get_bundle_data() {
-            Some(bundle_data) => bundle_data,
-            None => {
-                return;
-            }
+        let Some(bundle_data) = bundle.get_bundle_data() else {
+            return;
         };
         let bundle_endpoint = bundle.get_primary_block().destination_endpoint.clone();
 
@@ -121,7 +118,7 @@ impl Handler<AgentForwardBundle> for TCPCLSessionAgent {
                     let listener = async move {
                         match result_receiver.await {
                             Ok(send_result) => match send_result {
-                                Ok(_) => {
+                                Ok(()) => {
                                     responder
                                         .send(EventBundleForwarded {
                                             endpoint: bundle_endpoint,
@@ -131,7 +128,7 @@ impl Handler<AgentForwardBundle> for TCPCLSessionAgent {
                                         .unwrap();
                                 }
                                 Err(e) => {
-                                    error!("Error during sending of bundle: {:?}", e);
+                                    error!("Error during sending of bundle: {e:?}");
                                     crate::bundleprotocolagent::agent::Daemon::from_registry()
                                         .send(EventBundleForwardingFailed {
                                             endpoint: bundle_endpoint,
@@ -179,24 +176,21 @@ impl Handler<ForceShutdown> for TCPCLSessionAgent {
 
 impl StreamHandler<ConnectionInfo> for TCPCLSessionAgent {
     fn handle(&mut self, item: ConnectionInfo, ctx: &mut Self::Context) {
-        match Endpoint::new(item.peer_endpoint.as_ref().unwrap()) {
-            Some(node) => {
-                crate::converganceagent::agent::Daemon::from_registry().do_send(CLRegisterNode {
-                    url: item.peer_url,
-                    node,
-                    max_bundle_size: item
-                        .max_bundle_size
-                        .expect("We must have a bundle size if we are connected"),
-                    sender: ctx.address().recipient(),
-                });
-            }
-            None => {
-                warn!(
-                    "Peer send invalid id '{}'.",
-                    item.peer_endpoint.as_ref().unwrap()
-                );
-                ctx.stop();
-            }
+        if let Some(node) = Endpoint::new(item.peer_endpoint.as_ref().unwrap()) {
+            crate::converganceagent::agent::Daemon::from_registry().do_send(CLRegisterNode {
+                url: item.peer_url,
+                node,
+                max_bundle_size: item
+                    .max_bundle_size
+                    .expect("We must have a bundle size if we are connected"),
+                sender: ctx.address().recipient(),
+            });
+        } else {
+            warn!(
+                "Peer send invalid id '{}'.",
+                item.peer_endpoint.as_ref().unwrap()
+            );
+            ctx.stop();
         }
     }
 }
@@ -216,7 +210,7 @@ impl TCPCLSessionAgent {
 
             let fut = async move {
                 if let Err(e) = session.manage_connection().await {
-                    warn!("Connection closed with error: {:?}", e);
+                    warn!("Connection closed with error: {e:?}");
                     session_agent_address.do_send(ForceShutdown {});
                 }
                 let ci = session.get_connection_info();

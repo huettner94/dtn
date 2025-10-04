@@ -18,7 +18,7 @@
 use serde::{Deserialize, Serialize, de::Error, de::Visitor, ser::SerializeSeq};
 
 use crate::{
-    bundleflags::BundleFlags, crc::CRCType, endpoint::Endpoint, time::CreationTimestamp, *,
+    Validate, bundleflags::BundleFlags, crc::CRCType, endpoint::Endpoint, time::CreationTimestamp,
 };
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -67,7 +67,7 @@ impl Serialize for PrimaryBlock {
                 CRCType::NoCRC => panic!("Attempting to serialize content when we dont have a CRC"),
                 CRCType::CRC16(x) => seq.serialize_element(&x)?,
                 CRCType::CRC32(x) => seq.serialize_element(&x)?,
-            };
+            }
         }
         seq.end()
     }

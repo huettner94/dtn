@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-#[allow(static_mut_refs)]
 use std::sync::atomic::AtomicU16;
 use std::{process::Stdio, time::Duration};
 

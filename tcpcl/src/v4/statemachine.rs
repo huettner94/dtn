@@ -440,9 +440,10 @@ impl StateMachine {
     }
 
     pub fn close_connection(&mut self, reason: Option<ReasonCode>) {
-        if !self.is_established() {
-            panic!("Attempted to close a non-established connection");
-        }
+        assert!(
+            self.is_established(),
+            "Attempted to close a non-established connection"
+        );
         self.state = States::SendSessTerm(reason);
     }
 
@@ -454,23 +455,26 @@ impl StateMachine {
     }
 
     pub fn get_peer_node_id(&self) -> String {
-        if !self.is_established() {
-            panic!("Attempted to get the peer node-id on a non-established connection");
-        }
+        assert!(
+            self.is_established(),
+            "Attempted to get the peer node-id on a non-established connection"
+        );
         self.peer_sess_init.as_ref().unwrap().node_id.clone()
     }
 
     pub fn get_peer_mru(&self) -> u64 {
-        if !self.is_established() {
-            panic!("Attempted to get the peer mru on a non-established connection");
-        }
+        assert!(
+            self.is_established(),
+            "Attempted to get the peer mru on a non-established connection"
+        );
         self.peer_sess_init.as_ref().unwrap().transfer_mru
     }
 
     pub fn get_keepalive_interval(&self) -> Option<u16> {
-        if !self.is_established() {
-            panic!("Attempted to get the keepalive interval on a non-established connection");
-        }
+        assert!(
+            self.is_established(),
+            "Attempted to get the keepalive interval on a non-established connection"
+        );
         let my_keepalive = self.my_sess_init.as_ref().unwrap().keepalive_interval;
         let peer_keepalive = self.peer_sess_init.as_ref().unwrap().keepalive_interval;
         let keepalive = min(my_keepalive, peer_keepalive);
