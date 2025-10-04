@@ -297,7 +297,7 @@ impl Daemon {
         let fragments_ref = fragments.iter().map(|b| b.get_bundle()).collect();
         match Bundle::reassemble_bundles(fragments_ref) {
             Ok(bundledata) => {
-                let sb: StoredBundle = bundledata.try_into().expect("This can not happen");
+                let sb: StoredBundle = bundledata.into();
                 debug!("Bundle {} sucessfully reassembled", sb.get_id());
                 Some(sb)
             }
