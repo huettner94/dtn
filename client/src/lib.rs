@@ -28,10 +28,12 @@ use futures_util::StreamExt;
 use maybe_async::maybe_async;
 use tonic::transport::{Channel, Uri};
 
+#[allow(clippy::all, clippy::pedantic, clippy::restriction, clippy::nursery)]
 mod bundleservice {
     tonic::include_proto!("dtn_bundle");
 }
 
+#[allow(clippy::all, clippy::pedantic, clippy::restriction, clippy::nursery)]
 mod adminservice {
     tonic::include_proto!("dtn_admin");
 }

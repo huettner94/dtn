@@ -26,7 +26,7 @@ mod common;
 async fn test_unkown_message_type() -> Result<(), ErrorType> {
     let (jh, mut session) = setup_conn(|mut client| async move {
         client
-            .write(&[
+            .write_all(&[
                 0xFF, // non existing message type
             ])
             .await

@@ -15,10 +15,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use crate::frontend::s3::s3::ReceiveEventError;
+use crate::{
+    frontend::s3::s3_backend::ReceiveEventError, replication::messages::proto::BucketEvent,
+};
 use actix::prelude::*;
 
-include!(concat!(env!("OUT_DIR"), "/replication.messages.rs"));
+#[allow(clippy::all, clippy::pedantic, clippy::restriction, clippy::nursery)]
+pub mod proto {
+    include!(concat!(env!("OUT_DIR"), "/replication.messages.rs"));
+}
 
 #[derive(Message)]
 #[rtype(result = "()")]

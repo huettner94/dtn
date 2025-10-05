@@ -26,7 +26,7 @@ mod common;
 async fn test_unkown_message_type() -> Result<(), ErrorType> {
     let (jh, mut session) = setup_conn(|mut client| async move {
         client
-            .write(&[
+            .write_all(&[
                 0x01, // message type
                 0x02, // flags (start)
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // transfer id
@@ -44,14 +44,12 @@ async fn test_unkown_message_type() -> Result<(), ErrorType> {
     .await?;
 
     let ret = session.manage_connection().await;
-    if let Err(ErrorType::TCPCLError(Errors::MessageError(
-        tcpcl::v4::messages::Errors::SegmentTooLong,
-    ))) = ret
-    {
-        assert!(true);
-    } else {
-        assert!(false);
-    }
+    assert!(matches!(
+        ret,
+        Err(ErrorType::TCPCLError(Errors::MessageError(
+            tcpcl::v4::messages::Errors::SegmentTooLong
+        )))
+    ));
     jh.await.unwrap();
 
     Ok(())

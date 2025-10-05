@@ -38,11 +38,8 @@ impl DtrdRunner {
     async fn new(node_id: &str, grpc_port: u16, tcpcl_port: u16) -> Res<Self> {
         let cmd = Command::new(DTRD_BIN_PATH)
             .env("NODE_ID", node_id)
-            .env(
-                "GRPC_CLIENTAPI_ADDRESS",
-                &format!("127.0.0.1:{}", grpc_port),
-            )
-            .env("TCPCL_LISTEN_ADDRESS", &format!("127.0.0.1:{}", tcpcl_port))
+            .env("GRPC_CLIENTAPI_ADDRESS", format!("127.0.0.1:{grpc_port}"))
+            .env("TCPCL_LISTEN_ADDRESS", format!("127.0.0.1:{tcpcl_port}"))
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?;
@@ -52,6 +49,7 @@ impl DtrdRunner {
 
     async fn stop(mut self) -> Res<()> {
         unsafe {
+            #[allow(clippy::cast_possible_wrap)]
             libc::kill(
                 self.cmd.as_ref().unwrap().id().unwrap() as i32,
                 libc::SIGINT,
@@ -62,10 +60,10 @@ impl DtrdRunner {
 
         // We log to stderr per default
         let stderr = String::from_utf8(output.stderr).unwrap();
-        let mut lines = stderr.lines();
+        let lines = stderr.lines();
 
-        while let Some(line) = lines.next() {
-            println!("{}", line);
+        for line in lines {
+            println!("{line}");
             assert!(
                 line.split(']').next().unwrap().contains(" INFO "),
                 "Had log line that was not INFO"
@@ -81,8 +79,9 @@ impl DtrdRunner {
 
 impl Drop for DtrdRunner {
     fn drop(&mut self) {
-        if let Some(id) = self.cmd.as_ref().and_then(|c| c.id()) {
+        if let Some(id) = self.cmd.as_ref().and_then(tokio::process::Child::id) {
             unsafe {
+                #[allow(clippy::cast_possible_wrap)]
                 libc::kill(id as i32, libc::SIGKILL);
             }
         }
@@ -92,6 +91,7 @@ impl Drop for DtrdRunner {
 struct Dtrd {
     runner: DtrdRunner,
     client: dtrd_client::Client,
+    #[allow(dead_code)]
     grpc_port: u16,
     tcpcl_port: u16,
     node_id: String,
@@ -100,11 +100,11 @@ struct Dtrd {
 impl Dtrd {
     async fn new() -> Res<Self> {
         let port_range = PORT_COUNTER.fetch_add(10, std::sync::atomic::Ordering::SeqCst);
-        let node_id = format!("dtn://testrunnode{}", port_range);
+        let node_id = format!("dtn://testrunnode{port_range}");
         let grpc_port = port_range + 1;
         let tcpcl_port = port_range + 2;
         let runner = DtrdRunner::new(&node_id, grpc_port, tcpcl_port).await?;
-        let client = dtrd_client::Client::new(&format!("http://127.0.0.1:{}", grpc_port)).await?;
+        let client = dtrd_client::Client::new(&format!("http://127.0.0.1:{grpc_port}")).await?;
         Ok(Dtrd {
             runner,
             client,

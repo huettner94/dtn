@@ -35,6 +35,7 @@ mod frontend;
 mod replication;
 mod stores;
 
+#[allow(dead_code)] // currently unused since it breaks shutdown
 fn init_tracing(settings: &Settings) {
     let otlp_exporter = opentelemetry_otlp::SpanExporter::builder()
         .with_tonic()
@@ -86,7 +87,8 @@ async fn main() {
         .start();
 
     let s3_addr =
-        frontend::s3::s3::S3::new(storeowner.clone(), replicator, settings.storage_dir).start();
+        frontend::s3::s3_backend::S3::new(storeowner.clone(), replicator, settings.storage_dir)
+            .start();
 
     let s3_task_shutdown_notifier = notify_shutdown.subscribe();
     let s3_task_shutdown_complete_tx_task = shutdown_complete_tx.clone();
@@ -95,7 +97,7 @@ async fn main() {
     let s3_task = tokio::task::Builder::new()
         .name("S3")
         .spawn(async move {
-            let s3 = S3Frontend::new(s3_task_s3_addr, s3_port).await;
+            let s3 = S3Frontend::new(s3_task_s3_addr, s3_port);
             match s3
                 .run(s3_task_shutdown_notifier, s3_task_shutdown_complete_tx_task)
                 .await

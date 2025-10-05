@@ -21,12 +21,9 @@ use dtrd_client::Client;
 use log::info;
 use prost::Message;
 
-use crate::replication::messages::EventReplicationReceived;
+use crate::replication::messages::{EventReplicationReceived, proto::BucketEvent};
 
-use super::{
-    Replicator,
-    messages::{BucketEvent, ReplicateEvent},
-};
+use super::{Replicator, messages::ReplicateEvent};
 
 #[derive(Debug)]
 pub struct DtrdClient {
@@ -90,7 +87,12 @@ impl Handler<ReplicateEvent> for DtrdClient {
         bucket_event.encode(&mut buf).unwrap();
         let mut client = self.client.as_ref().unwrap().clone();
         let target = self.repl_target.clone();
-        let fut = async move { client.submit_bundle(&target, 30, &buf, false).await.unwrap() };
+        let fut = async move {
+            client
+                .submit_bundle(&target, 30, &buf, false)
+                .await
+                .unwrap();
+        };
         fut.into_actor(self).wait(ctx);
     }
 }

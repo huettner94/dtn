@@ -22,7 +22,7 @@ use actix::prelude::*;
 use dtrd::DtrdClient;
 use messages::{EventReplicationReceived, ReplicateEvent, SetEventReceiver};
 
-use crate::{common::settings::Settings, frontend::s3::s3::ReceiveEventError};
+use crate::{common::settings::Settings, frontend::s3::s3_backend::ReceiveEventError};
 
 #[derive(Debug)]
 pub struct Replicator {

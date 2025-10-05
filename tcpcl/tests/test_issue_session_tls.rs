@@ -54,7 +54,7 @@ async fn test_tls_issue_connection_setup_client_wrong_name() -> Result<(), Error
         assert_eq!(len, 6);
         assert_eq!(buf[0..6], CONTACT_HEADER_TLS);
 
-        socket.write(&CONTACT_HEADER_TLS).await.unwrap();
+        socket.write_all(&CONTACT_HEADER_TLS).await.unwrap();
 
         let mut x509_store_builder = X509StoreBuilder::new().unwrap();
         x509_store_builder.add_cert(ca_client_cert).unwrap();
@@ -74,14 +74,14 @@ async fn test_tls_issue_connection_setup_client_wrong_name() -> Result<(), Error
         assert_eq!(len, 37);
         assert_eq!(buf[0..37], SESS_INIT_CLIENT);
 
-        socket.write(&SESS_INIT_SERVER_NAME_2).await.unwrap();
+        socket.write_all(&SESS_INIT_SERVER_NAME_2).await.unwrap();
 
         let mut buf: [u8; 100] = [0; 100];
         let len = socket.read(&mut buf).await.unwrap();
         assert_eq!(len, 0);
     });
 
-    let url = Url::parse(&format!("tcpcl://{}", addr)).unwrap();
+    let url = Url::parse(&format!("tcpcl://{addr}")).unwrap();
     let mut session = TCPCLSession::connect(
         url,
         "dtn://client".into(),
@@ -97,7 +97,7 @@ async fn test_tls_issue_connection_setup_client_wrong_name() -> Result<(), Error
     if let Err(ErrorType::TCPCLError(Errors::TLSNameMissmatch(node_id))) = ret {
         assert_eq!(node_id, "dtn://server2".to_string());
     } else {
-        assert!(false);
+        unreachable!();
     }
     jh.await.unwrap();
 
@@ -121,7 +121,7 @@ async fn test_tls_issue_connection_setup_client_wrong_name_dns() -> Result<(), E
         assert_eq!(len, 6);
         assert_eq!(buf[0..6], CONTACT_HEADER_TLS);
 
-        socket.write(&CONTACT_HEADER_TLS).await.unwrap();
+        socket.write_all(&CONTACT_HEADER_TLS).await.unwrap();
 
         let mut x509_store_builder = X509StoreBuilder::new().unwrap();
         x509_store_builder.add_cert(ca_client_cert).unwrap();
@@ -141,7 +141,7 @@ async fn test_tls_issue_connection_setup_client_wrong_name_dns() -> Result<(), E
         assert_eq!(len, 37);
         assert_eq!(buf[0..37], SESS_INIT_CLIENT);
 
-        socket.write(&SESS_INIT_SERVER).await.unwrap();
+        socket.write_all(&SESS_INIT_SERVER).await.unwrap();
     });
 
     let url = Url::parse(&format!("tcpcl://localhost:{}", addr.port())).unwrap();
@@ -160,8 +160,8 @@ async fn test_tls_issue_connection_setup_client_wrong_name_dns() -> Result<(), E
     if let Err(ErrorType::TCPCLError(Errors::TLSNameMissmatch(node_id))) = ret {
         assert_eq!(node_id, "dtn://server".to_string());
     } else {
-        println!("{:?}", ret);
-        assert!(false);
+        println!("{ret:?}");
+        unreachable!();
     }
     jh.await.unwrap();
 
@@ -178,7 +178,7 @@ async fn test_tls_issue_connection_setup_server_wrong_name() -> Result<(), Error
     let addr = listener.local_addr()?;
     let jh = tokio::spawn(async move {
         let mut client = TcpStream::connect(&addr).await.unwrap();
-        client.write(&CONTACT_HEADER_TLS).await.unwrap();
+        client.write_all(&CONTACT_HEADER_TLS).await.unwrap();
 
         let mut buf: [u8; 100] = [0; 100];
         let len = client.read(&mut buf).await.unwrap();
@@ -194,7 +194,7 @@ async fn test_tls_issue_connection_setup_server_wrong_name() -> Result<(), Error
         let mut client = SslStream::new(ssl, client).unwrap();
         Pin::new(&mut client).connect().await.unwrap();
 
-        client.write(&SESS_INIT_CLIENT_NAME_2).await.unwrap();
+        client.write_all(&SESS_INIT_CLIENT_NAME_2).await.unwrap();
 
         let mut buf: [u8; 100] = [0; 100];
         let len = client.read(&mut buf).await.unwrap();
@@ -212,7 +212,7 @@ async fn test_tls_issue_connection_setup_server_wrong_name() -> Result<(), Error
     if let Err(ErrorType::TCPCLError(Errors::TLSNameMissmatch(node_id))) = ret {
         assert_eq!(node_id, "dtn://client2".to_string());
     } else {
-        assert!(false);
+        unreachable!();
     }
     jh.await.unwrap();
 

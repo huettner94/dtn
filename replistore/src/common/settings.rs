@@ -59,7 +59,7 @@ impl Settings {
             settings.storage_dir = PathBuf::from(setting);
         }
         if let Ok(setting) = env::var("S3_PORT") {
-            settings.s3_port = u16::from_str_radix(&setting, 10).unwrap();
+            settings.s3_port = setting.parse().unwrap();
         }
         settings
     }

@@ -36,3 +36,6 @@ missing_panics_doc = "allow"
 missing_errors_doc = "allow"
 too_many_lines = "allow"
 similar_names = "allow"
+cast_possible_truncation = "allow" # this triggers too often between u64 and usize, yes this will cause bugs on 32bit systems.
+assigning_clones = "allow"
+fn_params_excessive_bools = "allow"

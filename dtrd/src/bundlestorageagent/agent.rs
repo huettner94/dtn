@@ -141,7 +141,6 @@ impl Handler<FragmentBundle> for Daemon {
             return;
         };
 
-        #[allow(clippy::cast_possible_truncation)]
         match sb.get_bundle().fragment(target_size as usize) {
             Ok((bundles, first_min_size, min_size)) => {
                 let mut iterator = bundles.into_iter();

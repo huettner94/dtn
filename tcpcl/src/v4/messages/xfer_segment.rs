@@ -121,7 +121,6 @@ impl XferSegment {
             }
         }
 
-        #[allow(clippy::cast_possible_truncation)]
         let data_length =
             u64::from_be_bytes(src[min_size - 8..min_size].try_into().unwrap()) as usize;
         if data_length > super::sess_init::MAX_SEGMENT_MRU {

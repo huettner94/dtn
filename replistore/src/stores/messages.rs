@@ -52,6 +52,7 @@ impl Display for StoreType {
 
 #[derive(Debug)]
 pub struct StoreError {
+    #[allow(dead_code)] // Only for debug
     rocks_error: rocksdb::Error,
 }
 
@@ -135,20 +136,20 @@ pub struct BlobReadError {
 }
 
 pub enum PutBlobError {
-    StoreError(StoreError),
-    BlobReadError(BlobReadError),
-    IoError(std::io::Error),
+    Store(StoreError),
+    BlobRead(BlobReadError),
+    Io(std::io::Error),
 }
 
 impl From<std::io::Error> for PutBlobError {
     fn from(value: std::io::Error) -> Self {
-        Self::IoError(value)
+        Self::Io(value)
     }
 }
 
 impl From<BlobReadError> for PutBlobError {
     fn from(value: BlobReadError) -> Self {
-        Self::BlobReadError(value)
+        Self::BlobRead(value)
     }
 }
 

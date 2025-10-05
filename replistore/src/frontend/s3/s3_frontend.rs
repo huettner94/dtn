@@ -149,12 +149,12 @@ impl<A: actix::Actor> AddrExt<A> for Addr<A> {
 
 #[derive(Debug)]
 pub struct S3Frontend {
-    s3: Addr<super::s3::S3>,
+    s3: Addr<super::s3_backend::S3>,
     s3_port: u16,
 }
 
 impl S3Frontend {
-    pub async fn new(s3: Addr<super::s3::S3>, s3_port: u16) -> Self {
+    pub fn new(s3: Addr<super::s3_backend::S3>, s3_port: u16) -> Self {
         S3Frontend { s3, s3_port }
     }
 
@@ -309,6 +309,7 @@ impl s3s::S3 for S3Frontend {
             })
             .await??;
 
+        #[allow(clippy::cast_possible_wrap)]
         Ok(S3Response::new(ListObjectsOutput {
             contents: Some(
                 objects
@@ -340,6 +341,7 @@ impl s3s::S3 for S3Frontend {
             })
             .await??;
 
+        #[allow(clippy::cast_possible_wrap)]
         Ok(S3Response::new(ListObjectsV2Output {
             contents: Some(
                 objects
@@ -371,6 +373,7 @@ impl s3s::S3 for S3Frontend {
             })
             .await??;
 
+        #[allow(clippy::cast_possible_wrap)]
         Ok(S3Response::new(HeadObjectOutput {
             last_modified: Some(obj.last_modified.into()),
             content_length: Some(obj.size as i64),
@@ -394,6 +397,7 @@ impl s3s::S3 for S3Frontend {
             .await??;
         let obj = result.metadata;
 
+        #[allow(clippy::cast_possible_wrap)]
         Ok(S3Response::new(GetObjectOutput {
             body: Some(s3s::dto::StreamingBlob::wrap(Box::pin(
                 result.data.map_err(|e| std::io::Error::other(e.msg)),

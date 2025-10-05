@@ -62,14 +62,11 @@ fn get_cert_with_san(sanname: &str) -> (PKey<Private>, X509) {
 }
 
 pub fn get_cert_with_san_othername(sanname: &str) -> (PKey<Private>, X509) {
-    get_cert_with_san(&format!(
-        "otherName:1.3.6.1.5.5.7.8.11;IA5STRING:{}",
-        sanname
-    ))
+    get_cert_with_san(&format!("otherName:1.3.6.1.5.5.7.8.11;IA5STRING:{sanname}",))
 }
 
 pub fn get_cert_with_san_dns(sanname: &str) -> (PKey<Private>, X509) {
-    get_cert_with_san(&format!("DNS:{}", sanname))
+    get_cert_with_san(&format!("DNS:{sanname}"))
 }
 
 #[allow(dead_code)]

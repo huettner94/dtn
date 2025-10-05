@@ -170,7 +170,6 @@ impl<'a> Bundle<'a> {
         }
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     pub fn fragment(
         self,
         max_size: usize,
@@ -386,7 +385,6 @@ impl<'a> Bundle<'a> {
         true
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     pub fn reassemble_bundles(mut bundles: Vec<Bundle<'a>>) -> Result<Vec<u8>, Vec<Bundle<'a>>> {
         if !Bundle::can_reassemble_bundles(&mut bundles) {
             return Err(bundles);
@@ -442,7 +440,6 @@ mod tests {
 
     use super::Bundle;
 
-    #[allow(clippy::cast_possible_truncation)]
     fn get_bundle_data() -> Vec<u8> {
         let mut data: Vec<u8> = Vec::new();
         for i in 0..1024u16 {

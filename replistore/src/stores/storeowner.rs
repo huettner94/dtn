@@ -39,7 +39,7 @@ impl std::fmt::Debug for StoreOwner {
         f.debug_struct("StoreOwner")
             .field("kv_stores", &self.kv_stores)
             .field("blob_stores", &self.blob_stores)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -85,7 +85,9 @@ impl Handler<GetOrCreateKeyValueStore> for StoreOwner {
     fn handle(&mut self, msg: GetOrCreateKeyValueStore, _ctx: &mut Context<Self>) -> Self::Result {
         let GetOrCreateKeyValueStore { name } = msg;
         self.check_or_create_store_type(&name, StoreType::KeyValue)?;
-        if let Some(addr) = self.kv_stores.get(&name) { Ok(addr.clone()) } else {
+        if let Some(addr) = self.kv_stores.get(&name) {
+            Ok(addr.clone())
+        } else {
             let kv_store = KeyValueStore::new(name.clone(), self.db.clone()).start();
             self.kv_stores.insert(name, kv_store.clone());
             Ok(kv_store)
@@ -103,7 +105,9 @@ impl Handler<GetOrCreateContentAddressableBlobStore> for StoreOwner {
     ) -> Self::Result {
         let GetOrCreateContentAddressableBlobStore { name, path } = msg;
         self.check_or_create_store_type(&name, StoreType::ContentAddressableBlob)?;
-        if let Some(addr) = self.blob_stores.get(&name) { Ok(addr.clone()) } else {
+        if let Some(addr) = self.blob_stores.get(&name) {
+            Ok(addr.clone())
+        } else {
             let blob_store =
                 ContentAddressableBlobStore::new(name.clone(), path, self.db.clone()).start();
             self.blob_stores.insert(name, blob_store.clone());

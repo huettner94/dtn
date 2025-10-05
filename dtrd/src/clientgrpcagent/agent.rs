@@ -41,13 +41,17 @@ use crate::{
 };
 use bp7::{bundle::Bundle, endpoint::Endpoint};
 
+#[allow(clippy::all, clippy::pedantic, clippy::restriction, clippy::nursery)]
 mod bundleservice {
     tonic::include_proto!("dtn_bundle");
 }
 
+#[allow(clippy::all, clippy::pedantic, clippy::restriction, clippy::nursery)]
 mod adminservice {
     tonic::include_proto!("dtn_admin");
 }
+
+const MESSAGE_SIZE_LIMIT: usize = 10 * 1024 * 1024 * 1024;
 
 pub struct ListenBundleResponseTransformer {
     client_agent: Addr<clientagent::agent::Daemon>,
@@ -314,7 +318,6 @@ pub async fn main(
     };
 
     info!("Server listening on {addr}");
-    const MESSAGE_SIZE_LIMIT: usize = 10 * 1024 * 1024 * 1024;
     Server::builder()
         .add_service(
             BundleServiceServer::new(bundle_service)

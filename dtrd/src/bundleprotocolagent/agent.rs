@@ -254,9 +254,8 @@ impl Handler<EventRoutingTableUpdate> for Daemon {
 
 impl Daemon {
     fn deliver_local_bundles(&mut self, destination: &Endpoint, ctx: &mut Context<Self>) {
-        let sender = match self.local_connections.get(destination) {
-            Some(s) => s,
-            None => return,
+        let Some(sender) = self.local_connections.get(destination) else {
+            return;
         };
 
         if let Some(queue) = self.local_bundles.get_mut(destination) {
@@ -265,9 +264,10 @@ impl Daemon {
                     "locally delivering bundle {:?}",
                     &bundle.get_primary_block()
                 );
-                assert!(bundle.get_primary_block().fragment_offset.is_none(), 
-                        "Bundle is a fragment. It should have been reassembled before calling this"
-                    );
+                assert!(
+                    bundle.get_primary_block().fragment_offset.is_none(),
+                    "Bundle is a fragment. It should have been reassembled before calling this"
+                );
 
                 match sender.try_send(ClientDeliverBundle {
                     bundle: bundle.clone(),
@@ -300,25 +300,32 @@ impl Daemon {
 
     fn deliver_remote_bundles(&mut self, destination: &Endpoint, ctx: &mut Context<Self>) {
         let destination = destination.get_node_endpoint();
-        let route = match self.remote_routes.get(&destination) {
-            Some(n) => n,
-            None => return,
+        let Some(route) = self.remote_routes.get(&destination) else {
+            return;
         };
-        let sender = match self.remote_connections.get(&route.next_hop) {
-            Some(s) => s,
-            None => return,
-        };
-        let sender_route = match self.remote_routes.get(&route.next_hop) {
-            Some(n) => n,
-            None => return,
+        let Some(sender) = self.remote_connections.get(&route.next_hop) else {
+            return;
         };
         // This gets the smaller max_bundle_size for both of them, ignoring any Nones
         let max_bundle_size = match route.max_size {
-            Some(ms) => Some(match sender_route.max_size {
-                Some(s_ms) => ms.min(s_ms),
-                None => ms,
-            }),
-            None => sender_route.max_size,
+            Some(ms) => Some(
+                match match self.remote_routes.get(&route.next_hop) {
+                    Some(n) => n,
+                    None => return,
+                }
+                .max_size
+                {
+                    Some(s_ms) => ms.min(s_ms),
+                    None => ms,
+                },
+            ),
+            None => {
+                match self.remote_routes.get(&route.next_hop) {
+                    Some(n) => n,
+                    None => return,
+                }
+                .max_size
+            }
         };
 
         if let Some(queue) = self.remote_bundles.get_mut(&destination) {

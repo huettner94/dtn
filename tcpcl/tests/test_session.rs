@@ -44,16 +44,16 @@ async fn test_connection_setup_client() -> Result<(), ErrorType> {
         assert_eq!(len, 6);
         assert_eq!(buf[0..6], CONTACT_HEADER_NO_TLS);
 
-        socket.write(&CONTACT_HEADER_NO_TLS).await.unwrap();
+        socket.write_all(&CONTACT_HEADER_NO_TLS).await.unwrap();
 
         let mut buf: [u8; 100] = [0; 100];
         let len = socket.read(&mut buf).await.unwrap();
         assert_eq!(len, 37);
         assert_eq!(buf[0..37], SESS_INIT_CLIENT);
 
-        socket.write(&SESS_INIT_SERVER).await.unwrap();
+        socket.write_all(&SESS_INIT_SERVER).await.unwrap();
     });
-    let url = Url::parse(&format!("tcpcl://{}", addr)).unwrap();
+    let url = Url::parse(&format!("tcpcl://{addr}")).unwrap();
     let mut session = TCPCLSession::connect(url, "dtn://client".into(), None).await?;
     let established = session.get_established_channel();
     session.manage_connection().await.unwrap();
@@ -71,7 +71,7 @@ async fn test_connection_setup_server() -> Result<(), ErrorType> {
     let addr = listener.local_addr()?;
     let jh = tokio::spawn(async move {
         let mut client = TcpStream::connect(&addr).await.unwrap();
-        client.write(&CONTACT_HEADER_NO_TLS).await.unwrap();
+        client.write_all(&CONTACT_HEADER_NO_TLS).await.unwrap();
 
         let mut buf: [u8; 100] = [0; 100];
         let len = client.read(&mut buf).await.unwrap();
@@ -79,7 +79,7 @@ async fn test_connection_setup_server() -> Result<(), ErrorType> {
         assert_eq!(buf[0..6], CONTACT_HEADER_NO_TLS);
 
         client
-            .write(&SESS_INIT_CLIENT_KEEPALIVE_NONE)
+            .write_all(&SESS_INIT_CLIENT_KEEPALIVE_NONE)
             .await
             .unwrap();
 
@@ -105,7 +105,7 @@ async fn test_connection_setup_server() -> Result<(), ErrorType> {
 async fn test_session_termination_receive() -> Result<(), ErrorType> {
     let (jh, mut session) = setup_conn(|mut client| async move {
         client
-            .write(&[
+            .write_all(&[
                 0x05, // message type
                 0x00, // flags
                 0x03, // reason (busy)
@@ -153,7 +153,7 @@ async fn test_session_termination_send() -> Result<(), ErrorType> {
         );
 
         client
-            .write(&[
+            .write_all(&[
                 0x05, // message type
                 0x01, // flags (reply)
                 0x05, // reason (resource exhaustion)
@@ -185,7 +185,7 @@ async fn test_session_termination_send() -> Result<(), ErrorType> {
 async fn test_xfer_single_segment_receive() -> Result<(), ErrorType> {
     let (jh, mut session) = setup_conn(|mut client| async move {
         client
-            .write(&[
+            .write_all(&[
                 0x01, // message type
                 0x03, // flags (start + end)
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, // transfer id
@@ -227,7 +227,7 @@ async fn test_xfer_single_segment_receive() -> Result<(), ErrorType> {
 async fn test_xfer_single_multi_receive() -> Result<(), ErrorType> {
     let (jh, mut session) = setup_conn(|mut client| async move {
         client
-            .write(&[
+            .write_all(&[
                 0x01, // message type
                 0x02, // flags (start)
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, // transfer id
@@ -252,7 +252,7 @@ async fn test_xfer_single_multi_receive() -> Result<(), ErrorType> {
         );
 
         client
-            .write(&[
+            .write_all(&[
                 0x01, // message type
                 0x01, // flags (end)
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, // transfer id
@@ -311,7 +311,7 @@ async fn test_xfer_single_segment_send() -> Result<(), ErrorType> {
         );
 
         client
-            .write(&[
+            .write_all(&[
                 0x02, // message type
                 0x03, // flags (start + end)
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // transfer id
@@ -361,7 +361,7 @@ async fn test_xfer_multi_segment_send() -> Result<(), ErrorType> {
         );
 
         client
-            .write(&[
+            .write_all(&[
                 0x02, // message type
                 0x02, // flags (start)
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // transfer id
@@ -385,7 +385,7 @@ async fn test_xfer_multi_segment_send() -> Result<(), ErrorType> {
         );
 
         client
-            .write(&[
+            .write_all(&[
                 0x02, // message type
                 0x01, // flags (end)
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // transfer id
@@ -434,7 +434,7 @@ async fn test_sends_keepalive() -> Result<(), ErrorType> {
             );
 
             client
-                .write(&[
+                .write_all(&[
                     0x04, // message type
                 ])
                 .await
@@ -464,7 +464,7 @@ async fn test_sends_keepalive() -> Result<(), ErrorType> {
 async fn test_closes_on_msg_reject() -> Result<(), ErrorType> {
     let (jh, mut session) = setup_conn(|mut client| async move {
         client
-            .write(&[
+            .write_all(&[
                 0x06, // message type
                 0x01, // reason code
                 0xFF, // wrong message type
@@ -479,11 +479,10 @@ async fn test_closes_on_msg_reject() -> Result<(), ErrorType> {
     .await?;
 
     let ret = session.manage_connection().await;
-    if let Err(ErrorType::TCPCLError(Errors::RemoteRejected)) = ret {
-        assert!(true);
-    } else {
-        assert!(false);
-    }
+    assert!(matches!(
+        ret,
+        Err(ErrorType::TCPCLError(Errors::RemoteRejected))
+    ));
     jh.await.unwrap();
 
     Ok(())

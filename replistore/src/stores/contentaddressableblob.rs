@@ -38,6 +38,7 @@ use super::messages::{
 pub struct ContentAddressableBlobStore {
     name: String,
     base_path: PathBuf,
+    #[allow(dead_code)]
     db: Arc<TransactionDB>,
 }
 
@@ -45,7 +46,7 @@ impl std::fmt::Debug for ContentAddressableBlobStore {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ContentAddressableBlobStore")
             .field("name", &self.name)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -56,10 +57,6 @@ impl ContentAddressableBlobStore {
             base_path,
             db,
         }
-    }
-
-    fn get_path(&self, keys: Vec<String>) -> String {
-        format!("\0store\0{}\0{}", self.name, keys.join("\0"))
     }
 
     fn get_disk_base_path(&self) -> PathBuf {

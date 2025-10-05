@@ -27,8 +27,8 @@ use crate::{
     replication::{
         Replicator,
         messages::{
-            BucketEvent, Event, EventReplicationReceived, EventType, ObjectMeta, ReplicateEvent,
-            SetEventReceiver,
+            EventReplicationReceived, ReplicateEvent, SetEventReceiver,
+            proto::{BucketEvent, Event, EventType, ObjectMeta},
         },
     },
     stores::{
@@ -49,8 +49,8 @@ use super::messages::{
 pub struct S3 {
     store_owner: Addr<StoreOwner>,
     replicator: Addr<Replicator>,
-    s3_kv_store: Option<Addr<KeyValueStore>>,
-    s3_blob_store: Option<Addr<ContentAddressableBlobStore>>,
+    kv_store: Option<Addr<KeyValueStore>>,
+    blob_store: Option<Addr<ContentAddressableBlobStore>>,
     storage_dir: PathBuf,
 }
 
@@ -74,25 +74,25 @@ impl S3 {
         S3 {
             store_owner,
             replicator,
-            s3_kv_store: None,
-            s3_blob_store: None,
+            kv_store: None,
+            blob_store: None,
             storage_dir,
         }
     }
 
     fn store(&self) -> Addr<KeyValueStore> {
-        self.s3_kv_store.clone().unwrap()
+        self.kv_store.clone().unwrap()
     }
 
     fn blob_store(&self) -> Addr<ContentAddressableBlobStore> {
-        self.s3_blob_store.clone().unwrap()
+        self.blob_store.clone().unwrap()
     }
 
-    fn bucket_path(&self, name: &str) -> Vec<String> {
+    fn bucket_path(name: &str) -> Vec<String> {
         vec!["buckets".to_string(), name.to_string()]
     }
 
-    fn bucket_version_path(&self, name: &str) -> Vec<String> {
+    fn bucket_version_path(name: &str) -> Vec<String> {
         vec![
             "bucketmeta".to_string(),
             name.to_string(),
@@ -100,11 +100,11 @@ impl S3 {
         ]
     }
 
-    fn object_path(&self, bucket: &str, key: &str) -> Vec<String> {
+    fn object_path(bucket: &str, key: &str) -> Vec<String> {
         vec!["objects".to_string(), bucket.to_string(), key.to_string()]
     }
 
-    fn objectmeta_path(&self, bucket: &str, key: &str, suffix: &str) -> Vec<String> {
+    fn objectmeta_path(bucket: &str, key: &str, suffix: &str) -> Vec<String> {
         vec![
             "objectmeta".to_string(),
             bucket.to_string(),
@@ -127,7 +127,7 @@ impl S3 {
         let root_store = self.store();
         let replicator = self.replicator.clone();
         let store_owner = self.store_owner.clone();
-        let bucket_path = self.bucket_path(&bucket);
+        let bucket_path = Self::bucket_path(&bucket);
 
         Box::pin(async move {
             if root_store
@@ -211,7 +211,7 @@ impl Actor for S3 {
         fut.into_actor(self)
             .then(|res, act, ctx| {
                 match res.unwrap() {
-                    Ok(addr) => act.s3_kv_store = Some(addr),
+                    Ok(addr) => act.kv_store = Some(addr),
                     Err(e) => {
                         error!("Error getting keyvalue store {e:?}");
                         ctx.stop();
@@ -236,7 +236,7 @@ impl Actor for S3 {
         fut.into_actor(self)
             .then(|res, act, ctx| {
                 match res.unwrap() {
-                    Ok(addr) => act.s3_blob_store = Some(addr),
+                    Ok(addr) => act.blob_store = Some(addr),
                     Err(e) => {
                         error!("Error getting blob store {e:?}");
                         ctx.stop();
@@ -269,8 +269,8 @@ impl Handler<CreateBucket> for S3 {
     fn handle(&mut self, msg: CreateBucket, _ctx: &mut Self::Context) -> Self::Result {
         let CreateBucket { name } = msg;
         let store = self.store();
-        let bucket_path = self.bucket_path(&name);
-        let version_path = self.bucket_version_path(&name);
+        let bucket_path = Self::bucket_path(&name);
+        let version_path = Self::bucket_version_path(&name);
         Box::pin(async move {
             let resp = store
                 .send(crate::stores::messages::Get {
@@ -300,7 +300,7 @@ impl Handler<HeadBucket> for S3 {
     fn handle(&mut self, msg: HeadBucket, _ctx: &mut Self::Context) -> Self::Result {
         let HeadBucket { name } = msg;
         let store = self.store();
-        let bucket_path = self.bucket_path(&name);
+        let bucket_path = Self::bucket_path(&name);
         Box::pin(async move {
             let resp = store
                 .send(crate::stores::messages::Get {
@@ -321,7 +321,7 @@ impl Handler<ListObject> for S3 {
 
     fn handle(&mut self, msg: ListObject, _ctx: &mut Self::Context) -> Self::Result {
         let ListObject { bucket, prefix } = msg;
-        let object_path = self.object_path(&bucket, &prefix);
+        let object_path = Self::object_path(&bucket, &prefix);
         self.with_bucket_store(
             bucket.clone(),
             ListObjectError::BucketNotFound,
@@ -348,7 +348,7 @@ impl Handler<HeadObject> for S3 {
 
     fn handle(&mut self, msg: HeadObject, _ctx: &mut Self::Context) -> Self::Result {
         let HeadObject { bucket, key } = msg;
-        let object_path = self.object_path(&bucket, &key);
+        let object_path = Self::object_path(&bucket, &key);
         self.with_bucket_store(
             bucket.clone(),
             HeadObjectError::BucketNotFound,
@@ -372,12 +372,12 @@ impl Handler<PutObject> for S3 {
     fn handle(&mut self, msg: PutObject, _ctx: &mut Self::Context) -> Self::Result {
         let PutObject { bucket, key, data } = msg;
         let blob_store = self.blob_store();
-        let object_path = self.object_path(&bucket, &key);
-        let last_modified_path = self.objectmeta_path(&bucket, &key, "last_modified");
-        let md5sum_path = self.objectmeta_path(&bucket, &key, "md5sum");
-        let sha256sum_path = self.objectmeta_path(&bucket, &key, "sha256sum");
-        let size_path = self.objectmeta_path(&bucket, &key, "size");
-        let version_path = self.bucket_version_path(&bucket);
+        let object_path = Self::object_path(&bucket, &key);
+        let last_modified_path = Self::objectmeta_path(&bucket, &key, "last_modified");
+        let md5sum_path = Self::objectmeta_path(&bucket, &key, "md5sum");
+        let sha256sum_path = Self::objectmeta_path(&bucket, &key, "sha256sum");
+        let size_path = Self::objectmeta_path(&bucket, &key, "size");
+        let version_path = Self::bucket_version_path(&bucket);
         self.with_bucket_store(
             bucket.clone(),
             PutObjectError::BucketNotFound,
@@ -446,7 +446,7 @@ impl Handler<GetObject> for S3 {
     fn handle(&mut self, msg: GetObject, _ctx: &mut Self::Context) -> Self::Result {
         let GetObject { bucket, key } = msg;
         let blob_store = self.blob_store();
-        let object_path = self.object_path(&bucket, &key);
+        let object_path = Self::object_path(&bucket, &key);
         self.with_bucket_store(
             bucket.clone(),
             GetObjectError::BucketNotFound,
@@ -482,8 +482,8 @@ impl Handler<DeleteObject> for S3 {
     fn handle(&mut self, msg: DeleteObject, _ctx: &mut Self::Context) -> Self::Result {
         let DeleteObject { bucket, key } = msg;
         let blob_store = self.blob_store();
-        let object_path = self.object_path(&bucket, &key);
-        let version_path = self.bucket_version_path(&bucket);
+        let object_path = Self::object_path(&bucket, &key);
+        let version_path = Self::bucket_version_path(&bucket);
         self.with_bucket_store(
             bucket.clone(),
             DeleteObjectError::BucketNotFound,
@@ -543,6 +543,7 @@ impl Handler<DeleteObject> for S3 {
 
 #[derive(Debug)]
 pub enum ReceiveEventError {
+    #[allow(dead_code)] // only for debugging
     S3Error(S3Error),
     BucketNotExists,
 }
@@ -562,10 +563,10 @@ impl Handler<EventReplicationReceived> for S3 {
                 BucketEvent {
                     bucket_name: bucket,
                     events,
-                    objects,
+                    objects: _,
                 },
         } = msg;
-        let bucket_version_path = self.bucket_version_path(&bucket);
+        let bucket_version_path = Self::bucket_version_path(&bucket);
         self.with_bucket_store(
             bucket.clone(),
             ReceiveEventError::BucketNotExists,

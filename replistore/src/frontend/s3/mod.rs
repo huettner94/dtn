@@ -16,5 +16,5 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 pub(super) mod messages;
-pub mod s3;
+pub mod s3_backend;
 pub mod s3_frontend;

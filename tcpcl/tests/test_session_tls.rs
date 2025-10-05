@@ -50,7 +50,7 @@ async fn test_tls_connection_setup_client() -> Result<(), ErrorType> {
         assert_eq!(len, 6);
         assert_eq!(buf[0..6], CONTACT_HEADER_TLS);
 
-        socket.write(&CONTACT_HEADER_TLS).await.unwrap();
+        socket.write_all(&CONTACT_HEADER_TLS).await.unwrap();
 
         let mut x509_store_builder = X509StoreBuilder::new().unwrap();
         x509_store_builder.add_cert(ca_client_cert).unwrap();
@@ -70,10 +70,10 @@ async fn test_tls_connection_setup_client() -> Result<(), ErrorType> {
         assert_eq!(len, 37);
         assert_eq!(buf[0..37], SESS_INIT_CLIENT);
 
-        socket.write(&SESS_INIT_SERVER).await.unwrap();
+        socket.write_all(&SESS_INIT_SERVER).await.unwrap();
     });
 
-    let url = Url::parse(&format!("tcpcl://{}", addr)).unwrap();
+    let url = Url::parse(&format!("tcpcl://{addr}")).unwrap();
     let mut session = TCPCLSession::connect(
         url,
         "dtn://client".into(),
@@ -111,7 +111,7 @@ async fn test_tls_connection_setup_client_dns() -> Result<(), ErrorType> {
         assert_eq!(len, 6);
         assert_eq!(buf[0..6], CONTACT_HEADER_TLS);
 
-        socket.write(&CONTACT_HEADER_TLS).await.unwrap();
+        socket.write_all(&CONTACT_HEADER_TLS).await.unwrap();
 
         let mut x509_store_builder = X509StoreBuilder::new().unwrap();
         x509_store_builder.add_cert(ca_client_cert).unwrap();
@@ -131,7 +131,7 @@ async fn test_tls_connection_setup_client_dns() -> Result<(), ErrorType> {
         assert_eq!(len, 37);
         assert_eq!(buf[0..37], SESS_INIT_CLIENT);
 
-        socket.write(&SESS_INIT_SERVER).await.unwrap();
+        socket.write_all(&SESS_INIT_SERVER).await.unwrap();
     });
 
     let url = Url::parse(&format!("tcpcl://localhost:{}", addr.port())).unwrap();
@@ -165,7 +165,7 @@ async fn test_tls_connection_setup_server() -> Result<(), ErrorType> {
     let addr = listener.local_addr()?;
     let jh = tokio::spawn(async move {
         let mut client = TcpStream::connect(&addr).await.unwrap();
-        client.write(&CONTACT_HEADER_TLS).await.unwrap();
+        client.write_all(&CONTACT_HEADER_TLS).await.unwrap();
 
         let mut buf: [u8; 100] = [0; 100];
         let len = client.read(&mut buf).await.unwrap();
@@ -182,7 +182,7 @@ async fn test_tls_connection_setup_server() -> Result<(), ErrorType> {
         Pin::new(&mut client).connect().await.unwrap();
 
         client
-            .write(&SESS_INIT_CLIENT_KEEPALIVE_NONE)
+            .write_all(&SESS_INIT_CLIENT_KEEPALIVE_NONE)
             .await
             .unwrap();
 

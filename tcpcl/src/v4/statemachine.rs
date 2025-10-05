@@ -253,13 +253,14 @@ impl StateMachine {
                         if self.state == States::SessionEstablished
                             || matches!(self.state, States::SendXferSegments(_))
                             || matches!(self.state, States::SendXferSegmentsAndAck(_, _)) => {}
-                    Ok(Messages::Keepalive(_)) => {}
                     Ok(Messages::XferAck(xa)) => match &mut self.state {
                         States::SendXferSegments(tt) | States::SendXferSegmentsAndAck(tt, _) => {
-                            assert!(!(tt.transfer.id != xa.transfer_id), 
-                                    "Remote send ack for transfer {}, but we are currently sending {}",
-                                    xa.transfer_id, tt.transfer.id
-                                );
+                            assert!(
+                                tt.transfer.id == xa.transfer_id,
+                                "Remote send ack for transfer {}, but we are currently sending {}",
+                                xa.transfer_id,
+                                tt.transfer.id
+                            );
                             tt.pos_acked = xa.acknowleged_length as usize;
                             if tt.pos_acked > tt.pos {
                                 error!(
@@ -296,7 +297,7 @@ impl StateMachine {
                             return Err(Errors::MessageTypeInappropriate(MessageType::XferAck));
                         }
                     },
-                    Ok(Messages::MsgReject(_)) => {}
+                    Ok(Messages::Keepalive(_) | Messages::MsgReject(_)) | Err(_) => {}
                     Ok(m) => {
                         warn!(
                             "Received inappropriate message type {:?} while in state {:?}",
@@ -308,7 +309,6 @@ impl StateMachine {
                         );
                         return Err(Errors::MessageTypeInappropriate(m.get_message_type()));
                     }
-                    Err(_) => {}
                 }
             }
             _ => {
@@ -493,7 +493,10 @@ impl StateMachine {
     }
 
     pub fn should_use_tls(&self) -> bool {
-        assert!(!(self.my_contact_header.is_none() || self.peer_contact_header.is_none()), "May not access tls info if we don't have a contact header yet");
+        assert!(
+            !(self.my_contact_header.is_none() || self.peer_contact_header.is_none()),
+            "May not access tls info if we don't have a contact header yet"
+        );
         self.my_contact_header.as_ref().unwrap().can_tls()
             && self.peer_contact_header.as_ref().unwrap().can_tls()
     }

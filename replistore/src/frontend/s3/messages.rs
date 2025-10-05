@@ -24,6 +24,7 @@ use crate::stores::messages::{DeleteBlobError, GetBlobError, PutBlobError, Store
 
 #[derive(Debug)]
 pub struct S3Error {
+    #[allow(dead_code)] // Only used for debug output
     store_error: StoreError,
 }
 
@@ -89,9 +90,9 @@ impl From<StoreError> for PutObjectError {
 impl From<PutBlobError> for PutObjectError {
     fn from(value: PutBlobError) -> Self {
         match value {
-            PutBlobError::StoreError(e) => e.into(),
-            PutBlobError::BlobReadError(e) => Self::ReadDataError(ReadDataError { msg: e.msg }),
-            PutBlobError::IoError(e) => Self::ReadDataError(ReadDataError { msg: e.to_string() }),
+            PutBlobError::Store(e) => e.into(),
+            PutBlobError::BlobRead(e) => Self::ReadDataError(ReadDataError { msg: e.msg }),
+            PutBlobError::Io(e) => Self::ReadDataError(ReadDataError { msg: e.to_string() }),
         }
     }
 }

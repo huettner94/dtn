@@ -30,7 +30,7 @@ impl std::fmt::Debug for KeyValueStore {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("KeyValueStore")
             .field("name", &self.name)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -54,16 +54,16 @@ impl KeyValueStore {
 
     fn bump_version(
         &self,
-        version_path: Vec<String>,
+        version_path: &[String],
         txn: &Transaction<'_, TransactionDB>,
     ) -> Result<Version, StoreError> {
         let mut ver = self
             .db
-            .get(self.get_path(&version_path))?
+            .get(self.get_path(version_path))?
             .map(|e| u64::from_le_bytes(e.try_into().unwrap()))
             .unwrap_or_default();
         ver += 1;
-        txn.put(self.get_path(&version_path), ver.to_le_bytes())?;
+        txn.put(self.get_path(version_path), ver.to_le_bytes())?;
         Ok(Version(ver))
     }
 }
@@ -95,7 +95,7 @@ impl Handler<Set> for KeyValueStore {
         } = msg;
         let txn = self.db.transaction();
         txn.put(self.get_path(&key), value.clone())?;
-        let ver = self.bump_version(version_path, &txn)?;
+        let ver = self.bump_version(&version_path, &txn)?;
         txn.commit()?;
         Ok(ver)
     }
@@ -113,7 +113,7 @@ impl Handler<MultiSet> for KeyValueStore {
         for (key, value) in data.drain() {
             txn.put(self.get_path(&key), value.clone())?;
         }
-        let ver = self.bump_version(version_path, &txn)?;
+        let ver = self.bump_version(&version_path, &txn)?;
         txn.commit()?;
         Ok(ver)
     }
@@ -126,7 +126,7 @@ impl Handler<Delete> for KeyValueStore {
         let Delete { key, version_path } = msg;
         let txn = self.db.transaction();
         txn.delete(self.get_path(&key))?;
-        let ver = self.bump_version(version_path, &txn)?;
+        let ver = self.bump_version(&version_path, &txn)?;
         txn.commit()?;
         Ok(ver)
     }
@@ -148,7 +148,7 @@ impl Handler<MultiDelete> for KeyValueStore {
                 txn.delete(found?.0)?;
             }
         }
-        let ver = self.bump_version(version_path, &txn)?;
+        let ver = self.bump_version(&version_path, &txn)?;
         txn.commit()?;
         Ok(ver)
     }
