@@ -89,7 +89,9 @@ impl Handler<ClientSendBundle> for Daemon {
                 | BundleFlags::BUNDLE_FORWARDING_STATUS_REQUEST
                 | BundleFlags::BUNDLE_DELIVERY_STATUS_REQUESTED
                 | BundleFlags::BUNDLE_DELETION_STATUS_REQUESTED
-        } else { BundleFlags::empty() };
+        } else {
+            BundleFlags::BUNDLE_DELETION_STATUS_REQUESTED
+        };
 
         let bundle = Bundle {
             primary_block: PrimaryBlock {

@@ -306,32 +306,30 @@ impl Daemon {
         let Some(sender) = self.remote_connections.get(&route.next_hop) else {
             return;
         };
+        let Some(nexthopinfo) = self.remote_routes.get(&route.next_hop) else {
+            return;
+        };
+        if route.next_hop != nexthopinfo.next_hop {
+            warn!(
+                "Route {destination} points to nexthop {} that is not directly connected",
+                route.next_hop
+            );
+            return;
+        }
         // This gets the smaller max_bundle_size for both of them, ignoring any Nones
         let max_bundle_size = match route.max_size {
-            Some(ms) => Some(
-                match match self.remote_routes.get(&route.next_hop) {
-                    Some(n) => n,
-                    None => return,
-                }
-                .max_size
-                {
-                    Some(s_ms) => ms.min(s_ms),
-                    None => ms,
-                },
-            ),
-            None => {
-                match self.remote_routes.get(&route.next_hop) {
-                    Some(n) => n,
-                    None => return,
-                }
-                .max_size
-            }
+            Some(ms) => Some(match nexthopinfo.max_size {
+                Some(s_ms) => ms.min(s_ms),
+                None => ms,
+            }),
+            None => nexthopinfo.max_size,
         };
 
         if let Some(queue) = self.remote_bundles.get_mut(&destination) {
             let mut visited: HashSet<uuid::Uuid> = HashSet::new();
             while let Some(bundle) = queue.pop_front() {
                 if visited.contains(&bundle.get_id()) {
+                    queue.push_front(bundle);
                     break;
                 }
                 debug!(
