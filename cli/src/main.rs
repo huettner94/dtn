@@ -145,7 +145,7 @@ pub async fn main() {
             let mut cmd = Cli::command();
             cmd.error(
                 ErrorKind::InvalidValue,
-                format!("Error using url to connect to DTRD: {:?}", e),
+                format!("Error using url to connect to DTRD: {e:?}"),
             )
             .exit();
         })
@@ -167,7 +167,7 @@ pub async fn main() {
                 output_mode,
             } => command_bundle_listen(&mut client, endpoint, output_mode).await,
             BundleCommands::Receive { endpoint, file } => {
-                command_bundle_receive(&mut client, endpoint, file).await
+                command_bundle_receive(&mut client, endpoint, file).await;
             }
         },
         Commands::Node { command } => match command {
@@ -178,10 +178,10 @@ pub async fn main() {
         Commands::Route { command } => match command {
             RouteCommands::List => command_route_list(&mut client).await,
             RouteCommands::Add { target, nexthop } => {
-                command_route_add(&mut client, target, nexthop).await
+                command_route_add(&mut client, target, nexthop).await;
             }
             RouteCommands::Remove { target, nexthop } => {
-                command_route_remove(&mut client, target, nexthop).await
+                command_route_remove(&mut client, target, nexthop).await;
             }
         },
     }
@@ -212,20 +212,20 @@ async fn command_bundle_submit(
                 let mut cmd = Cli::command();
                 cmd.error(
                     ErrorKind::InvalidValue,
-                    format!("Error reading data from file: {:?}", e),
+                    format!("Error reading data from file: {e:?}"),
                 )
                 .exit();
             })
             .unwrap()
     };
     match client.submit_bundle(&destination, lifetime, &payload, debug).await {
-        Ok(_) => {
+        Ok(()) => {
             println!("Bundle submitted successfully");
         }
         Err(e) => {
-            println!("Error submitting bundle: {:?}", e);
+            println!("Error submitting bundle: {e:?}");
         }
-    };
+    }
 }
 
 async fn command_bundle_listen(client: &mut Client, endpoint: String, output_mode: OutputMode) {
@@ -239,7 +239,7 @@ async fn command_bundle_listen(client: &mut Client, endpoint: String, output_mod
                             match bp7::administrative_record::AdministrativeRecord::try_from(&data)
                             {
                                 Ok(ar) => {
-                                    println!("Successfully parsed administrative record: {:?}", ar);
+                                    println!("Successfully parsed administrative record: {ar:?}");
                                 }
                                 Err(_) => {
                                     println!(
@@ -249,7 +249,7 @@ async fn command_bundle_listen(client: &mut Client, endpoint: String, output_mod
                                 }
                             }
                         }
-                        OutputMode::Hex => println!("Received bundle: {:?}", data),
+                        OutputMode::Hex => println!("Received bundle: {data:?}"),
                         OutputMode::Raw => {
                             let mut stdout = std::io::stdout();
                             stdout.write_all(&data).unwrap();
@@ -257,33 +257,30 @@ async fn command_bundle_listen(client: &mut Client, endpoint: String, output_mod
                         }
                     },
                     Err(e) => {
-                        println!("Error receiving bundle: {:?}", e);
+                        println!("Error receiving bundle: {e:?}");
                         break;
                     }
                 }
             }
-            println!("Server closed the connection")
+            println!("Server closed the connection");
         }
         Err(e) => {
-            println!("Error listening for bundles: {:?}", e);
+            println!("Error listening for bundles: {e:?}");
         }
     }
 }
 
 async fn command_bundle_receive(client: &mut Client, endpoint: String, file: Option<String>) {
     match client.receive_bundle(&endpoint).await {
-        Ok(data) => match file {
-            Some(path) => {
-                fs::write(path, data).await.unwrap();
-            }
-            None => {
-                let mut stdout = std::io::stdout();
-                stdout.write_all(&data).unwrap();
-                stdout.flush().unwrap()
-            }
+        Ok(data) => if let Some(path) = file {
+            fs::write(path, data).await.unwrap();
+        } else {
+            let mut stdout = std::io::stdout();
+            stdout.write_all(&data).unwrap();
+            stdout.flush().unwrap();
         },
         Err(e) => {
-            println!("Error receiving bundle: {:?}", e);
+            println!("Error receiving bundle: {e:?}");
         }
     }
 }
@@ -301,28 +298,28 @@ async fn command_node_list(client: &mut Client) {
                     if node.temporary { "temporary" } else { "" }
                 ));
             }
-            print!("{}", table);
+            print!("{table}");
         }
         Err(e) => {
-            println!("Error receiving node list: {:?}", e);
+            println!("Error receiving node list: {e:?}");
         }
     }
 }
 
 async fn command_node_add(client: &mut Client, url: String) {
     match client.add_node(url).await {
-        Ok(_) => {}
+        Ok(()) => {}
         Err(e) => {
-            println!("Error adding node: {:?}", e);
+            println!("Error adding node: {e:?}");
         }
     }
 }
 
 async fn command_node_remove(client: &mut Client, url: String) {
     match client.remove_node(url).await {
-        Ok(_) => {}
+        Ok(()) => {}
         Err(e) => {
-            println!("Error adding node: {:?}", e);
+            println!("Error adding node: {e:?}");
         }
     }
 }
@@ -349,28 +346,28 @@ async fn command_route_list(client: &mut Client) {
                     route.max_bundle_size
                 ));
             }
-            print!("{}", table);
+            print!("{table}");
         }
         Err(e) => {
-            println!("Error receiving route list: {:?}", e);
+            println!("Error receiving route list: {e:?}");
         }
     }
 }
 
 async fn command_route_add(client: &mut Client, target: String, nexthop: String) {
     match client.add_route(target, nexthop).await {
-        Ok(_) => {}
+        Ok(()) => {}
         Err(e) => {
-            println!("Error adding route: {:?}", e);
+            println!("Error adding route: {e:?}");
         }
     }
 }
 
 async fn command_route_remove(client: &mut Client, target: String, nexthop: String) {
     match client.remove_route(target, nexthop).await {
-        Ok(_) => {}
+        Ok(()) => {}
         Err(e) => {
-            println!("Error adding route: {:?}", e);
+            println!("Error adding route: {e:?}");
         }
     }
 }

@@ -156,8 +156,7 @@ impl Handler<NotifyNodeDisconnected> for Daemon {
             }
             None => {
                 warn!(
-                    "We received a node disconnect info, but dont know about the node: {}",
-                    url
+                    "We received a node disconnect info, but dont know about the node: {url}"
                 );
             }
         }

@@ -141,7 +141,7 @@ impl S3 {
 
             match store_owner
                 .send(crate::stores::messages::GetOrCreateKeyValueStore {
-                    name: format!("s3metadata\0{}", bucket).to_string(),
+                    name: format!("s3metadata\0{bucket}").to_string(),
                 })
                 .await
                 .unwrap()
@@ -149,7 +149,7 @@ impl S3 {
                 Ok(addr) => handler(addr, replicator).await,
                 Err(GetOrCreateError::StoreError(e)) => Err(e.into()),
                 Err(GetOrCreateError::StoreTypeMissmatch(store, e)) => {
-                    panic!("Error getting s3 meta store {}: {}", store, e)
+                    panic!("Error getting s3 meta store {store}: {e}")
                 }
             }
         })
@@ -213,7 +213,7 @@ impl Actor for S3 {
                 match res.unwrap() {
                     Ok(addr) => act.s3_kv_store = Some(addr),
                     Err(e) => {
-                        error!("Error getting keyvalue store {:?}", e);
+                        error!("Error getting keyvalue store {e:?}");
                         ctx.stop();
                     }
                 }
@@ -228,7 +228,7 @@ impl Actor for S3 {
                 .send(
                     crate::stores::messages::GetOrCreateContentAddressableBlobStore {
                         name: "s3data".to_string(),
-                        path: storage_dir.join("s3data").into(),
+                        path: storage_dir.join("s3data"),
                     },
                 )
                 .await
@@ -238,13 +238,13 @@ impl Actor for S3 {
                 match res.unwrap() {
                     Ok(addr) => act.s3_blob_store = Some(addr),
                     Err(e) => {
-                        error!("Error getting blob store {:?}", e);
+                        error!("Error getting blob store {e:?}");
                         ctx.stop();
                     }
                 }
                 fut::ready(())
             })
-            .wait(ctx)
+            .wait(ctx);
     }
 }
 
@@ -255,7 +255,7 @@ impl Handler<ListBuckets> for S3 {
         Box::pin(async move {
             let resp = store
                 .send(crate::stores::messages::List {
-                    prefix: vec!["buckets".to_string(), "".to_string()],
+                    prefix: vec!["buckets".to_string(), String::new()],
                 })
                 .await
                 .unwrap()?;

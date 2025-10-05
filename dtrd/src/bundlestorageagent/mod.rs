@@ -37,7 +37,7 @@ impl StoredBundle {
         self.id
     }
 
-    pub fn get_bundle<'a>(&'a self) -> Bundle<'a> {
+    pub fn get_bundle(&self) -> Bundle<'_> {
         self.bundle_data.as_slice().try_into().unwrap()
     }
 

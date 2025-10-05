@@ -206,7 +206,7 @@ impl StateMachine {
                 let ch = match &message {
                     Ok(Messages::ContactHeader(ch)) => ch,
                     Err(messages::Errors::InvalidHeader) => return Err(Errors::DoesNotSpeakTCPCL),
-                    _ => panic!("no idea, {:?}", message),
+                    _ => panic!("no idea, {message:?}"),
                 };
                 self.peer_contact_header = Some(ch.clone());
                 if self.state == States::PassiveWaitContactHeader {
@@ -227,7 +227,7 @@ impl StateMachine {
                         msg_reject::ReasonCode::MessageTypeUnkown,
                         message_type_num,
                     );
-                    return message.map_err(|e| e.into());
+                    return message.map_err(std::convert::Into::into);
                 }
                 match &message {
                     Ok(Messages::SessInit(si)) if self.state == States::ActiveWaitSessInit => {
@@ -256,12 +256,10 @@ impl StateMachine {
                     Ok(Messages::Keepalive(_)) => {}
                     Ok(Messages::XferAck(xa)) => match &mut self.state {
                         States::SendXferSegments(tt) | States::SendXferSegmentsAndAck(tt, _) => {
-                            if tt.transfer.id != xa.transfer_id {
-                                panic!(
+                            assert!(!(tt.transfer.id != xa.transfer_id), 
                                     "Remote send ack for transfer {}, but we are currently sending {}",
                                     xa.transfer_id, tt.transfer.id
                                 );
-                            }
                             tt.pos_acked = xa.acknowleged_length as usize;
                             if tt.pos_acked > tt.pos {
                                 error!(
@@ -282,7 +280,7 @@ impl StateMachine {
                                     States::SendXferSegmentsAndAck(_, ack) => {
                                         self.state = States::SendXferAck(ack);
                                     }
-                                    _ => panic!("Invalid state {:?}", state),
+                                    _ => panic!("Invalid state {state:?}"),
                                 }
                             }
                         }
@@ -320,7 +318,7 @@ impl StateMachine {
                 );
             }
         }
-        message.map_err(|e| e.into())
+        message.map_err(std::convert::Into::into)
     }
 
     pub fn get_interests(&self) -> Interest {
@@ -362,7 +360,7 @@ impl StateMachine {
             States::PassiveSendContactHeader => self.state = States::PassiveWaitSessInit,
             States::ActiveSendSessInit => self.state = States::ActiveWaitSessInit,
             States::PassiveSendSessInit | States::SendXferAck(_) => {
-                self.state = States::SessionEstablished
+                self.state = States::SessionEstablished;
             }
             States::SendXferSegmentsAndAck(tt, _) => {
                 // We here rely on the fact that send_message will prefer
@@ -385,14 +383,14 @@ impl StateMachine {
             }
             States::SendSessTerm(_) if !self.terminating => {
                 self.terminating = true;
-                self.state = States::WaitSessTerm
+                self.state = States::WaitSessTerm;
             }
             States::SendMsgReject(_, _) => {
                 self.terminating = true;
                 self.state = States::ConnectionClose;
             }
             _ => {
-                panic!("{:?} is not a valid state to complete sending", state);
+                panic!("{state:?} is not a valid state to complete sending");
             }
         }
     }
@@ -495,9 +493,7 @@ impl StateMachine {
     }
 
     pub fn should_use_tls(&self) -> bool {
-        if self.my_contact_header.is_none() || self.peer_contact_header.is_none() {
-            panic!("May not access tls info if we don't have a contact header yet");
-        }
+        assert!(!(self.my_contact_header.is_none() || self.peer_contact_header.is_none()), "May not access tls info if we don't have a contact header yet");
         self.my_contact_header.as_ref().unwrap().can_tls()
             && self.peer_contact_header.as_ref().unwrap().can_tls()
     }

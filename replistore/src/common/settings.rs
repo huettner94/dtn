@@ -45,22 +45,22 @@ impl Settings {
         let mut settings = Settings::default();
         if let Ok(setting) = env::var("TOKIO_TRACING_PORT") {
             settings.tokio_tracing_port = Some(setting);
-        };
+        }
         if let Ok(setting) = env::var("DTRD_URL") {
             settings.dtrd_url = setting;
-        };
+        }
         if let Ok(setting) = env::var("DTN_ENDPOINT") {
             settings.dtn_endpoint = setting;
-        };
+        }
         if let Ok(setting) = env::var("REPL_TARGET") {
             settings.repl_target = setting;
-        };
+        }
         if let Ok(setting) = env::var("REPLISTORE_DIR") {
             settings.storage_dir = PathBuf::from(setting);
-        };
+        }
         if let Ok(setting) = env::var("S3_PORT") {
             settings.s3_port = u16::from_str_radix(&setting, 10).unwrap();
-        };
+        }
         settings
     }
 }

@@ -73,7 +73,7 @@ async fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     info!("Starting up");
     let settings: Settings = Settings::from_env();
-    info!("Starting with settings: {:?}", settings);
+    info!("Starting with settings: {settings:?}");
     //init_tracing(&settings);
 
     let (notify_shutdown, _) = broadcast::channel::<()>(1);
@@ -100,7 +100,7 @@ async fn main() {
                 .run(s3_task_shutdown_notifier, s3_task_shutdown_complete_tx_task)
                 .await
             {
-                Ok(_) => Ok(()),
+                Ok(()) => Ok(()),
                 Err(e) => Err(e.to_string()),
             }
         })
@@ -111,7 +111,7 @@ async fn main() {
     tokio::select! {
         res = s3_task => {
             if let Ok(Err(e)) = res {
-                error!("something bad happened with the s3 server {:?}. Aborting...", e);
+                error!("something bad happened with the s3 server {e:?}. Aborting...");
             }
         }
         _ = ctrl_c => {

@@ -119,7 +119,7 @@ impl Handler<PutBlob> for ContentAddressableBlobStore {
                     futures_util::AsyncWriteExt::into_sink(
                         tokio::fs::File::create(&tmpfile).await?.compat_write(),
                     )
-                    .sink_map_err(|e| e.into()),
+                    .sink_map_err(std::convert::Into::into),
                 );
 
                 data.map_err(Into::<PutBlobError>::into)

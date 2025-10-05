@@ -84,15 +84,12 @@ impl Handler<ClientSendBundle> for Daemon {
             debug,
         } = msg;
 
-        let bundle_processing_flags = match debug {
-            true => {
-                BundleFlags::BUNDLE_RECEIPTION_STATUS_REQUESTED
-                    | BundleFlags::BUNDLE_FORWARDING_STATUS_REQUEST
-                    | BundleFlags::BUNDLE_DELIVERY_STATUS_REQUESTED
-                    | BundleFlags::BUNDLE_DELETION_STATUS_REQUESTED
-            }
-            false => BundleFlags::empty(),
-        };
+        let bundle_processing_flags = if debug {
+            BundleFlags::BUNDLE_RECEIPTION_STATUS_REQUESTED
+                | BundleFlags::BUNDLE_FORWARDING_STATUS_REQUEST
+                | BundleFlags::BUNDLE_DELIVERY_STATUS_REQUESTED
+                | BundleFlags::BUNDLE_DELETION_STATUS_REQUESTED
+        } else { BundleFlags::empty() };
 
         let bundle = Bundle {
             primary_block: PrimaryBlock {
@@ -273,7 +270,7 @@ impl Handler<ClientDeliverBundle> for ListenBundleResponseActor {
         fut.into_actor(self)
             .then(|res, act, ctx| {
                 match res {
-                    Ok(_) => {}
+                    Ok(()) => {}
                     Err(e) => {
                         crate::bundleprotocolagent::agent::Daemon::from_registry().do_send(
                             EventBundleDeliveryFailed {
@@ -286,7 +283,7 @@ impl Handler<ClientDeliverBundle> for ListenBundleResponseActor {
                 }
                 fut::ready(())
             })
-            .wait(ctx)
+            .wait(ctx);
     }
 }
 
@@ -298,6 +295,6 @@ impl Handler<StopListenBundleResponseActor> for ListenBundleResponseActor {
         _msg: StopListenBundleResponseActor,
         ctx: &mut Self::Context,
     ) -> Self::Result {
-        ctx.stop()
+        ctx.stop();
     }
 }

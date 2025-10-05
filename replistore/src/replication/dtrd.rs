@@ -103,7 +103,7 @@ impl StreamHandler<Result<Vec<u8>, dtrd_client::error::Error>> for DtrdClient {
     ) {
         let buf = Bytes::from(item.unwrap());
         let event = BucketEvent::decode(buf);
-        info!("Received Event {:?}", event);
+        info!("Received Event {event:?}");
         self.replicator
             .send(EventReplicationReceived {
                 store_event: event.unwrap(),

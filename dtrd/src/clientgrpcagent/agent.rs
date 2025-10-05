@@ -120,11 +120,11 @@ impl BundleService for MyBundleService {
             .map_err(|e| tonic::Status::unknown(e.to_string()))?;
 
         match send_result {
-            Ok(_) => Ok(Response::new(bundleservice::SubmitBundleRespone {
+            Ok(()) => Ok(Response::new(bundleservice::SubmitBundleRespone {
                 success: true,
                 message: String::new(),
             })),
-            Err(_) => Err(tonic::Status::internal(
+            Err(()) => Err(tonic::Status::internal(
                 "something prevented the bundle from being accepted",
             )),
         }
@@ -151,7 +151,7 @@ impl BundleService for MyBundleService {
             .map_err(|e| tonic::Status::unknown(e.to_string()))?;
 
         match result {
-            Ok(_) => {
+            Ok(()) => {
                 let response_transformer = ListenBundleResponseTransformer {
                     client_agent: self.client_agent.clone(),
                     destination,
@@ -188,7 +188,7 @@ impl AdminService for MyAdminService {
                 endpoint: node
                     .remote_endpoint
                     .as_ref()
-                    .map(|e| e.to_string())
+                    .map(std::string::ToString::to_string)
                     .unwrap_or_default(),
                 temporary: node.temporary,
             })
@@ -313,7 +313,7 @@ pub async fn main(
         client_agent: client_agent.clone(),
     };
 
-    info!("Server listening on {}", addr);
+    info!("Server listening on {addr}");
     const MESSAGE_SIZE_LIMIT: usize = 10 * 1024 * 1024 * 1024;
     Server::builder()
         .add_service(

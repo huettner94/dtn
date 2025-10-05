@@ -32,12 +32,10 @@ impl Display for Error {
         match self {
             Error::InvalidUrl => f.write_str("Invalid URL"),
             Error::TransportError(error) => f.write_fmt(format_args!(
-                "Error when communicating with dtrd: {}",
-                error
+                "Error when communicating with dtrd: {error}"
             )),
             Error::GrpcError(status) => f.write_fmt(format_args!(
-                "Error when communicating with dtrd: {}",
-                status
+                "Error when communicating with dtrd: {status}"
             )),
             Error::NoMessage => f.write_str("No Message to be received"),
         }

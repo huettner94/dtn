@@ -97,20 +97,16 @@ impl Handler<RemoveRoute> for Daemon {
             next_hop: next_hop.clone(),
             max_bundle_size: None, // irrelevant as this is not part of Eq
         };
-        match endpoint_routes.remove(&entry_to_remove) {
-            true => {
-                if target == next_hop {
-                    debug!("Removed direct route for {} from routing table", target)
-                } else {
-                    debug!(
-                        "Removed route for {} via {} from routing table",
-                        target, next_hop
-                    );
-                }
-                self.send_route_update();
+        if endpoint_routes.remove(&entry_to_remove) {
+            if target == next_hop {
+                debug!("Removed direct route for {target} from routing table");
+            } else {
+                debug!(
+                    "Removed route for {target} via {next_hop} from routing table"
+                );
             }
-            false => warn!("No route found to remove for {} over {}", target, next_hop),
-        }
+            self.send_route_update();
+        } else { warn!("No route found to remove for {target} over {next_hop}") }
     }
 }
 
@@ -127,16 +123,13 @@ impl Daemon {
         let routes: HashMap<Endpoint, NexthopInfo> = self
             .get_routes()
             .into_iter()
-            .filter_map(|rs| match rs.preferred {
-                true => Some((
-                    rs.target,
-                    NexthopInfo {
-                        next_hop: rs.next_hop,
-                        max_size: rs.max_bundle_size,
-                    },
-                )),
-                false => None,
-            })
+            .filter_map(|rs| if rs.preferred { Some((
+                rs.target,
+                NexthopInfo {
+                    next_hop: rs.next_hop,
+                    max_size: rs.max_bundle_size,
+                },
+            )) } else { None })
             .collect();
 
         if let Some(lrt) = &self.last_routing_table

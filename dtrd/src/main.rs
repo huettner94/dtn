@@ -37,9 +37,9 @@ async fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     info!("Starting up");
     let settings: Settings = Settings::from_env();
-    info!("Starting with settings: {:?}", settings);
+    info!("Starting with settings: {settings:?}");
     if let Some(tokio_tracing_port) = settings.tokio_tracing_port.clone() {
-        info!("Initializing tokio tracing on port {}", tokio_tracing_port);
+        info!("Initializing tokio tracing on port {tokio_tracing_port}");
         console_subscriber::ConsoleLayer::builder()
             .server_addr(([127, 0, 0, 1], tokio_tracing_port.parse().unwrap()))
             .init();
@@ -63,7 +63,7 @@ async fn main() {
             )
             .await
             {
-                Ok(_) => Ok(()),
+                Ok(()) => Ok(()),
                 Err(e) => Err(e.to_string()),
             }
         })
@@ -86,7 +86,7 @@ async fn main() {
     tokio::select! {
         res = api_agent_task => {
             if let Ok(Err(e)) = res {
-                error!("something bad happened with the client grpc agent {:?}. Aborting...", e);
+                error!("something bad happened with the client grpc agent {e:?}. Aborting...");
             }
         }
         res = tcpcl_listener => {

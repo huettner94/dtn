@@ -75,7 +75,7 @@ impl Handler<StoreBundle> for Daemon {
             )
         }
 
-        self.store_bundle(bundle_data, None)
+        self.store_bundle(bundle_data, None);
     }
 }
 
@@ -241,7 +241,7 @@ impl Handler<GetBundleForNode> for Daemon {
 }
 
 impl Daemon {
-    fn store_bundle(&mut self, bundle_data: Vec<u8>, min_size: Option<u64>) -> () {
+    fn store_bundle(&mut self, bundle_data: Vec<u8>, min_size: Option<u64>) {
         let mut sb: StoredBundle = bundle_data.into();
         sb.min_size = min_size;
         let bundle: Bundle = sb.get_bundle();
@@ -253,21 +253,18 @@ impl Daemon {
             .matches_node(self.endpoint.as_ref().unwrap());
 
         if local {
-            match bundle.primary_block.fragment_offset.is_some() {
-                true => {
-                    if let Some(defragmented) = self.try_defragment_bundle(&sb) {
-                        let sbr = defragmented.get_ref();
-                        self.bundles.push(defragmented);
-                        crate::bundleprotocolagent::agent::Daemon::from_registry()
-                            .do_send(EventNewBundleStored { bundle: sbr });
-                    }
-                }
-                false => {
-                    let sbr = sb.get_ref();
-                    self.bundles.push(sb);
+            if bundle.primary_block.fragment_offset.is_some() {
+                if let Some(defragmented) = self.try_defragment_bundle(&sb) {
+                    let sbr = defragmented.get_ref();
+                    self.bundles.push(defragmented);
                     crate::bundleprotocolagent::agent::Daemon::from_registry()
                         .do_send(EventNewBundleStored { bundle: sbr });
                 }
+            } else {
+                let sbr = sb.get_ref();
+                self.bundles.push(sb);
+                crate::bundleprotocolagent::agent::Daemon::from_registry()
+                    .do_send(EventNewBundleStored { bundle: sbr });
             }
         } else {
             let sbr = sb.get_ref();
@@ -295,16 +292,13 @@ impl Daemon {
         }
 
         let fragments_ref = fragments.iter().map(|b| b.get_bundle()).collect();
-        match Bundle::reassemble_bundles(fragments_ref) {
-            Ok(bundledata) => {
-                let sb: StoredBundle = bundledata.into();
-                debug!("Bundle {} sucessfully reassembled", sb.get_id());
-                Some(sb)
-            }
-            Err(_) => {
-                self.bundles.append(&mut fragments);
-                None
-            }
+        if let Ok(bundledata) = Bundle::reassemble_bundles(fragments_ref) {
+            let sb: StoredBundle = bundledata.into();
+            debug!("Bundle {} sucessfully reassembled", sb.get_id());
+            Some(sb)
+        } else {
+            self.bundles.append(&mut fragments);
+            None
         }
     }
 }

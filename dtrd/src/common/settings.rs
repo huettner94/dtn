@@ -47,25 +47,25 @@ impl Settings {
         let mut settings = Settings::default();
         if let Ok(setting) = env::var("NODE_ID") {
             settings.my_node_id = setting;
-        };
+        }
         if let Ok(setting) = env::var("TCPCL_LISTEN_ADDRESS") {
             settings.tcpcl_listen_address = setting;
-        };
+        }
         if let Ok(setting) = env::var("GRPC_CLIENTAPI_ADDRESS") {
             settings.grpc_clientapi_address = setting;
-        };
+        }
         if let Ok(setting) = env::var("TCPCL_CERTIFICATE_PATH") {
             settings.tcpcl_certificate_path = Some(setting);
-        };
+        }
         if let Ok(setting) = env::var("TCPCL_KEY_PATH") {
             settings.tcpcl_key_path = Some(setting);
-        };
+        }
         if let Ok(setting) = env::var("TCPCL_TRUSTED_CERTS_PATH") {
             settings.tcpcl_trusted_certs_path = Some(setting);
-        };
+        }
         if let Ok(setting) = env::var("TOKIO_TRACING_PORT") {
             settings.tokio_tracing_port = Some(setting);
-        };
+        }
         settings
     }
 }

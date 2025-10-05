@@ -43,7 +43,7 @@ impl Actor for Daemon {
         info!("Closing all Convergance agent channels");
         for (node_endpoint, node_sender) in self.connected_nodes.drain() {
             drop(node_sender);
-            info!("Closed node channel for {:?}", node_endpoint);
+            info!("Closed node channel for {node_endpoint:?}");
         }
     }
 }
@@ -63,7 +63,7 @@ impl Handler<AgentConnectNode> for Daemon {
                     .do_send(ConnectRemote { url });
             }
             _ => {
-                error!("unkown scheme for: {}", url);
+                error!("unkown scheme for: {url}");
                 //TODO make a response to the requestor
             }
         }
@@ -81,7 +81,7 @@ impl Handler<AgentDisconnectNode> for Daemon {
                     .do_send(DisconnectRemote { url });
             }
             _ => {
-                error!("unkown scheme for: {}", url);
+                error!("unkown scheme for: {url}");
                 //TODO make a response to the requestor
             }
         }
@@ -98,7 +98,7 @@ impl Handler<CLRegisterNode> for Daemon {
             max_bundle_size,
             sender,
         } = msg;
-        info!("registering node {}", node);
+        info!("registering node {node}");
         self.connected_nodes.insert(node.clone(), sender.clone());
         crate::nodeagent::agent::Daemon::from_registry().do_send(NotifyNodeConnected {
             url,
@@ -120,7 +120,7 @@ impl Handler<CLUnregisterNode> for Daemon {
         info!(
             "unregistering node {} at url {}",
             node.as_ref()
-                .map_or("unknown".to_string(), |e| e.to_string()),
+                .map_or("unknown".to_string(), std::string::ToString::to_string),
             url
         );
         if let Some(dstnode) = &node {

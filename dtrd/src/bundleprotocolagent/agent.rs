@@ -91,7 +91,7 @@ impl Handler<EventNewBundleStored> for Daemon {
                 .entry(destination.clone())
                 .or_default()
                 .push_back(bundle);
-            self.deliver_local_bundles(&destination, ctx)
+            self.deliver_local_bundles(&destination, ctx);
         } else {
             self.send_status_report_received(&bundle);
             self.remote_bundles
@@ -109,7 +109,7 @@ impl Handler<EventBundleDelivered> for Daemon {
     fn handle(&mut self, msg: EventBundleDelivered, ctx: &mut Self::Context) -> Self::Result {
         let EventBundleDelivered { endpoint, bundle } = msg;
         if let Some(pending) = self.bundles_pending_local_delivery.get_mut(&endpoint) {
-            pending.retain(|e| e != bundle)
+            pending.retain(|e| e != bundle);
         }
         self.send_status_report_delivered(&bundle);
 
@@ -129,7 +129,7 @@ impl Handler<EventBundleDeliveryFailed> for Daemon {
             &endpoint
         );
         if let Some(pending) = self.bundles_pending_local_delivery.get_mut(&endpoint) {
-            pending.retain(|e| e != bundle)
+            pending.retain(|e| e != bundle);
         }
         self.local_bundles
             .entry(endpoint)
@@ -195,7 +195,7 @@ impl Handler<EventBundleForwarded> for Daemon {
         let EventBundleForwarded { endpoint, bundle } = msg;
         let endpoint = endpoint.get_node_endpoint();
         if let Some(pending) = self.bundles_pending_forwarding.get_mut(&endpoint) {
-            pending.retain(|e| e != bundle)
+            pending.retain(|e| e != bundle);
         }
         self.send_status_report_forwarded(&bundle);
 
@@ -220,7 +220,7 @@ impl Handler<EventBundleForwardingFailed> for Daemon {
             &endpoint
         );
         if let Some(pending) = self.bundles_pending_forwarding.get_mut(&endpoint) {
-            pending.retain(|e| e != bundle)
+            pending.retain(|e| e != bundle);
         }
         self.remote_bundles
             .entry(endpoint)
@@ -242,11 +242,11 @@ impl Handler<EventRoutingTableUpdate> for Daemon {
         let updated_routes: HashSet<&Endpoint> =
             new_route_targets.intersection(&old_route_targets).collect();
         for added_route in added_routes {
-            debug!("New route available for {}", added_route);
+            debug!("New route available for {added_route}");
             self.deliver_remote_bundles(added_route, ctx);
         }
         for updated_route in updated_routes {
-            debug!("Updated route available for {}", updated_route);
+            debug!("Updated route available for {updated_route}");
             self.deliver_remote_bundles(updated_route, ctx);
         }
     }
@@ -265,17 +265,15 @@ impl Daemon {
                     "locally delivering bundle {:?}",
                     &bundle.get_primary_block()
                 );
-                if bundle.get_primary_block().fragment_offset.is_some() {
-                    panic!(
+                assert!(bundle.get_primary_block().fragment_offset.is_none(), 
                         "Bundle is a fragment. It should have been reassembled before calling this"
                     );
-                }
 
                 match sender.try_send(ClientDeliverBundle {
                     bundle: bundle.clone(),
                     responder: ctx.address().recipient(),
                 }) {
-                    Ok(_) => self
+                    Ok(()) => self
                         .bundles_pending_local_delivery
                         .entry(destination.clone())
                         .or_default()
@@ -288,8 +286,7 @@ impl Daemon {
                         }
                         SendError::Closed(_) => {
                             warn!(
-                                "Client for endpoint {} disconnected while sending bundles. Queueing...",
-                                destination
+                                "Client for endpoint {destination} disconnected while sending bundles. Queueing..."
                             );
                             queue.push_back(bundle);
                             self.local_connections.remove(destination);
@@ -367,7 +364,7 @@ impl Daemon {
                     bundle: bundle.clone(),
                     responder: ctx.address().recipient(),
                 }) {
-                    Ok(_) => self
+                    Ok(()) => self
                         .bundles_pending_forwarding
                         .entry(destination.clone())
                         .or_default()
@@ -384,8 +381,7 @@ impl Daemon {
                         }
                         SendError::Closed(_) => {
                             warn!(
-                                "Peer for endpoint {} disconnected while forwarding bundles. Queueing...",
-                                destination
+                                "Peer for endpoint {destination} disconnected while forwarding bundles. Queueing..."
                             );
                             queue.push_back(bundle);
                             self.remote_connections.remove(&destination);
@@ -466,14 +462,14 @@ impl Daemon {
                 }
                 .try_into()
                 .unwrap();
-                debug!("Dispatching administrative record bundle {:?}", pb);
+                debug!("Dispatching administrative record bundle {pb:?}");
                 crate::bundlestorageagent::agent::Daemon::from_registry()
                     .do_send(StoreNewBundle { bundle_data });
             }
             Err(e) => {
-                warn!("Error serializing bundle status report: {:?}", e)
+                warn!("Error serializing bundle status report: {e:?}");
             }
-        };
+        }
     }
 
     fn send_status_report_delivered(&mut self, bundle: &StoredBundleRef) {

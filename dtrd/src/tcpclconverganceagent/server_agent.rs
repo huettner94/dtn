@@ -51,7 +51,7 @@ pub async fn tcpcl_listener(
 
     let socket: SocketAddr = settings.tcpcl_listen_address.parse().unwrap();
 
-    info!("Server listening on {}", socket);
+    info!("Server listening on {socket}");
 
     let listener = TcpListener::bind(&socket).await?;
 
@@ -104,7 +104,7 @@ impl Actor for TCPCLServer {
                 match res {
                     Ok(tls_config) => act.tls_config = tls_config,
                     Err(e) => {
-                        error!("Error loading TLS configuration for tcpcl server: {}", e);
+                        error!("Error loading TLS configuration for tcpcl server: {e}");
                         ctx.stop();
                     }
                 }
@@ -127,21 +127,20 @@ impl Handler<NewClientConnectedOnSocket> for TCPCLServer {
         _ctx: &mut Self::Context,
     ) -> Self::Result {
         let NewClientConnectedOnSocket { stream, address } = msg;
-        info!("New client connected from {}", address);
+        info!("New client connected from {address}");
         let session =
             match TCPCLSession::new(stream, self.my_node_id.clone(), self.tls_config.clone()) {
                 Ok(s) => s,
                 Err(e) => {
                     error!(
-                        "Error handling new incoming connection: {:?}. Connection will be dropped",
-                        e
+                        "Error handling new incoming connection: {e:?}. Connection will be dropped"
                     );
                     return;
                 }
             };
 
         let sessionagent = TCPCLSessionAgent::new(session);
-        let url = Url::parse(&format!("tcpcl://{}", address)).unwrap();
+        let url = Url::parse(&format!("tcpcl://{address}")).unwrap();
         self.sessions.insert(url, sessionagent);
     }
 }
@@ -151,7 +150,7 @@ impl Handler<ConnectRemote> for TCPCLServer {
 
     fn handle(&mut self, msg: ConnectRemote, ctx: &mut Self::Context) -> Self::Result {
         let ConnectRemote { url } = msg;
-        debug!("connecting to {}", url);
+        debug!("connecting to {url}");
 
         let fut = TCPCLSession::connect(
             url.clone(),
@@ -166,7 +165,7 @@ impl Handler<ConnectRemote> for TCPCLServer {
                         act.sessions.insert(url, sessionagent);
                     }
                     Err(e) => {
-                        error!("Error connecting to remote tcpcl: {:?}", e);
+                        error!("Error connecting to remote tcpcl: {e:?}");
                         crate::converganceagent::agent::Daemon::from_registry()
                             .do_send(CLUnregisterNode { url, node: None });
                     }
@@ -182,7 +181,7 @@ impl Handler<DisconnectRemote> for TCPCLServer {
 
     fn handle(&mut self, msg: DisconnectRemote, _ctx: &mut Self::Context) -> Self::Result {
         let DisconnectRemote { url } = msg;
-        debug!("disconnecting from {}", url);
+        debug!("disconnecting from {url}");
         if let Some(sess) = self.sessions.remove(&url) {
             sess.do_send(Shutdown {});
         }

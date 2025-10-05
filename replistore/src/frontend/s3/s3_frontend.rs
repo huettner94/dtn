@@ -50,7 +50,7 @@ use tracing::instrument;
 
 impl From<super::messages::S3Error> for s3s::S3Error {
     fn from(value: super::messages::S3Error) -> Self {
-        s3s::S3Error::with_message(s3s::S3ErrorCode::InternalError, format!("{:?}", value))
+        s3s::S3Error::with_message(s3s::S3ErrorCode::InternalError, format!("{value:?}"))
     }
 }
 
@@ -180,7 +180,7 @@ impl S3Frontend {
         // Run server
         let listener = TcpListener::bind(("0.0.0.0", s3_port)).await?;
         let local_addr = listener.local_addr()?;
-        info!("Server listening on {}", local_addr);
+        info!("Server listening on {local_addr}");
 
         let http_server = ConnBuilder::new(TokioExecutor::new());
         let graceful = hyper_util::server::graceful::GracefulShutdown::new();
@@ -273,7 +273,7 @@ impl s3s::S3 for S3Frontend {
             })
             .await??;
         Ok(S3Response::new(CreateBucketOutput {
-            location: Some(format!("/{}", bucket)),
+            location: Some(format!("/{bucket}")),
         }))
     }
 
@@ -289,7 +289,7 @@ impl s3s::S3 for S3Frontend {
             })
             .await??
         {
-            Some(_) => Ok(S3Response::new(HeadBucketOutput {
+            Some(()) => Ok(S3Response::new(HeadBucketOutput {
                 ..Default::default()
             })),
             None => Err(s3_error!(NoSuchBucket)),

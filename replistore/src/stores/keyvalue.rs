@@ -59,11 +59,11 @@ impl KeyValueStore {
     ) -> Result<Version, StoreError> {
         let mut ver = self
             .db
-            .get(&self.get_path(&version_path))?
+            .get(self.get_path(&version_path))?
             .map(|e| u64::from_le_bytes(e.try_into().unwrap()))
             .unwrap_or_default();
         ver += 1;
-        txn.put(&self.get_path(&version_path), ver.to_le_bytes())?;
+        txn.put(self.get_path(&version_path), ver.to_le_bytes())?;
         Ok(Version(ver))
     }
 }
@@ -94,7 +94,7 @@ impl Handler<Set> for KeyValueStore {
             value,
         } = msg;
         let txn = self.db.transaction();
-        txn.put(&self.get_path(&key), value.clone())?;
+        txn.put(self.get_path(&key), value.clone())?;
         let ver = self.bump_version(version_path, &txn)?;
         txn.commit()?;
         Ok(ver)
@@ -145,7 +145,7 @@ impl Handler<MultiDelete> for KeyValueStore {
             let path = self.get_path(&key);
             let path_bytes = path.as_bytes();
             for found in self.iter_range(path_bytes) {
-                txn.delete(found?.0)?
+                txn.delete(found?.0)?;
             }
         }
         let ver = self.bump_version(version_path, &txn)?;
@@ -165,7 +165,7 @@ impl Handler<List> for KeyValueStore {
             .try_fold(HashMap::new(), |mut map, e| {
                 let (key, value) = e?;
                 let keystring =
-                    String::from_utf8(key.iter().cloned().skip(path_bytes.len()).collect())
+                    String::from_utf8(key.iter().copied().skip(path_bytes.len()).collect())
                         .unwrap();
                 map.insert(keystring, String::from_utf8(value.to_vec()).unwrap());
                 Ok(map)
