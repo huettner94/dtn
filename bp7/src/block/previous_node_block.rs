@@ -16,13 +16,40 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 use serde::{Deserialize, Serialize};
+use serde_cbor::Serializer;
 
 use crate::{Validate, endpoint::Endpoint};
 
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-#[serde(transparent)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PreviousNodeBlock {
     pub previous_node: Endpoint,
+}
+
+impl Serialize for PreviousNodeBlock {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut vec = Vec::new();
+        let inner_ser = &mut Serializer::new(&mut vec);
+        self.previous_node
+            .serialize(inner_ser)
+            .map_err(serde::ser::Error::custom)?;
+
+        serializer.serialize_bytes(&vec)
+    }
+}
+
+impl<'de> Deserialize<'de> for PreviousNodeBlock {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let endpoint = Endpoint::deserialize(deserializer)?;
+        Ok(PreviousNodeBlock {
+            previous_node: endpoint,
+        })
+    }
 }
 
 impl Validate for PreviousNodeBlock {

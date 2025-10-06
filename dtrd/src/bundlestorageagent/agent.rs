@@ -71,19 +71,23 @@ impl Handler<StoreBundle> for Daemon {
 
     fn handle(&mut self, msg: StoreBundle, _ctx: &mut Context<Self>) -> Self::Result {
         let StoreBundle { bundle_data } = msg;
-        let bundle: Bundle = bundle_data.as_slice().try_into().unwrap();
-
-        if bundle
-            .primary_block
-            .source_node
-            .matches_node(self.endpoint.as_ref().unwrap())
-        {
-            panic!(
-                "Received a StoreBundle message but with us as the source node. Use StoreNewBundle instead!"
-            )
+        match std::convert::TryInto::<Bundle>::try_into(bundle_data.as_slice()) {
+            Ok(bundle) => {
+                if bundle
+                    .primary_block
+                    .source_node
+                    .matches_node(self.endpoint.as_ref().unwrap())
+                {
+                    panic!(
+                        "Received a StoreBundle message but with us as the source node. Use StoreNewBundle instead!"
+                    )
+                }
+                self.store_bundle(bundle_data, None);
+            }
+            Err(e) => {
+                warn!("Received invalid Bundle: {e:?}");
+            }
         }
-
-        self.store_bundle(bundle_data, None);
     }
 }
 

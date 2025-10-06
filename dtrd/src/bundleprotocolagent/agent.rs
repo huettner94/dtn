@@ -45,8 +45,7 @@ use bp7::{
             BundleStatusInformation, BundleStatusItem, BundleStatusReason, BundleStatusReport,
         },
     },
-    block::payload_block::PayloadBlock,
-    block::{Block, CanonicalBlock},
+    block::{Block, CanonicalBlock, payload_block::PayloadBlock},
     blockflags::BlockFlags,
     bundle::Bundle,
     bundleflags::BundleFlags,
@@ -58,6 +57,8 @@ use bp7::{
 use log::{debug, warn};
 
 use actix::prelude::*;
+
+const HOP_LIMIT_DEFAULT: u8 = 16;
 
 #[derive(Default)]
 pub struct Daemon {
@@ -121,14 +122,28 @@ impl Handler<EventBundleUpdated> for Daemon {
                         },
                     );
                 } else {
-                    // TODO: adjust hop count and so
-                    crate::bundlestorageagent::agent::Daemon::from_registry().do_send(
-                        UpdateBundle {
-                            bundleref: bundle,
-                            new_state: State::ForwardingQueued,
-                            new_data: None,
-                        },
-                    );
+                    match self.forward_bundle(&bundle) {
+                        Ok(new_data) => {
+                            crate::bundlestorageagent::agent::Daemon::from_registry().do_send(
+                                UpdateBundle {
+                                    bundleref: bundle,
+                                    new_state: State::ForwardingQueued,
+                                    new_data: Some(new_data),
+                                },
+                            );
+                        }
+                        Err(e) => {
+                            warn!("forwarding bundle failed: {e:?}");
+                            self.send_status_report_deleted(&bundle, e);
+                            crate::bundlestorageagent::agent::Daemon::from_registry().do_send(
+                                UpdateBundle {
+                                    bundleref: bundle,
+                                    new_state: State::Invalid,
+                                    new_data: None,
+                                },
+                            );
+                        }
+                    }
                 }
             }
             State::DeliveryQueued => {
@@ -586,5 +601,37 @@ impl Daemon {
             false,
             false,
         );
+    }
+
+    fn send_status_report_deleted(&mut self, bundle: &StoredBundleRef, reason: BundleStatusReason) {
+        if !bundle
+            .get_primary_block()
+            .bundle_processing_flags
+            .contains(BundleFlags::BUNDLE_DELETION_STATUS_REQUESTED)
+        {
+            return;
+        }
+        self.send_status_report(bundle, reason, false, false, false, true);
+    }
+
+    // TODO: support Bundle Age
+    fn forward_bundle(&self, sbr: &StoredBundleRef) -> Result<Vec<u8>, BundleStatusReason> {
+        let data = sbr.get_bundle_data().unwrap();
+        let mut bundle: Bundle = data
+            .as_slice()
+            .try_into()
+            .expect("Validation already happened");
+        if !self
+            .endpoint
+            .as_ref()
+            .unwrap()
+            .matches_node(&bundle.primary_block.source_node)
+        {
+           bundle.set_previous_node(self.endpoint.as_ref().unwrap());
+        }
+        if !bundle.inc_hop_count(HOP_LIMIT_DEFAULT) {
+            return Err(BundleStatusReason::HopLimitExceeded);
+        }
+        Ok(bundle.try_into().expect("No way to fail"))
     }
 }

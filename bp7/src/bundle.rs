@@ -27,9 +27,14 @@ use serde::{Deserialize, Serialize, de::Error, de::Visitor, ser::SerializeSeq};
 
 use crate::{
     FragmentationError, SerializationError, Validate,
-    block::{Block, CanonicalBlock},
+    block::{
+        Block, CanonicalBlock, hop_count_block::HopCountBlock,
+        previous_node_block::PreviousNodeBlock,
+    },
     blockflags::BlockFlags,
     bundleflags::BundleFlags,
+    crc::CRCType,
+    endpoint::Endpoint,
     primaryblock::PrimaryBlock,
 };
 
@@ -154,6 +159,15 @@ impl<'a> Bundle<'a> {
         Ok(s)
     }
 
+    fn next_block_number(&'_ self) -> u64 {
+        self.blocks
+            .iter()
+            .map(|e| e.block_number)
+            .max()
+            .unwrap_or_default()
+            + 1
+    }
+
     fn payload_canonical_block(&'_ self) -> &'_ CanonicalBlock<'a> {
         for block in &self.blocks {
             if let Block::Payload(_) = &block.block {
@@ -168,6 +182,44 @@ impl<'a> Bundle<'a> {
             Block::Payload(p) => p,
             _ => unreachable!("The payload block is always the payload block"),
         }
+    }
+
+    pub fn set_previous_node(&'_ mut self, endpoint: &Endpoint) {
+        for block in &mut self.blocks {
+            if let Block::PreviousNode(v) = &mut block.block {
+                v.previous_node = endpoint.clone();
+                return;
+            }
+        }
+        let block = CanonicalBlock {
+            block: Block::PreviousNode(PreviousNodeBlock {
+                previous_node: endpoint.clone(),
+            }),
+            block_number: self.next_block_number(),
+            block_flags: BlockFlags::empty(),
+            crc: CRCType::NoCRC,
+        };
+        self.blocks.push(block);
+    }
+
+    pub fn inc_hop_count(&'_ mut self, hop_limit: u8) -> bool {
+        for block in &mut self.blocks {
+            if let Block::HopCount(v) = &mut block.block {
+                v.count += 1;
+                return v.count <= v.limit;
+            }
+        }
+        let block = CanonicalBlock {
+            block: Block::HopCount(HopCountBlock {
+                count: 0,
+                limit: hop_limit,
+            }),
+            block_number: self.next_block_number(),
+            block_flags: BlockFlags::empty(),
+            crc: CRCType::NoCRC,
+        };
+        self.blocks.push(block);
+        true
     }
 
     pub fn fragment(

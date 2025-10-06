@@ -22,6 +22,7 @@ use tokio::{
     process::{Child, Command},
     time::sleep,
 };
+use tokio_util::time::FutureExt;
 
 const DUMMY_DATA: &str = "dummydata";
 const DTRD_BIN_PATH: &str = env!("CARGO_BIN_EXE_dtrd");
@@ -182,7 +183,7 @@ async fn delivers_bundles_connected() -> Result<(), Box<dyn std::error::Error>> 
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn delivers_bundles_routed() -> Result<(), Box<dyn std::error::Error>> {
     let mut dtrd1 = Dtrd::new().await?;
     let mut dtrd2 = Dtrd::new().await?;
@@ -205,7 +206,8 @@ async fn delivers_bundles_routed() -> Result<(), Box<dyn std::error::Error>> {
     let data = dtrd3
         .client
         .receive_bundle(&dtrd3.with_node_id("testendpoint"))
-        .await?;
+        .timeout(Duration::from_secs(10))
+        .await??;
     assert_eq!(&String::from_utf8(data)?, DUMMY_DATA);
     dtrd1.stop().await?;
     dtrd2.stop().await?;

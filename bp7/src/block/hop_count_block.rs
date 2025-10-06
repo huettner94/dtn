@@ -28,8 +28,8 @@ use crate::Validate;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct HopCountBlock {
-    pub limit: u64,
-    pub count: u64,
+    pub limit: u8,
+    pub count: u8,
 }
 
 impl Serialize for HopCountBlock {
@@ -41,9 +41,9 @@ impl Serialize for HopCountBlock {
         let inner_ser = &mut Serializer::new(&mut vec);
         let mut seq = serde::Serializer::serialize_seq(inner_ser, Some(2))
             .map_err(serde::ser::Error::custom)?;
-        seq.serialize_element(&self.limit)
+        seq.serialize_element(&u64::from(self.limit))
             .map_err(serde::ser::Error::custom)?;
-        seq.serialize_element(&self.count)
+        seq.serialize_element(&u64::from(self.count))
             .map_err(serde::ser::Error::custom)?;
         seq.end().map_err(serde::ser::Error::custom)?;
 
@@ -78,11 +78,11 @@ impl<'de> Deserialize<'de> for HopCountBlock {
                     ));
                 }
 
-                let limit: u64 = seq
+                let limit: u8 = seq
                     .next_element()?
                     .ok_or(Error::custom("Error for field 'limit'"))?;
 
-                let count: u64 = seq
+                let count: u8 = seq
                     .next_element()?
                     .ok_or(Error::custom("Error for field 'count'"))?;
                 Ok(HopCountBlock { limit, count })
@@ -94,7 +94,7 @@ impl<'de> Deserialize<'de> for HopCountBlock {
 
 impl Validate for HopCountBlock {
     fn validate(&self) -> bool {
-        self.limit <= 255
+        true
     }
 }
 
