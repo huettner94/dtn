@@ -57,7 +57,9 @@ impl DtrdRunner {
             );
         }
         let output = self.cmd.take().unwrap().wait_with_output().await?;
-        assert_eq!(output.status.code().unwrap(), 0, "Did not exit with 0");
+        if output.status.code().unwrap() != 0 {
+            return Err("Did not exit with 0".into());
+        }
 
         // We log to stderr per default
         let stderr = String::from_utf8(output.stderr).unwrap();
@@ -65,14 +67,15 @@ impl DtrdRunner {
 
         for line in lines {
             println!("{line}");
-            assert!(
-                line.split(']').next().unwrap().contains(" INFO "),
-                "Had log line that was not INFO"
-            );
+            if !line.split(']').next().unwrap().contains(" INFO ") {
+                return Err("Had log line that was not INFO".into());
+            }
         }
 
         let stdout = String::from_utf8(output.stdout).unwrap();
-        assert_eq!(stdout.len(), 0, "Stdout should be empty");
+        if !stdout.is_empty() {
+            return Err("Stdout was not empty".into());
+        }
 
         Ok(())
     }
@@ -139,78 +142,109 @@ impl Dtrd {
     }
 }
 
+async fn with_dtrds<F>(count: usize, func: F) -> Result<(), Box<dyn std::error::Error>>
+where
+    F: AsyncFnOnce(Vec<&mut Dtrd>) -> Result<(), Box<dyn std::error::Error>>,
+{
+    let mut dtrds = Vec::with_capacity(count);
+    for _ in 0..count {
+        dtrds.push(Dtrd::new().await?);
+    }
+    let refs: Vec<&mut Dtrd> = dtrds.iter_mut().collect();
+    let res = futures_util::FutureExt::catch_unwind(std::panic::AssertUnwindSafe(func(refs)))
+        .timeout(Duration::from_secs(10))
+        .await;
+
+    let mut out = match res {
+        Ok(Ok(result)) => result,
+        Ok(Err(panic)) => Err(format!("PANIC: {panic:?}").into()),
+        Err(_) => Err("timeout".into()),
+    };
+
+    for dtrd in dtrds {
+        if let Err(e) = dtrd.stop().await
+            && out.is_ok()
+        {
+            out = Err(e);
+        }
+    }
+    out
+}
+
 #[tokio::test]
 async fn delivers_bundles_locally() -> Result<(), Box<dyn std::error::Error>> {
-    let mut dtrd = Dtrd::new().await?;
-    dtrd.client
-        .submit_bundle(
-            &dtrd.with_node_id("testendpoint"),
-            60,
-            DUMMY_DATA.as_bytes(),
-            false,
-        )
-        .await?;
-    let data = dtrd
-        .client
-        .receive_bundle(&dtrd.with_node_id("testendpoint"))
-        .await?;
-    assert_eq!(&String::from_utf8(data)?, DUMMY_DATA);
-    dtrd.stop().await?;
-    Ok(())
+    with_dtrds(1, async |mut dtrds| {
+        let dtrd = dtrds.pop().unwrap();
+        dtrd.client
+            .submit_bundle(
+                &dtrd.with_node_id("testendpoint"),
+                60,
+                DUMMY_DATA.as_bytes(),
+                false,
+            )
+            .await?;
+        let data = dtrd
+            .client
+            .receive_bundle(&dtrd.with_node_id("testendpoint"))
+            .await?;
+        assert_eq!(&String::from_utf8(data)?, DUMMY_DATA);
+        Ok(())
+    })
+    .await
 }
 
 #[tokio::test]
 async fn delivers_bundles_connected() -> Result<(), Box<dyn std::error::Error>> {
-    let mut dtrd1 = Dtrd::new().await?;
-    let mut dtrd2 = Dtrd::new().await?;
-    dtrd1.connect_to(&dtrd2).await?;
-    dtrd1
-        .client
-        .submit_bundle(
-            &dtrd2.with_node_id("testendpoint"),
-            60,
-            DUMMY_DATA.as_bytes(),
-            false,
-        )
-        .await?;
-    let data = dtrd2
-        .client
-        .receive_bundle(&dtrd2.with_node_id("testendpoint"))
-        .await?;
-    assert_eq!(&String::from_utf8(data)?, DUMMY_DATA);
-    dtrd1.stop().await?;
-    dtrd2.stop().await?;
-    Ok(())
+    with_dtrds(2, async |mut dtrds| {
+        let dtrd1 = dtrds.pop().unwrap();
+        let dtrd2 = dtrds.pop().unwrap();
+        dtrd1.connect_to(dtrd2).await?;
+        dtrd1
+            .client
+            .submit_bundle(
+                &dtrd2.with_node_id("testendpoint"),
+                60,
+                DUMMY_DATA.as_bytes(),
+                false,
+            )
+            .await?;
+        let data = dtrd2
+            .client
+            .receive_bundle(&dtrd2.with_node_id("testendpoint"))
+            .await?;
+        assert_eq!(&String::from_utf8(data)?, DUMMY_DATA);
+        Ok(())
+    })
+    .await
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[tokio::test]
 async fn delivers_bundles_routed() -> Result<(), Box<dyn std::error::Error>> {
-    let mut dtrd1 = Dtrd::new().await?;
-    let mut dtrd2 = Dtrd::new().await?;
-    let mut dtrd3 = Dtrd::new().await?;
-    dtrd1.connect_to(&dtrd2).await?;
-    dtrd2.connect_to(&dtrd3).await?;
-    dtrd1
-        .client
-        .add_route(dtrd3.node_id.clone(), dtrd2.node_id.clone())
-        .await?;
-    dtrd1
-        .client
-        .submit_bundle(
-            &dtrd3.with_node_id("testendpoint"),
-            60,
-            DUMMY_DATA.as_bytes(),
-            false,
-        )
-        .await?;
-    let data = dtrd3
-        .client
-        .receive_bundle(&dtrd3.with_node_id("testendpoint"))
-        .timeout(Duration::from_secs(10))
-        .await??;
-    assert_eq!(&String::from_utf8(data)?, DUMMY_DATA);
-    dtrd1.stop().await?;
-    dtrd2.stop().await?;
-    dtrd3.stop().await?;
-    Ok(())
+    with_dtrds(3, async |mut dtrds| {
+        let dtrd1 = dtrds.pop().unwrap();
+        let dtrd2 = dtrds.pop().unwrap();
+        let dtrd3 = dtrds.pop().unwrap();
+        dtrd1.connect_to(dtrd2).await?;
+        dtrd2.connect_to(dtrd3).await?;
+        dtrd1
+            .client
+            .add_route(dtrd3.node_id.clone(), dtrd2.node_id.clone())
+            .await?;
+        dtrd1
+            .client
+            .submit_bundle(
+                &dtrd3.with_node_id("testendpoint"),
+                60,
+                DUMMY_DATA.as_bytes(),
+                false,
+            )
+            .await?;
+        let data = dtrd3
+            .client
+            .receive_bundle(&dtrd3.with_node_id("testendpoint"))
+            .await?;
+        assert_eq!(&String::from_utf8(data)?, DUMMY_DATA);
+        Ok(())
+    })
+    .await
 }
