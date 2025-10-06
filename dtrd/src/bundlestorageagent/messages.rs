@@ -17,13 +17,19 @@
 
 use bp7::endpoint::Endpoint;
 
-use crate::bundlestorageagent::StoredBundleRef;
+use crate::bundlestorageagent::{State, StoredBundleRef};
 
 use actix::prelude::*;
 
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct EventNewBundleStored {
+    pub bundle: StoredBundleRef,
+}
+
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct EventBundleUpdated {
     pub bundle: StoredBundleRef,
 }
 
@@ -41,15 +47,17 @@ pub struct StoreNewBundle {
 
 #[derive(Message)]
 #[rtype(result = "()")]
-pub struct FragmentBundle {
+pub struct UpdateBundle {
     pub bundleref: StoredBundleRef,
-    pub target_size: u64,
+    pub new_state: State,
+    pub new_data: Option<Vec<u8>>,
 }
 
 #[derive(Message)]
 #[rtype(result = "()")]
-pub struct DeleteBundle {
-    pub bundle: StoredBundleRef,
+pub struct FragmentBundle {
+    pub bundleref: StoredBundleRef,
+    pub target_size: u64,
 }
 
 #[derive(Message)]

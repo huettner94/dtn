@@ -179,7 +179,9 @@ impl<'de: 'a, 'a> Deserialize<'de> for CanonicalBlock<'a> {
                     Ok(BlockType::Payload) => Block::Payload(PayloadBlock { data: data_bytes }),
                     Ok(BlockType::PreviousNode) => {
                         let data: Vec<u8> = Vec::from(data_bytes);
-                        Block::PreviousNode(PreviousNodeBlock { data })
+                        Block::PreviousNode(
+                            PreviousNodeBlock::try_from(data).map_err(Error::custom)?,
+                        )
                     }
                     Ok(BlockType::BundleAge) => {
                         let data: Vec<u8> = Vec::from(data_bytes);

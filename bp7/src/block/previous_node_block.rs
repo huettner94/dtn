@@ -15,25 +15,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use std::convert::TryFrom;
-
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{Validate, endpoint::Endpoint};
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct PreviousNodeBlock {
-    //TODO: this should probably be something more reasonable
-    pub data: Vec<u8>,
-}
-
-impl Serialize for PreviousNodeBlock {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_bytes(&self.data)
-    }
+    pub previous_node: Endpoint,
 }
 
 impl Validate for PreviousNodeBlock {
@@ -42,19 +31,10 @@ impl Validate for PreviousNodeBlock {
     }
 }
 
-impl TryFrom<PreviousNodeBlock> for Endpoint {
+impl TryFrom<Vec<u8>> for PreviousNodeBlock {
     type Error = serde_cbor::Error;
 
-    fn try_from(value: PreviousNodeBlock) -> Result<Self, Self::Error> {
-        serde_cbor::from_slice(&value.data)
-    }
-}
-
-impl TryFrom<Endpoint> for PreviousNodeBlock {
-    type Error = serde_cbor::Error;
-
-    fn try_from(value: Endpoint) -> Result<Self, Self::Error> {
-        let data = serde_cbor::to_vec(&value)?;
-        Ok(PreviousNodeBlock { data })
+    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+        serde_cbor::from_slice(&value)
     }
 }

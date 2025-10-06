@@ -22,10 +22,17 @@ use crate::Validate;
 
 bitflags! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    /// Block Processing Control Flags
+    ///
+    /// see 4.2.4 of RFC9171 for details.
     pub struct BlockFlags: u64 {
+        /// Block must be replicated in every fragment.
         const MUST_REPLICATE_TO_ALL_FRAGMENTS = 0x01;
+        /// Transmit status report if block can't be processed.
         const STATUS_REPORT_REQUESTED_WHEN_NOT_PROCESSABLE = 0x02;
+        /// Delete bundle if block can't be processed.
         const DELETE_BUNDLE_WHEN_NOT_PROCESSABLE = 0x04;
+        /// Discard block if it can't be processed.
         const DELETE_BLOCK_WHEN_NOT_PROCESSABLE = 0x10;
     }
 }

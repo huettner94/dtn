@@ -15,16 +15,24 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+use std::sync::Arc;
+
 use bp7::{bundle::Bundle, endpoint::Endpoint, time::DtnTime};
 use log::{debug, warn};
 
-use crate::{bundlestorageagent::StoredBundleRef, common::settings::Settings};
+use crate::{
+    bundlestorageagent::{
+        State, StoredBundleRef,
+        messages::{EventBundleUpdated, UpdateBundle},
+    },
+    common::settings::Settings,
+};
 
 use super::{
     StoredBundle,
     messages::{
-        DeleteBundle, EventNewBundleStored, FragmentBundle, GetBundleForDestination,
-        GetBundleForNode, StoreBundle, StoreNewBundle,
+        EventNewBundleStored, FragmentBundle, GetBundleForDestination, GetBundleForNode,
+        StoreBundle, StoreNewBundle,
     },
 };
 use actix::prelude::*;
@@ -178,13 +186,35 @@ impl Handler<FragmentBundle> for Daemon {
     }
 }
 
-impl Handler<DeleteBundle> for Daemon {
+impl Handler<UpdateBundle> for Daemon {
     type Result = ();
 
-    fn handle(&mut self, msg: DeleteBundle, _ctx: &mut Context<Self>) {
-        let DeleteBundle { bundle } = msg;
-        if let Some(idx) = self.bundles.iter().position(|b| b == bundle) {
-            self.bundles.remove(idx);
+    fn handle(&mut self, msg: UpdateBundle, _ctx: &mut Context<Self>) {
+        let UpdateBundle {
+            bundleref,
+            new_state,
+            new_data,
+        } = msg;
+        if let Some(idx) = self.bundles.iter().position(|b| b == bundleref) {
+            let mut bundle = self.bundles.remove(idx);
+            match new_state {
+                State::Received
+                | State::Valid
+                | State::DeliveryQueued
+                | State::ForwardingQueued => {
+                    bundle.state = new_state;
+                    if let Some(data) = new_data {
+                        bundle.bundle_data = Arc::new(data);
+                    }
+                    let sbr = bundle.get_ref();
+                    self.bundles.push(bundle);
+                    crate::bundleprotocolagent::agent::Daemon::from_registry()
+                        .do_send(EventBundleUpdated { bundle: sbr });
+                }
+                State::Delivered | State::Forwarded | State::Invalid => {
+                    // We are done
+                }
+            }
         }
     }
 }

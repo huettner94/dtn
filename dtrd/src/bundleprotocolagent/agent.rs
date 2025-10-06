@@ -22,8 +22,10 @@ use std::{
 
 use crate::{
     bundlestorageagent::{
-        StoredBundleRef,
-        messages::{DeleteBundle, EventNewBundleStored, FragmentBundle, StoreNewBundle},
+        State, StoredBundleRef,
+        messages::{
+            EventBundleUpdated, EventNewBundleStored, FragmentBundle, StoreNewBundle, UpdateBundle,
+        },
     },
     clientagent::messages::{
         ClientDeliverBundle, EventBundleDelivered, EventBundleDeliveryFailed, EventClientConnected,
@@ -83,22 +85,69 @@ impl SystemService for Daemon {}
 impl Handler<EventNewBundleStored> for Daemon {
     type Result = ();
 
-    fn handle(&mut self, msg: EventNewBundleStored, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: EventNewBundleStored, _ctx: &mut Self::Context) -> Self::Result {
         let EventNewBundleStored { bundle } = msg;
-        let destination = bundle.get_primary_block().destination_endpoint.clone();
-        if self.endpoint.as_ref().unwrap().matches_node(&destination) {
-            self.local_bundles
-                .entry(destination.clone())
-                .or_default()
-                .push_back(bundle);
-            self.deliver_local_bundles(&destination, ctx);
-        } else {
+        // TODO: validation
+        if !bundle
+            .get_primary_block()
+            .source_node
+            .matches_node(self.endpoint.as_ref().unwrap())
+        {
             self.send_status_report_received(&bundle);
-            self.remote_bundles
-                .entry(destination.get_node_endpoint())
-                .or_default()
-                .push_back(bundle);
-            self.deliver_remote_bundles(&destination, ctx);
+        }
+        crate::bundlestorageagent::agent::Daemon::from_registry().do_send(UpdateBundle {
+            bundleref: bundle,
+            new_state: State::Valid,
+            new_data: None,
+        });
+    }
+}
+
+impl Handler<EventBundleUpdated> for Daemon {
+    type Result = ();
+
+    fn handle(&mut self, msg: EventBundleUpdated, ctx: &mut Self::Context) -> Self::Result {
+        let EventBundleUpdated { bundle } = msg;
+        let destination = bundle.get_primary_block().destination_endpoint.clone();
+        match bundle.get_state() {
+            State::Received => unreachable!(),
+            State::Valid => {
+                if self.endpoint.as_ref().unwrap().matches_node(&destination) {
+                    crate::bundlestorageagent::agent::Daemon::from_registry().do_send(
+                        UpdateBundle {
+                            bundleref: bundle,
+                            new_state: State::DeliveryQueued,
+                            new_data: None,
+                        },
+                    );
+                } else {
+                    // TODO: adjust hop count and so
+                    crate::bundlestorageagent::agent::Daemon::from_registry().do_send(
+                        UpdateBundle {
+                            bundleref: bundle,
+                            new_state: State::ForwardingQueued,
+                            new_data: None,
+                        },
+                    );
+                }
+            }
+            State::DeliveryQueued => {
+                self.local_bundles
+                    .entry(destination.clone())
+                    .or_default()
+                    .push_back(bundle);
+                self.deliver_local_bundles(&destination, ctx);
+            }
+            State::ForwardingQueued => {
+                self.remote_bundles
+                    .entry(destination.get_node_endpoint())
+                    .or_default()
+                    .push_back(bundle);
+                self.deliver_remote_bundles(&destination, ctx);
+            }
+            State::Delivered | State::Forwarded | State::Invalid => {
+                // Ignoring, all is done from our side
+            }
         }
     }
 }
@@ -113,7 +162,11 @@ impl Handler<EventBundleDelivered> for Daemon {
         }
         self.send_status_report_delivered(&bundle);
 
-        crate::bundlestorageagent::agent::Daemon::from_registry().do_send(DeleteBundle { bundle });
+        crate::bundlestorageagent::agent::Daemon::from_registry().do_send(UpdateBundle {
+            bundleref: bundle,
+            new_state: State::Delivered,
+            new_data: None,
+        });
 
         self.deliver_local_bundles(&endpoint, ctx);
     }
@@ -199,7 +252,11 @@ impl Handler<EventBundleForwarded> for Daemon {
         }
         self.send_status_report_forwarded(&bundle);
 
-        crate::bundlestorageagent::agent::Daemon::from_registry().do_send(DeleteBundle { bundle });
+        crate::bundlestorageagent::agent::Daemon::from_registry().do_send(UpdateBundle {
+            bundleref: bundle,
+            new_state: State::Forwarded,
+            new_data: None,
+        });
 
         self.deliver_remote_bundles(&endpoint, ctx);
     }
@@ -326,7 +383,7 @@ impl Daemon {
         };
 
         if let Some(queue) = self.remote_bundles.get_mut(&destination) {
-            let mut visited: HashSet<uuid::Uuid> = HashSet::new();
+            let mut visited: HashSet<String> = HashSet::new();
             while let Some(bundle) = queue.pop_front() {
                 if visited.contains(&bundle.get_id()) {
                     queue.push_front(bundle);
