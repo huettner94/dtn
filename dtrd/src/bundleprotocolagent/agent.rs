@@ -627,7 +627,7 @@ impl Daemon {
             .unwrap()
             .matches_node(&bundle.primary_block.source_node)
         {
-           bundle.set_previous_node(self.endpoint.as_ref().unwrap());
+            bundle.set_previous_node(self.endpoint.as_ref().unwrap());
         }
         if !bundle.inc_hop_count(HOP_LIMIT_DEFAULT) {
             return Err(BundleStatusReason::HopLimitExceeded);

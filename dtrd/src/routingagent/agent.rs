@@ -101,12 +101,12 @@ impl Handler<RemoveRoute> for Daemon {
             if target == next_hop {
                 debug!("Removed direct route for {target} from routing table");
             } else {
-                debug!(
-                    "Removed route for {target} via {next_hop} from routing table"
-                );
+                debug!("Removed route for {target} via {next_hop} from routing table");
             }
             self.send_route_update();
-        } else { warn!("No route found to remove for {target} over {next_hop}") }
+        } else {
+            warn!("No route found to remove for {target} over {next_hop}")
+        }
     }
 }
 
@@ -123,13 +123,19 @@ impl Daemon {
         let routes: HashMap<Endpoint, NexthopInfo> = self
             .get_routes()
             .into_iter()
-            .filter_map(|rs| if rs.preferred { Some((
-                rs.target,
-                NexthopInfo {
-                    next_hop: rs.next_hop,
-                    max_size: rs.max_bundle_size,
-                },
-            )) } else { None })
+            .filter_map(|rs| {
+                if rs.preferred {
+                    Some((
+                        rs.target,
+                        NexthopInfo {
+                            next_hop: rs.next_hop,
+                            max_size: rs.max_bundle_size,
+                        },
+                    ))
+                } else {
+                    None
+                }
+            })
             .collect();
 
         if let Some(lrt) = &self.last_routing_table
