@@ -18,6 +18,8 @@
 use std::sync::atomic::AtomicU16;
 use std::{process::Stdio, time::Duration};
 
+use bp7::administrative_record::AdministrativeRecord;
+use bp7::administrative_record::bundle_status_report::BundleStatusReason;
 use tokio::{
     process::{Child, Command},
     time::sleep,
@@ -41,6 +43,7 @@ impl DtrdRunner {
             .env("NODE_ID", node_id)
             .env("GRPC_CLIENTAPI_ADDRESS", format!("127.0.0.1:{grpc_port}"))
             .env("TCPCL_LISTEN_ADDRESS", format!("127.0.0.1:{tcpcl_port}"))
+            //.env("RUST_LOG", "debug")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?;
@@ -48,7 +51,8 @@ impl DtrdRunner {
         Ok(DtrdRunner { cmd: Some(cmd) })
     }
 
-    async fn stop(mut self) -> Res<()> {
+    async fn stop(mut self, allowed_messages: &[String]) -> Res<()> {
+        let mut out = Ok(());
         unsafe {
             #[allow(clippy::cast_possible_wrap)]
             libc::kill(
@@ -58,7 +62,7 @@ impl DtrdRunner {
         }
         let output = self.cmd.take().unwrap().wait_with_output().await?;
         if output.status.code().unwrap() != 0 {
-            return Err("Did not exit with 0".into());
+            out = Err("Did not exit with 0".into());
         }
 
         // We log to stderr per default
@@ -67,17 +71,21 @@ impl DtrdRunner {
 
         for line in lines {
             println!("{line}");
-            if !line.split(']').next().unwrap().contains(" INFO ") {
-                return Err("Had log line that was not INFO".into());
+            // Explicit allowlisted error.
+            if allowed_messages.iter().any(|e| line.contains(e)) {
+                continue;
+            }
+            if !line.split(']').next().unwrap().contains(" INFO ") && out.is_ok() {
+                out = Err("Had log line that was not INFO".into());
             }
         }
 
         let stdout = String::from_utf8(output.stdout).unwrap();
-        if !stdout.is_empty() {
-            return Err("Stdout was not empty".into());
+        if !stdout.is_empty() && out.is_ok() {
+            out = Err("Stdout was not empty".into());
         }
 
-        Ok(())
+        out
     }
 }
 
@@ -99,6 +107,7 @@ struct Dtrd {
     grpc_port: u16,
     tcpcl_port: u16,
     node_id: String,
+    allowed_messages: Vec<String>,
 }
 
 impl Dtrd {
@@ -115,11 +124,16 @@ impl Dtrd {
             grpc_port,
             tcpcl_port,
             node_id,
+            allowed_messages: Vec::new(),
         })
     }
 
     async fn stop(self) -> Res<()> {
-        self.runner.stop().await
+        self.runner.stop(&self.allowed_messages).await
+    }
+
+    fn allow_message(&mut self, msg: &str) {
+        self.allowed_messages.push(msg.to_string());
     }
 
     fn with_node_id(&self, suffix: &str) -> String {
@@ -162,6 +176,7 @@ where
     };
 
     for dtrd in dtrds {
+        println!("\nStopping {}:", dtrd.grpc_port);
         if let Err(e) = dtrd.stop().await
             && out.is_ok()
         {
@@ -244,6 +259,45 @@ async fn delivers_bundles_routed() -> Result<(), Box<dyn std::error::Error>> {
             .receive_bundle(&dtrd3.with_node_id("testendpoint"))
             .await?;
         assert_eq!(&String::from_utf8(data)?, DUMMY_DATA);
+        Ok(())
+    })
+    .await
+}
+
+#[tokio::test]
+async fn hop_count_causes_expiry() -> Result<(), Box<dyn std::error::Error>> {
+    const LOOP_NODE: &str = "dtn://thisnodedoesnotexist";
+    with_dtrds(2, async |mut dtrds| {
+        let dtrd1 = dtrds.pop().unwrap();
+        let dtrd2 = dtrds.pop().unwrap();
+        dtrd1.connect_to(dtrd2).await?;
+        dtrd1
+            .client
+            .add_route(LOOP_NODE.to_string(), dtrd2.node_id.clone())
+            .await?;
+        dtrd2
+            .client
+            .add_route(LOOP_NODE.to_string(), dtrd1.node_id.clone())
+            .await?;
+        dtrd1
+            .client
+            .submit_bundle(LOOP_NODE, 60, DUMMY_DATA.as_bytes(), false)
+            .await?;
+
+        // We should now get a hop limit exceeded message back
+        let data = dtrd1.client.receive_bundle(&dtrd1.node_id).await?;
+        if let Ok(AdministrativeRecord::BundleStatusReport(bsr)) =
+            AdministrativeRecord::try_from(data)
+        {
+            assert_eq!(bsr.reason, BundleStatusReason::HopLimitExceeded);
+            assert!(bsr.status_information.deleted_bundle.is_asserted);
+        } else {
+            unreachable!();
+        }
+
+        // Allow this warning message
+        dtrd2.allow_message("forwarding bundle failed: HopLimitExceeded");
+
         Ok(())
     })
     .await
