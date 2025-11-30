@@ -50,6 +50,9 @@ async fn main() {
 
     let clientagent_addr = clientagent::agent::Daemon::default().start();
 
+    // Just to trigger bundle loading on startup
+    bundlestorageagent::agent::Daemon::default().start();
+
     let api_agent_task_shutdown_notifier = notify_shutdown.subscribe();
     let api_agent_task_shutdown_complete_tx_task = shutdown_complete_tx.clone();
     let api_agent_clientagent_addr = clientagent_addr.clone();

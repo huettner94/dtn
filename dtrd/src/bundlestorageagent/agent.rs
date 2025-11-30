@@ -15,10 +15,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use bp7::{bundle::Bundle, endpoint::Endpoint, time::DtnTime};
-use log::{debug, warn};
+use log::{debug, info, warn};
+use tokio::{fs, io::AsyncWriteExt};
 
 use crate::{
     bundlestorageagent::{
@@ -41,21 +42,96 @@ use actix::prelude::*;
 pub struct Daemon {
     bundles: Vec<StoredBundle>,
     endpoint: Option<Endpoint>,
+    storage_path: PathBuf,
     last_created_dtn_time: Option<DtnTime>,
     last_sequence_number: u64,
 }
 
 impl Actor for Daemon {
     type Context = Context<Self>;
-    fn started(&mut self, _ctx: &mut Context<Self>) {
+    fn started(&mut self, ctx: &mut Context<Self>) {
         let settings = Settings::from_env();
         self.endpoint = Some(Endpoint::new(&settings.my_node_id).unwrap());
+        self.storage_path = settings
+            .bundle_storage_path
+            .expect("Require a bundle storage path")
+            .into();
+
+        let storage_path = self.storage_path.clone();
+        let fut = async move {
+            info!("Loading existing bundles");
+            let meta = fs::metadata(&storage_path).await;
+            assert!(
+                meta.is_ok(),
+                "Bundle storage path must point to an existing directory"
+            );
+            if let Ok(m) = meta
+                && !m.is_dir()
+            {
+                panic!("Bundle storage path must point to a valid directory");
+            }
+
+            let mut existing_bundles = Vec::new();
+
+            let mut readdir = fs::read_dir(&storage_path)
+                .await
+                .expect("Failed to read existing bundles");
+
+            while let Some(entry) = readdir
+                .next_entry()
+                .await
+                .expect("Failed to read dir entry")
+            {
+                debug!(
+                    "Loading existing bundle from {}",
+                    entry.path().to_string_lossy()
+                );
+                let meta = entry.metadata().await.expect("Failed to read metadata");
+                if !meta.is_file() {
+                    warn!(
+                        "Skip loading existing bundle {} as it is not a file",
+                        entry.path().to_string_lossy()
+                    );
+                    continue;
+                }
+
+                let content = fs::read(entry.path()).await.expect("Failed to read bundle");
+                let mut sb = StoredBundle::from(content);
+                if sb.get_filename()
+                    != entry
+                        .path()
+                        .file_name()
+                        .expect("Can not happen")
+                        .to_string_lossy()
+                {
+                    panic!("No idea how we ended up here, someone wrote something wrong");
+                }
+                info!("Loaded bundle {}", sb.get_id());
+                sb.state = State::Valid;
+                existing_bundles.push(sb);
+            }
+
+            existing_bundles
+        };
+        fut.into_actor(self)
+            .then(|bundles, act, _ctx| {
+                act.bundles = bundles;
+                for bundle in &act.bundles {
+                    crate::bundleprotocolagent::agent::Daemon::from_registry().do_send(
+                        EventNewBundleStored {
+                            bundle: bundle.get_ref(),
+                        },
+                    );
+                }
+                fut::ready(())
+            })
+            .wait(ctx);
     }
 
     fn stopped(&mut self, _ctx: &mut Context<Self>) {
         if !self.bundles.is_empty() {
-            warn!(
-                "BSA had {} bundles left over, they will be gone now.",
+            info!(
+                "BSA had {} bundles left over, they will be resend on restart.",
                 self.bundles.len()
             );
         }
@@ -177,7 +253,7 @@ impl Handler<FragmentBundle> for Daemon {
 impl Handler<UpdateBundle> for Daemon {
     type Result = ();
 
-    fn handle(&mut self, msg: UpdateBundle, _ctx: &mut Context<Self>) {
+    fn handle(&mut self, msg: UpdateBundle, ctx: &mut Context<Self>) {
         let UpdateBundle {
             bundleref,
             new_state,
@@ -185,23 +261,59 @@ impl Handler<UpdateBundle> for Daemon {
         } = msg;
         if let Some(idx) = self.bundles.iter().position(|b| b == bundleref) {
             let mut bundle = self.bundles.remove(idx);
-            match new_state {
-                State::Received
-                | State::Valid
-                | State::DeliveryQueued
-                | State::ForwardingQueued => {
-                    bundle.state = new_state;
-                    if let Some(data) = new_data {
-                        bundle.bundle_data = Arc::new(data);
-                    }
-                    let sbr = bundle.get_ref();
-                    self.bundles.push(bundle);
-                    crate::bundleprotocolagent::agent::Daemon::from_registry()
-                        .do_send(EventBundleUpdated { bundle: sbr });
+
+            if matches!(new_state, State::Valid) && !matches!(bundle.state, State::Valid) {
+                // Since the bundle is now valid for the first time we should store it.
+                // We need to exclude existing valid bundles, otherwise we redo this on startup.
+                let mut path = self.storage_path.clone();
+                path.push(bundle.get_filename());
+                debug!("Storing bundle to {}", path.to_string_lossy());
+                let data = bundle.bundle_data.clone();
+                let fut = async move {
+                    let mut file = fs::File::create_new(path).await?;
+                    file.write_all(&data).await?;
+                    file.sync_all().await?;
+                    Ok(())
+                };
+                fut.into_actor(self)
+                    .then(|res: std::io::Result<()>, _act, _ctx| {
+                        if let Err(e) = res {
+                            warn!("Failed to write: {e}");
+                        }
+                        fut::ready(())
+                    })
+                    .wait(ctx);
+            }
+
+            if matches!(
+                new_state,
+                State::Valid | State::DeliveryQueued | State::ForwardingQueued
+            ) {
+                bundle.state = new_state;
+                if let Some(data) = new_data {
+                    bundle.bundle_data = Arc::new(data);
+                    // TODO: we need to write the file again
                 }
-                State::Delivered | State::Forwarded | State::Invalid => {
-                    // We are done
-                }
+                let sbr = bundle.get_ref();
+                self.bundles.push(bundle);
+                crate::bundleprotocolagent::agent::Daemon::from_registry()
+                    .do_send(EventBundleUpdated { bundle: sbr });
+            } else if matches!(
+                new_state,
+                State::Delivered | State::Forwarded | State::Invalid
+            ) {
+                // We are done, delete the file
+                let mut path = self.storage_path.clone();
+                path.push(bundle.get_filename());
+                let fut = async move { fs::remove_file(path).await };
+                fut.into_actor(self)
+                    .then(|res, _act, _ctx| {
+                        if let Err(e) = res {
+                            warn!("Failed to delete bundle: {e}");
+                        }
+                        fut::ready(())
+                    })
+                    .spawn(ctx);
             }
         }
     }

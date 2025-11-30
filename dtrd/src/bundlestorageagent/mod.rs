@@ -72,6 +72,10 @@ impl StoredBundle {
         id_from_pb(&self.primary_block)
     }
 
+    pub fn get_filename(&self) -> String {
+        id_from_pb(&self.primary_block).replace('/', "_")
+    }
+
     pub fn get_bundle(&self) -> Bundle<'_> {
         self.bundle_data.as_slice().try_into().unwrap()
     }

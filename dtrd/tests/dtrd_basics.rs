@@ -15,11 +15,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicU16;
 use std::{process::Stdio, time::Duration};
 
 use bp7::administrative_record::AdministrativeRecord;
 use bp7::administrative_record::bundle_status_report::BundleStatusReason;
+use tokio::fs;
 use tokio::{
     process::{Child, Command},
     time::sleep,
@@ -38,21 +40,45 @@ struct DtrdRunner {
 }
 
 impl DtrdRunner {
-    async fn new(node_id: &str, grpc_port: u16, tcpcl_port: u16) -> Res<Self> {
+    async fn new(node_id: &str, grpc_port: u16, tcpcl_port: u16, bundle_dir: &Path) -> Res<Self> {
+        let mut runner = DtrdRunner { cmd: None };
+        runner
+            .start(node_id, grpc_port, tcpcl_port, bundle_dir)
+            .await?;
+        Ok(runner)
+    }
+
+    async fn start(
+        &mut self,
+        node_id: &str,
+        grpc_port: u16,
+        tcpcl_port: u16,
+        bundle_dir: &Path,
+    ) -> Res<()> {
+        assert!(self.cmd.is_none(), "need to stop first");
         let cmd = Command::new(DTRD_BIN_PATH)
             .env("NODE_ID", node_id)
             .env("GRPC_CLIENTAPI_ADDRESS", format!("127.0.0.1:{grpc_port}"))
             .env("TCPCL_LISTEN_ADDRESS", format!("127.0.0.1:{tcpcl_port}"))
+            .env(
+                "BUNDLE_STORAGE_PATH",
+                bundle_dir.to_string_lossy().to_string(),
+            )
             //.env("RUST_LOG", "debug")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?;
         sleep(Duration::from_secs(1)).await;
-        Ok(DtrdRunner { cmd: Some(cmd) })
+        self.cmd = Some(cmd);
+        Ok(())
     }
 
-    async fn stop(mut self, allowed_messages: &[String]) -> Res<()> {
+    async fn stop(&mut self, allowed_messages: &[String]) -> Res<()> {
         let mut out = Ok(());
+        if self.cmd.is_none() {
+            // We were stopping anyway so we are either fine or have already an error
+            return Ok(());
+        }
         unsafe {
             #[allow(clippy::cast_possible_wrap)]
             libc::kill(
@@ -75,8 +101,9 @@ impl DtrdRunner {
             if allowed_messages.iter().any(|e| line.contains(e)) {
                 continue;
             }
-            if !line.split(']').next().unwrap().contains(" INFO ") && out.is_ok() {
-                out = Err("Had log line that was not INFO".into());
+            let header = line.split(']').next().unwrap();
+            if !(header.contains(" INFO ") || header.contains(" DEBUG ")) && out.is_ok() {
+                out = Err("Had log line that was not INFO or DEBUG".into());
             }
         }
 
@@ -107,6 +134,8 @@ struct Dtrd {
     grpc_port: u16,
     tcpcl_port: u16,
     node_id: String,
+    tmpdir: PathBuf,
+    bundle_dir: PathBuf,
     allowed_messages: Vec<String>,
 }
 
@@ -116,20 +145,44 @@ impl Dtrd {
         let node_id = format!("dtn://testrunnode{port_range}");
         let grpc_port = port_range + 1;
         let tcpcl_port = port_range + 2;
-        let runner = DtrdRunner::new(&node_id, grpc_port, tcpcl_port).await?;
+
+        let mut tmpdir = std::env::temp_dir();
+        tmpdir.push(format!("dtrd-ci-test-{port_range}"));
+        let _ = fs::remove_dir_all(&tmpdir).await;
+
+        let mut bundle_dir = tmpdir.clone();
+        bundle_dir.push("bundles");
+        fs::create_dir_all(&bundle_dir).await?;
+
+        let runner = DtrdRunner::new(&node_id, grpc_port, tcpcl_port, &bundle_dir).await?;
+
         let client = dtrd_client::Client::new(&format!("http://127.0.0.1:{grpc_port}")).await?;
+
         Ok(Dtrd {
             runner,
             client,
             grpc_port,
             tcpcl_port,
             node_id,
+            tmpdir,
+            bundle_dir,
             allowed_messages: Vec::new(),
         })
     }
 
-    async fn stop(self) -> Res<()> {
+    async fn stop(&mut self) -> Res<()> {
         self.runner.stop(&self.allowed_messages).await
+    }
+
+    async fn restart(&mut self) -> Res<()> {
+        self.runner
+            .start(
+                &self.node_id,
+                self.grpc_port,
+                self.tcpcl_port,
+                &self.bundle_dir,
+            )
+            .await
     }
 
     fn allow_message(&mut self, msg: &str) {
@@ -156,6 +209,12 @@ impl Dtrd {
     }
 }
 
+impl Drop for Dtrd {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.tmpdir);
+    }
+}
+
 async fn with_dtrds<F>(count: usize, func: F) -> Result<(), Box<dyn std::error::Error>>
 where
     F: AsyncFnOnce(Vec<&mut Dtrd>) -> Result<(), Box<dyn std::error::Error>>,
@@ -175,7 +234,7 @@ where
         Err(_) => Err("timeout".into()),
     };
 
-    for dtrd in dtrds {
+    for mut dtrd in dtrds {
         println!("\nStopping {}:", dtrd.grpc_port);
         if let Err(e) = dtrd.stop().await
             && out.is_ok()
@@ -298,6 +357,33 @@ async fn hop_count_causes_expiry() -> Result<(), Box<dyn std::error::Error>> {
         // Allow this warning message
         dtrd2.allow_message("forwarding bundle failed: HopLimitExceeded");
 
+        Ok(())
+    })
+    .await
+}
+
+#[tokio::test]
+async fn bundle_stored_across_restarts() -> Result<(), Box<dyn std::error::Error>> {
+    with_dtrds(1, async |mut dtrds| {
+        let dtrd = dtrds.pop().unwrap();
+        dtrd.client
+            .submit_bundle(
+                &dtrd.with_node_id("testendpoint"),
+                60,
+                DUMMY_DATA.as_bytes(),
+                false,
+            )
+            .await?;
+
+        // Restart and check if the bundle is there afterwards
+        dtrd.stop().await?;
+        dtrd.restart().await?;
+
+        let data = dtrd
+            .client
+            .receive_bundle(&dtrd.with_node_id("testendpoint"))
+            .await?;
+        assert_eq!(&String::from_utf8(data)?, DUMMY_DATA);
         Ok(())
     })
     .await
