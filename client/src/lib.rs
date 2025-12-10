@@ -16,6 +16,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 use std::str::FromStr;
+use std::time::Duration;
 
 use crate::error::Error;
 use adminservice::Node;
@@ -59,7 +60,10 @@ impl Client {
     #[maybe_async]
     pub async fn new(url: &str) -> Result<Self, Error> {
         let uri = Uri::from_str(url)?;
-        let channel = Channel::builder(uri).connect().await?;
+        let channel = Channel::builder(uri)
+            .timeout(Duration::from_secs(30))
+            .connect()
+            .await?;
         let admin_client = AdminServiceClient::new(channel.clone());
         let bundle_client = BundleServiceClient::new(channel);
         Ok(Self {
