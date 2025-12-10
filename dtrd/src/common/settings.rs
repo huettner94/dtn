@@ -22,7 +22,7 @@ pub struct Settings {
     pub my_node_id: String,
     pub tcpcl_listen_address: String,
     pub grpc_clientapi_address: String,
-    pub bundle_storage_path: Option<String>,
+    pub bundle_storage_path: String,
     pub tcpcl_certificate_path: Option<String>,
     pub tcpcl_key_path: Option<String>,
     pub tcpcl_trusted_certs_path: Option<String>,
@@ -35,7 +35,7 @@ impl Default for Settings {
             my_node_id: "dtn://defaultnodeid".into(),
             tcpcl_listen_address: "[::1]:4556".into(),
             grpc_clientapi_address: "[::1]:50051".into(),
-            bundle_storage_path: None,
+            bundle_storage_path: "/tmp".into(),
             tcpcl_certificate_path: None,
             tcpcl_key_path: None,
             tcpcl_trusted_certs_path: None,
@@ -57,7 +57,7 @@ impl Settings {
             settings.grpc_clientapi_address = setting;
         }
         if let Ok(setting) = env::var("BUNDLE_STORAGE_PATH") {
-            settings.bundle_storage_path = Some(setting);
+            settings.bundle_storage_path = setting;
         }
         if let Ok(setting) = env::var("TCPCL_CERTIFICATE_PATH") {
             settings.tcpcl_certificate_path = Some(setting);

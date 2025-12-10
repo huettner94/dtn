@@ -52,10 +52,7 @@ impl Actor for Daemon {
     fn started(&mut self, ctx: &mut Context<Self>) {
         let settings = Settings::from_env();
         self.endpoint = Some(Endpoint::new(&settings.my_node_id).unwrap());
-        self.storage_path = settings
-            .bundle_storage_path
-            .expect("Require a bundle storage path")
-            .into();
+        self.storage_path = settings.bundle_storage_path.into();
 
         let storage_path = self.storage_path.clone();
         let fut = async move {
