@@ -57,23 +57,24 @@ pub struct StoredBundle {
     primary_block: PrimaryBlock,
 }
 
-fn id_from_pb(pb: &PrimaryBlock) -> String {
+fn id_from_pb(pb: &PrimaryBlock, size: u64) -> String {
     format!(
-        "{}:{}:{}:{}",
+        "{}:{}:{}:{}:{}",
         pb.source_node,
         pb.creation_timestamp.creation_time.timestamp,
         pb.creation_timestamp.sequence_number,
-        pb.fragment_offset.unwrap_or_default()
+        pb.fragment_offset.unwrap_or_default(),
+        size,
     )
 }
 
 impl StoredBundle {
     pub fn get_id(&self) -> String {
-        id_from_pb(&self.primary_block)
+        id_from_pb(&self.primary_block, self.size)
     }
 
     pub fn get_filename(&self) -> String {
-        id_from_pb(&self.primary_block).replace('/', "_")
+        id_from_pb(&self.primary_block, self.size).replace('/', "_")
     }
 
     pub fn get_bundle(&self) -> Bundle<'_> {
@@ -145,7 +146,7 @@ pub struct StoredBundleRef {
 
 impl StoredBundleRef {
     pub fn get_id(&self) -> String {
-        id_from_pb(&self.primary_block)
+        id_from_pb(&self.primary_block, self.size)
     }
 
     pub fn get_bundle_data(&self) -> Option<Arc<Vec<u8>>> {
