@@ -17,7 +17,7 @@
 
 use std::{collections::HashMap, io, net::SocketAddr};
 
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use openssl::{pkey::PKey, x509::X509};
 use tcpcl::{TLSSettings, session::TCPCLSession};
 use tokio::{
@@ -184,7 +184,11 @@ impl Handler<DisconnectRemote> for TCPCLServer {
         debug!("disconnecting from {url}");
         if let Some(sess) = self.sessions.remove(&url) {
             sess.do_send(Shutdown {});
+            return;
         }
+        warn!("We do not know about a remote at {url}");
+        crate::converganceagent::agent::Daemon::from_registry()
+            .do_send(CLUnregisterNode { url, node: None });
     }
 }
 
