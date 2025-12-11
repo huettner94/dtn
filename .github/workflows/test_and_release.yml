@@ -57,7 +57,7 @@ jobs:
       - name: Cargo test
         run: cargo test
       - name: Cargo clippy
-        run: cargo clippy -Dwarnings
+        run: cargo clippy -- -Dwarnings
 
   release:
     name: Release
