@@ -30,6 +30,8 @@ pub enum State {
     /// Bundle is valid (e.g. structure + crc match),
     /// "received" status report has been sent.
     Valid,
+    /// Bundle must be defragmented before further processing.
+    DefragmentationPending,
     /// Bundle is ready for local delivery and awaiting sending
     /// to a local connection.
     DeliveryQueued,

@@ -23,9 +23,7 @@ use std::{
 use crate::{
     bundlestorageagent::{
         State, StoredBundleRef,
-        messages::{
-            EventBundleUpdated, EventNewBundleStored, FragmentBundle, StoreNewBundle, UpdateBundle,
-        },
+        messages::{EventBundleUpdated, FragmentBundle, StoreNewBundle, UpdateBundle},
     },
     clientagent::messages::{
         ClientDeliverBundle, EventBundleDelivered, EventBundleDeliveryFailed, EventClientConnected,
@@ -83,27 +81,6 @@ impl actix::Supervised for Daemon {}
 
 impl SystemService for Daemon {}
 
-impl Handler<EventNewBundleStored> for Daemon {
-    type Result = ();
-
-    fn handle(&mut self, msg: EventNewBundleStored, _ctx: &mut Self::Context) -> Self::Result {
-        let EventNewBundleStored { bundle } = msg;
-        // TODO: validation
-        if !bundle
-            .get_primary_block()
-            .source_node
-            .matches_node(self.endpoint.as_ref().unwrap())
-        {
-            self.send_status_report_received(&bundle);
-        }
-        crate::bundlestorageagent::agent::Daemon::from_registry().do_send(UpdateBundle {
-            bundleref: bundle,
-            new_state: State::Valid,
-            new_data: None,
-        });
-    }
-}
-
 impl Handler<EventBundleUpdated> for Daemon {
     type Result = ();
 
@@ -111,40 +88,44 @@ impl Handler<EventBundleUpdated> for Daemon {
         let EventBundleUpdated { bundle } = msg;
         let destination = bundle.get_primary_block().destination_endpoint.clone();
         match bundle.get_state() {
-            State::Received => unreachable!(),
-            State::Valid => {
-                if self.endpoint.as_ref().unwrap().matches_node(&destination) {
-                    crate::bundlestorageagent::agent::Daemon::from_registry().do_send(
-                        UpdateBundle {
-                            bundleref: bundle,
-                            new_state: State::DeliveryQueued,
-                            new_data: None,
-                        },
-                    );
-                } else {
-                    match self.forward_bundle(&bundle) {
-                        Ok(new_data) => {
-                            crate::bundlestorageagent::agent::Daemon::from_registry().do_send(
-                                UpdateBundle {
-                                    bundleref: bundle,
-                                    new_state: State::ForwardingQueued,
-                                    new_data: Some(new_data),
-                                },
-                            );
-                        }
-                        Err(e) => {
-                            warn!("forwarding bundle failed: {e:?}");
-                            self.send_status_report_deleted(&bundle, e);
-                            crate::bundlestorageagent::agent::Daemon::from_registry().do_send(
-                                UpdateBundle {
-                                    bundleref: bundle,
-                                    new_state: State::Invalid,
-                                    new_data: None,
-                                },
-                            );
-                        }
-                    }
+            State::Received => {
+                // TODO: validation
+                if !bundle
+                    .get_primary_block()
+                    .source_node
+                    .matches_node(self.endpoint.as_ref().unwrap())
+                {
+                    self.send_status_report_received(&bundle);
                 }
+                crate::bundlestorageagent::agent::Daemon::from_registry().do_send(UpdateBundle {
+                    bundleref: bundle,
+                    new_state: State::Valid,
+                    new_data: None,
+                });
+            }
+            State::Valid => {
+                let (new_state, new_data) =
+                    if self.endpoint.as_ref().unwrap().matches_node(&destination) {
+                        if bundle.get_primary_block().fragment_offset.is_some() {
+                            (State::DefragmentationPending, None)
+                        } else {
+                            (State::DeliveryQueued, None)
+                        }
+                    } else {
+                        match self.forward_bundle(&bundle) {
+                            Ok(new_data) => (State::ForwardingQueued, Some(new_data)),
+                            Err(e) => {
+                                warn!("forwarding bundle failed: {e:?}");
+                                self.send_status_report_deleted(&bundle, e);
+                                (State::Invalid, None)
+                            }
+                        }
+                    };
+                crate::bundlestorageagent::agent::Daemon::from_registry().do_send(UpdateBundle {
+                    bundleref: bundle,
+                    new_state,
+                    new_data,
+                });
             }
             State::DeliveryQueued => {
                 self.local_bundles
@@ -160,8 +141,12 @@ impl Handler<EventBundleUpdated> for Daemon {
                     .push_back(bundle);
                 self.deliver_remote_bundles(&destination, ctx);
             }
-            State::Delivered | State::Forwarded | State::Invalid => {
-                // Ignoring, all is done from our side
+            State::DefragmentationPending
+            | State::Delivered
+            | State::Forwarded
+            | State::Invalid => {
+                // For DefragmentationPending: Ignoring, we can not do anything here.
+                // For the rest: Ignoring, this bundle has finished processing.
             }
         }
     }
@@ -405,8 +390,8 @@ impl Daemon {
                     break;
                 }
                 debug!(
-                    "forwarding bundle {:?} to {:?}",
-                    &bundle.get_primary_block(),
+                    "forwarding bundle {} to {:?}",
+                    &bundle.get_id(),
                     destination
                 );
 
@@ -425,6 +410,10 @@ impl Daemon {
                             visited.insert(bundle.get_id());
                             queue.push_back(bundle);
                         } else {
+                            debug!(
+                                "Bundle {} is too large, need to fragment it to {mbs}",
+                                bundle.get_id()
+                            );
                             crate::bundlestorageagent::agent::Daemon::from_registry().do_send(
                                 FragmentBundle {
                                     bundleref: bundle,

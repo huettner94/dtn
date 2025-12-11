@@ -64,7 +64,7 @@ impl DtrdRunner {
                 "BUNDLE_STORAGE_PATH",
                 bundle_dir.to_string_lossy().to_string(),
             )
-            //.env("RUST_LOG", "debug")
+            .env("RUST_LOG", "info,dtrd=debug")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?;
@@ -110,6 +110,10 @@ impl DtrdRunner {
         let stdout = String::from_utf8(output.stdout).unwrap();
         if !stdout.is_empty() && out.is_ok() {
             out = Err("Stdout was not empty".into());
+        }
+        let lines = stdout.lines();
+        for line in lines {
+            println!("STDOUT: {line}");
         }
 
         out
@@ -248,7 +252,7 @@ where
 #[tokio::test]
 async fn delivers_bundles_locally() -> Result<(), Box<dyn std::error::Error>> {
     with_dtrds(1, async |mut dtrds| {
-        let dtrd = dtrds.pop().unwrap();
+        let dtrd = dtrds.remove(0);
         dtrd.client
             .submit_bundle(
                 &dtrd.with_node_id("testendpoint"),
@@ -270,8 +274,8 @@ async fn delivers_bundles_locally() -> Result<(), Box<dyn std::error::Error>> {
 #[tokio::test]
 async fn delivers_bundles_connected() -> Result<(), Box<dyn std::error::Error>> {
     with_dtrds(2, async |mut dtrds| {
-        let dtrd1 = dtrds.pop().unwrap();
-        let dtrd2 = dtrds.pop().unwrap();
+        let dtrd1 = dtrds.remove(0);
+        let dtrd2 = dtrds.remove(0);
         dtrd1.connect_to(dtrd2).await?;
         dtrd1
             .client
@@ -295,9 +299,9 @@ async fn delivers_bundles_connected() -> Result<(), Box<dyn std::error::Error>> 
 #[tokio::test]
 async fn delivers_bundles_routed() -> Result<(), Box<dyn std::error::Error>> {
     with_dtrds(3, async |mut dtrds| {
-        let dtrd1 = dtrds.pop().unwrap();
-        let dtrd2 = dtrds.pop().unwrap();
-        let dtrd3 = dtrds.pop().unwrap();
+        let dtrd1 = dtrds.remove(0);
+        let dtrd2 = dtrds.remove(0);
+        let dtrd3 = dtrds.remove(0);
         dtrd1.connect_to(dtrd2).await?;
         dtrd2.connect_to(dtrd3).await?;
         dtrd1
@@ -327,8 +331,8 @@ async fn delivers_bundles_routed() -> Result<(), Box<dyn std::error::Error>> {
 async fn hop_count_causes_expiry() -> Result<(), Box<dyn std::error::Error>> {
     const LOOP_NODE: &str = "dtn://thisnodedoesnotexist";
     with_dtrds(2, async |mut dtrds| {
-        let dtrd1 = dtrds.pop().unwrap();
-        let dtrd2 = dtrds.pop().unwrap();
+        let dtrd1 = dtrds.remove(0);
+        let dtrd2 = dtrds.remove(0);
         dtrd1.connect_to(dtrd2).await?;
         dtrd1
             .client
@@ -365,7 +369,7 @@ async fn hop_count_causes_expiry() -> Result<(), Box<dyn std::error::Error>> {
 #[tokio::test]
 async fn bundle_stored_across_restarts() -> Result<(), Box<dyn std::error::Error>> {
     with_dtrds(1, async |mut dtrds| {
-        let dtrd = dtrds.pop().unwrap();
+        let dtrd = dtrds.remove(0);
         dtrd.client
             .submit_bundle(
                 &dtrd.with_node_id("testendpoint"),
@@ -384,6 +388,35 @@ async fn bundle_stored_across_restarts() -> Result<(), Box<dyn std::error::Error
             .receive_bundle(&dtrd.with_node_id("testendpoint"))
             .await?;
         assert_eq!(&String::from_utf8(data)?, DUMMY_DATA);
+        Ok(())
+    })
+    .await
+}
+
+#[tokio::test]
+async fn delivers_bundles_fragmented() -> Result<(), Box<dyn std::error::Error>> {
+    with_dtrds(2, async |mut dtrds| {
+        let dtrd1 = dtrds.remove(0);
+        let dtrd2 = dtrds.remove(0);
+        dtrd1.connect_to(dtrd2).await?;
+
+        // We now need to generate a bundle larger than the tcpcl max transfer
+        // size. What is in there is something we can ignore.
+        let target_size = tcpcl::v4::messages::sess_init::MAX_TRANSFER_MRU;
+        let mut data = Vec::with_capacity(target_size);
+        while data.len() < target_size {
+            data.extend_from_slice(DUMMY_DATA.as_bytes());
+        }
+
+        dtrd1
+            .client
+            .submit_bundle(&dtrd2.with_node_id("testendpoint"), 60, &data, false)
+            .await?;
+        let received_data = dtrd2
+            .client
+            .receive_bundle(&dtrd2.with_node_id("testendpoint"))
+            .await?;
+        assert_eq!(data, received_data);
         Ok(())
     })
     .await

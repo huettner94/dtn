@@ -408,7 +408,7 @@ impl<'a> Bundle<'a> {
         if bundles[0].primary_block.fragment_offset.unwrap() != 0 {
             return false;
         }
-        let is_continiuous = match bundles
+        match bundles
             .iter()
             .map(|b| {
                 (
@@ -429,12 +429,7 @@ impl<'a> Bundle<'a> {
             }) {
             ControlFlow::Continue(len) => len == total_data_length,
             ControlFlow::Break(_) => false,
-        };
-        if !is_continiuous {
-            return false;
         }
-
-        true
     }
 
     pub fn reassemble_bundles(mut bundles: Vec<Bundle<'a>>) -> Result<Vec<u8>, Vec<Bundle<'a>>> {

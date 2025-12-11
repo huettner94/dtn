@@ -23,19 +23,13 @@ use actix::prelude::*;
 
 #[derive(Message)]
 #[rtype(result = "()")]
-pub struct EventNewBundleStored {
-    pub bundle: StoredBundleRef,
-}
-
-#[derive(Message)]
-#[rtype(result = "()")]
 pub struct EventBundleUpdated {
     pub bundle: StoredBundleRef,
 }
 
 #[derive(Message)]
 #[rtype(result = "()")]
-pub struct StoreBundle {
+pub struct StoreReceivedBundle {
     pub bundle_data: Vec<u8>,
 }
 

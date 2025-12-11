@@ -32,8 +32,8 @@ use crate::{
 use super::{
     StoredBundle,
     messages::{
-        EventNewBundleStored, FragmentBundle, GetBundleForDestination, GetBundleForNode,
-        StoreBundle, StoreNewBundle,
+        FragmentBundle, GetBundleForDestination, GetBundleForNode, StoreNewBundle,
+        StoreReceivedBundle,
     },
 };
 use actix::prelude::*;
@@ -115,7 +115,7 @@ impl Actor for Daemon {
                 act.bundles = bundles;
                 for bundle in &act.bundles {
                     crate::bundleprotocolagent::agent::Daemon::from_registry().do_send(
-                        EventNewBundleStored {
+                        EventBundleUpdated {
                             bundle: bundle.get_ref(),
                         },
                     );
@@ -139,12 +139,12 @@ impl actix::Supervised for Daemon {}
 
 impl SystemService for Daemon {}
 
-impl Handler<StoreBundle> for Daemon {
+impl Handler<StoreReceivedBundle> for Daemon {
     type Result = ();
 
-    fn handle(&mut self, msg: StoreBundle, _ctx: &mut Context<Self>) -> Self::Result {
-        let StoreBundle { bundle_data } = msg;
-        self.store_bundle(bundle_data, None);
+    fn handle(&mut self, msg: StoreReceivedBundle, ctx: &mut Context<Self>) -> Self::Result {
+        let StoreReceivedBundle { bundle_data } = msg;
+        self.store_bundle(ctx, bundle_data, None, State::Received, false);
     }
 }
 
@@ -182,14 +182,14 @@ impl Handler<StoreNewBundle> for Daemon {
         debug!("Decided sequence number {sequence_number:?} for new bundle",);
         bundle.primary_block.creation_timestamp.sequence_number = sequence_number;
 
-        debug!("Storing Bundle {:?} for later", bundle.primary_block);
+        debug!("Storing new Bundle {:?} for later", bundle.primary_block);
         let bundle_data: Vec<u8> = bundle.try_into().unwrap();
         let sb: StoredBundle = bundle_data.into();
         let sb_ref = sb.get_ref();
 
         self.bundles.push(sb);
         crate::bundleprotocolagent::agent::Daemon::from_registry()
-            .do_send(EventNewBundleStored { bundle: sb_ref });
+            .do_send(EventBundleUpdated { bundle: sb_ref });
 
         Ok(())
     }
@@ -198,7 +198,7 @@ impl Handler<StoreNewBundle> for Daemon {
 impl Handler<FragmentBundle> for Daemon {
     type Result = ();
 
-    fn handle(&mut self, msg: FragmentBundle, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: FragmentBundle, ctx: &mut Self::Context) -> Self::Result {
         let FragmentBundle {
             bundleref,
             target_size,
@@ -214,16 +214,28 @@ impl Handler<FragmentBundle> for Daemon {
             Ok((bundles, first_min_size, min_size)) => {
                 let mut iterator = bundles.into_iter();
                 self.store_bundle(
+                    ctx,
                     iterator
                         .next()
                         .expect("There must always be at least one")
                         .try_into()
                         .unwrap(),
                     Some(first_min_size),
+                    State::Valid,
+                    true,
                 );
+
                 for bundle in iterator {
-                    self.store_bundle(bundle.try_into().unwrap(), Some(min_size));
+                    self.store_bundle(
+                        ctx,
+                        bundle.try_into().unwrap(),
+                        Some(min_size),
+                        State::Valid,
+                        true,
+                    );
                 }
+
+                self.delete_bundle_file(ctx, &sb);
             }
             Err(e) => match e {
                 bp7::FragmentationError::SerializationError(e) => {
@@ -234,7 +246,7 @@ impl Handler<FragmentBundle> for Daemon {
                     let sbr = sb.get_ref();
                     self.bundles.push(sb);
                     crate::bundleprotocolagent::agent::Daemon::from_registry()
-                        .do_send(EventNewBundleStored { bundle: sbr });
+                        .do_send(EventBundleUpdated { bundle: sbr });
                 }
                 bp7::FragmentationError::MustNotFragment => {
                     panic!("Attempted to fragment a bundle that must not be fragmented")
@@ -262,55 +274,38 @@ impl Handler<UpdateBundle> for Daemon {
             if matches!(new_state, State::Valid) && !matches!(bundle.state, State::Valid) {
                 // Since the bundle is now valid for the first time we should store it.
                 // We need to exclude existing valid bundles, otherwise we redo this on startup.
-                let mut path = self.storage_path.clone();
-                path.push(bundle.get_filename());
-                debug!("Storing bundle to {}", path.to_string_lossy());
-                let data = bundle.bundle_data.clone();
-                let fut = async move {
-                    let mut file = fs::File::create_new(path).await?;
-                    file.write_all(&data).await?;
-                    file.sync_all().await?;
-                    Ok(())
-                };
-                fut.into_actor(self)
-                    .then(|res: std::io::Result<()>, _act, _ctx| {
-                        if let Err(e) = res {
-                            warn!("Failed to write: {e}");
-                        }
-                        fut::ready(())
-                    })
-                    .wait(ctx);
+                self.write_bundle_to_file(ctx, &bundle);
             }
 
-            if matches!(
-                new_state,
-                State::Valid | State::DeliveryQueued | State::ForwardingQueued
-            ) {
-                bundle.state = new_state;
-                if let Some(data) = new_data {
-                    bundle.bundle_data = Arc::new(data);
-                    // TODO: we need to write the file again
+            debug!("Bundle {} is in new state {new_state:?}", bundle.get_id());
+            match new_state {
+                State::Valid | State::DeliveryQueued | State::ForwardingQueued => {
+                    // TODO: in case we receive a full bundle for some already stored fragments we
+                    // should drop the fragments here.
+                    bundle.state = new_state;
+                    if let Some(data) = new_data {
+                        bundle.bundle_data = Arc::new(data);
+                        // TODO: we need to write the file again, but we then also need to save the
+                        // state.
+                    }
+                    let sbr = bundle.get_ref();
+                    self.bundles.push(bundle);
+                    crate::bundleprotocolagent::agent::Daemon::from_registry()
+                        .do_send(EventBundleUpdated { bundle: sbr });
                 }
-                let sbr = bundle.get_ref();
-                self.bundles.push(bundle);
-                crate::bundleprotocolagent::agent::Daemon::from_registry()
-                    .do_send(EventBundleUpdated { bundle: sbr });
-            } else if matches!(
-                new_state,
-                State::Delivered | State::Forwarded | State::Invalid
-            ) {
-                // We are done, delete the file
-                let mut path = self.storage_path.clone();
-                path.push(bundle.get_filename());
-                let fut = async move { fs::remove_file(path).await };
-                fut.into_actor(self)
-                    .then(|res, _act, _ctx| {
-                        if let Err(e) = res {
-                            warn!("Failed to delete bundle: {e}");
-                        }
-                        fut::ready(())
-                    })
-                    .spawn(ctx);
+                State::DefragmentationPending => {
+                    // We try to defragment the bundle now, if we can we remove
+                    // all fragments and send the bundle back as valid.
+                    // If we fail we just wait until we receive the other fragments.
+                    let sbr = bundle.get_ref();
+                    self.bundles.push(bundle);
+                    self.try_defragment_bundle(ctx, &sbr);
+                }
+                State::Delivered | State::Forwarded | State::Invalid => {
+                    // We are done, delete the file
+                    self.delete_bundle_file(ctx, &bundle);
+                }
+                State::Received => unreachable!(),
             }
         }
     }
@@ -367,41 +362,72 @@ impl Handler<GetBundleForNode> for Daemon {
 }
 
 impl Daemon {
-    fn store_bundle(&mut self, bundle_data: Vec<u8>, min_size: Option<u64>) {
+    fn store_bundle(
+        &mut self,
+        ctx: &mut Context<Self>,
+        bundle_data: Vec<u8>,
+        min_size: Option<u64>,
+        state: State,
+        persist: bool,
+    ) -> &StoredBundle {
         let mut sb: StoredBundle = bundle_data.into();
         sb.min_size = min_size;
-        let bundle: Bundle = sb.get_bundle();
+        sb.state = state;
 
-        debug!("Storing Bundle {:?} for later", bundle.primary_block);
-        let local = bundle
-            .primary_block
-            .destination_endpoint
-            .matches_node(self.endpoint.as_ref().unwrap());
+        debug!(
+            "Storing Bundle {} in state {state:?} for later",
+            sb.get_id()
+        );
 
-        if local {
-            if bundle.primary_block.fragment_offset.is_some() {
-                if let Some(defragmented) = self.try_defragment_bundle(&sb) {
-                    let sbr = defragmented.get_ref();
-                    self.bundles.push(defragmented);
-                    crate::bundleprotocolagent::agent::Daemon::from_registry()
-                        .do_send(EventNewBundleStored { bundle: sbr });
-                }
-            } else {
-                let sbr = sb.get_ref();
-                self.bundles.push(sb);
-                crate::bundleprotocolagent::agent::Daemon::from_registry()
-                    .do_send(EventNewBundleStored { bundle: sbr });
-            }
-        } else {
-            let sbr = sb.get_ref();
-            self.bundles.push(sb);
-            crate::bundleprotocolagent::agent::Daemon::from_registry()
-                .do_send(EventNewBundleStored { bundle: sbr });
+        if persist {
+            self.write_bundle_to_file(ctx, &sb);
         }
+
+        let sbr = sb.get_ref();
+        self.bundles.push(sb);
+        crate::bundleprotocolagent::agent::Daemon::from_registry()
+            .do_send(EventBundleUpdated { bundle: sbr });
+        self.bundles.last().expect("we just pushed something")
     }
 
-    fn try_defragment_bundle(&mut self, bundle: &StoredBundle) -> Option<StoredBundle> {
-        let requested_primary_block = bundle.get_bundle().primary_block.clone();
+    fn write_bundle_to_file(&self, ctx: &mut Context<Self>, bundle: &StoredBundle) {
+        let mut path = self.storage_path.clone();
+        path.push(bundle.get_filename());
+        debug!("Storing bundle to {}", path.to_string_lossy());
+        let data = bundle.bundle_data.clone();
+        let fut = async move {
+            let mut file = fs::File::create(path).await?;
+            file.write_all(&data).await?;
+            file.sync_all().await?;
+            Ok(())
+        };
+        fut.into_actor(self)
+            .then(|res: std::io::Result<()>, _act, _ctx| {
+                if let Err(e) = res {
+                    warn!("Failed to write: {e}");
+                }
+                fut::ready(())
+            })
+            .wait(ctx);
+    }
+
+    fn delete_bundle_file(&self, ctx: &mut Context<Self>, bundle: &StoredBundle) {
+        let mut path = self.storage_path.clone();
+        path.push(bundle.get_filename());
+        debug!("Deleting bundle from {}", path.to_string_lossy());
+        let fut = async move { fs::remove_file(path).await };
+        fut.into_actor(self)
+            .then(|res, _act, _ctx| {
+                if let Err(e) = res {
+                    warn!("Failed to delete bundle: {e}");
+                }
+                fut::ready(())
+            })
+            .spawn(ctx);
+    }
+
+    fn try_defragment_bundle(&mut self, ctx: &mut Context<Self>, bundle: &StoredBundleRef) {
+        let requested_primary_block = bundle.get_primary_block().clone();
 
         let mut i = 0;
         let mut fragments: Vec<StoredBundle> = Vec::new();
@@ -417,14 +443,18 @@ impl Daemon {
             }
         }
 
+        assert!(!fragments.is_empty());
         let fragments_ref = fragments.iter().map(|b| b.get_bundle()).collect();
         if let Ok(bundledata) = Bundle::reassemble_bundles(fragments_ref) {
-            let sb: StoredBundle = bundledata.into();
+            let sb = self.store_bundle(ctx, bundledata, None, State::Valid, true);
             debug!("Bundle {} sucessfully reassembled", sb.get_id());
-            Some(sb)
+
+            // Delete the old fragments.
+            for fragment in fragments {
+                self.delete_bundle_file(ctx, &fragment);
+            }
         } else {
             self.bundles.append(&mut fragments);
-            None
         }
     }
 }

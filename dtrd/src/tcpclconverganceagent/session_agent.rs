@@ -30,7 +30,7 @@ use tokio::{
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::{
-    bundlestorageagent::messages::StoreBundle,
+    bundlestorageagent::messages::StoreReceivedBundle,
     common::messages::Shutdown,
     converganceagent::messages::{
         AgentForwardBundle, CLRegisterNode, CLUnregisterNode, EventBundleForwarded,
@@ -83,7 +83,7 @@ impl StreamHandler<Transfer> for TCPCLSessionAgent {
             Arc::try_unwrap(item.data).expect("We get exclusive ownership from tcpcl");
         let transferid = item.id;
         crate::bundlestorageagent::agent::Daemon::from_registry()
-                    .send(StoreBundle { bundle_data })
+                    .send(StoreReceivedBundle { bundle_data })
                     .into_actor(self)
                     .then(move |res, _act, _ctx| {
                         match res {
