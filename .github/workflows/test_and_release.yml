@@ -54,8 +54,6 @@ jobs:
 
       - name: Cargo fmt
         run: cargo fmt --all -- --check
-      - name: Cargo check
-        run: cargo check
       - name: Cargo test
         run: cargo test
       - name: Cargo clippy
