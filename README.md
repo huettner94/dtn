@@ -31,7 +31,7 @@ DTN could e.g. also be used to send data from one mobile phone to the other with
 
 ## Usage DTRD
 
-Run it with `docker run ghcr.io/huettner94/dtn:main` (or compile it using cargo and run from the `dtrd` folder).
+Run it with `docker run ghcr.io/huettner94/dtn:latest` (or compile it using cargo and run from the `dtrd` folder).
 
 The following environment variables are defined:
 | Name | Usage |
@@ -47,9 +47,9 @@ To generate the certificates for testing the tool `dtrd/gencert.sh` can be used.
 
 ## Usage Cli client
 
-Run it with `docker run ghcr.io/huettner94/dtn:main dtrd_cli` (or compile it using cargo and run from the `cli` folder).
+Run it with `docker run ghcr.io/huettner94/dtn:latest dtrd_cli` (or compile it using cargo and run from the `cli` folder).
 
-E.g. `docker run ghcr.io/huettner94/dtn:main dtrd_cli bundle --url http://localhost:50051 submit -d "dtn://node2/testlistener" --data thecakeisalie`
+E.g. `docker run ghcr.io/huettner94/dtn:latest dtrd_cli bundle --url http://localhost:50051 submit -d "dtn://node2/testlistener" --data thecakeisalie`
 
 ## Contributing
 
