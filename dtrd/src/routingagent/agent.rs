@@ -105,7 +105,7 @@ impl Handler<RemoveRoute> for Daemon {
             }
             self.send_route_update();
         } else {
-            warn!("No route found to remove for {target} over {next_hop}")
+            warn!("No route found to remove for {target} over {next_hop}");
         }
     }
 }
