@@ -4,6 +4,11 @@ A daemon to route traffic in according to the Bundle Protocol [RFC 9171](https:/
 
 This software is still in its early days and is most probably not ready for real world use.
 
+## A note on versions
+
+I am aware that there are github releases with a major version of `1.*` or higher.
+However this is purely due to the way semantic-release works, i would have preferred `0.*` but it does not support that.
+
 ## Background
 
 Delay Tolerant Networking (DTN) cares about networking in environments that limited connectivity or large communication delays.

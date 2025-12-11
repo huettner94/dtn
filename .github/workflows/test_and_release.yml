@@ -14,25 +14,20 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-name: test
+name: test_and_release
 
 on:
   push:
     branches:
-    - "renovate/*"
+    - "**"
   pull_request:
     branches:
     - main
 
 jobs:
   test:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest]
-
-    name: Test `cargo check/test` on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+    name: Test and linting
+    runs-on: ubuntu-latest
 
     env:
       CARGO_TERM_COLOR: always
@@ -65,3 +60,22 @@ jobs:
         run: cargo test
       - name: Cargo clippy
         run: cargo clippy
+
+  release:
+    name: Release
+    needs: [test]
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Semantic Release
+        uses: cycjimmy/semantic-release-action@v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
