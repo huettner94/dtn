@@ -249,7 +249,7 @@ impl s3s::S3 for S3Frontend {
                     .map(|name| Bucket {
                         bucket_region: None,
                         creation_date: Some(time::SystemTime::now().into()),
-                        name: Some(name.to_string()),
+                        name: Some(name.clone()),
                     })
                     .collect(),
             ),
