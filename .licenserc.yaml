@@ -12,6 +12,7 @@ header:
     - '.*ignore'
     - 'renovate.json'
     - '.licenserc.yaml'
+    - '.releaserc'
     - 'Cargo.lock'
 
   language:
