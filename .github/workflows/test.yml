@@ -39,7 +39,7 @@ jobs:
       ROCKSDB_LIB_DIR: /usr/lib/x86_64-linux-gnu
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       # When rustup is updated, it tries to replace its binary, which on Windows is somehow locked.
       # This can result in the CI failure, see: https://github.com/rust-lang/rustup/issues/3029

@@ -18,7 +18,7 @@
 ####################################################################################################
 ## Builder
 ####################################################################################################
-FROM rust:1.90-trixie AS builder
+FROM rust:1.91-trixie AS builder
 
 ARG TARGETPLATFORM
 WORKDIR /dtrd
@@ -57,7 +57,7 @@ RUN cp /dtrd/target/release/dtrd /dtrd/target/release/dtrd_cli /dtrd/target/rele
 ####################################################################################################
 ## Final image
 ####################################################################################################
-FROM rust:1.90-trixie
+FROM rust:1.91-trixie
 
 # Import from builder.
 COPY --from=builder /etc/passwd /etc/passwd

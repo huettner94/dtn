@@ -22,7 +22,7 @@ edition = "2024"
 resolver = "2"
 
 [dependencies]
-log = "0.4.21"
+log = "0.4.29"
 tonic = "0.14.1"
 tonic-prost = "0.14.1"
 prost = "0.14.1"

@@ -25,11 +25,11 @@ bitflags = "2.9.2"
 tokio = { version = "1.37.0", features = ["fs", "io-util", "net", "macros", "sync", "rt", "time"] }
 tokio-openssl = "0.6.4"
 openssl = {version = "0.10.64"}
-log = "0.4.21"
+log = "0.4.29"
 num_enum = "0.7.2"
 x509-parser = "0.18.0"
 tokio-util = {version = "0.7.11", features = ["codec"]}
-bytes = "1.6.0"
+bytes = "1.11.0"
 futures-util = {version = "0.3.30", features = ["sink"]}
 url = "2.5.0"
 
