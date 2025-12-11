@@ -497,7 +497,9 @@ impl Daemon {
             bundle_source: pb.source_node.clone(),
             bundle_creation_timestamp: pb.creation_timestamp.clone(),
             fragment_offset: pb.fragment_offset,
-            fragment_length: pb.total_data_length,
+            fragment_length: pb
+                .fragment_offset
+                .and(Some(bundle.get_bundle_payload_size())),
         });
         match TryInto::<Vec<u8>>::try_into(ar) {
             Ok(data) => {

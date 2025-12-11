@@ -55,6 +55,7 @@ pub struct StoredBundle {
     bundle_data: Arc<Vec<u8>>,
     state: State,
     size: u64,
+    payload_size: u64,
     min_size: Option<u64>,
     primary_block: PrimaryBlock,
 }
@@ -91,6 +92,10 @@ impl StoredBundle {
         self.size
     }
 
+    pub fn get_bundle_payload_size(&self) -> u64 {
+        self.payload_size
+    }
+
     pub fn get_bundle_min_size(&self) -> Option<u64> {
         self.min_size
     }
@@ -104,6 +109,7 @@ impl StoredBundle {
             bundle_data: Arc::downgrade(&self.bundle_data),
             state: self.state,
             size: self.size,
+            payload_size: self.payload_size,
             min_size: self.min_size,
             primary_block: self.primary_block.clone(),
         }
@@ -127,10 +133,12 @@ impl From<Vec<u8>> for StoredBundle {
         let bundle: Bundle = bundle_data.as_slice().try_into().unwrap();
         let primary_block = bundle.primary_block.clone();
         let size = bundle_data.len() as u64;
+        let payload_size = bundle.payload_block().data.len() as u64;
         Self {
             bundle_data: Arc::new(bundle_data),
             state: State::Received,
             size,
+            payload_size,
             min_size: None,
             primary_block,
         }
@@ -142,6 +150,7 @@ pub struct StoredBundleRef {
     bundle_data: Weak<Vec<u8>>,
     state: State,
     size: u64,
+    payload_size: u64,
     min_size: Option<u64>,
     primary_block: PrimaryBlock,
 }
@@ -161,6 +170,10 @@ impl StoredBundleRef {
 
     pub fn get_bundle_size(&self) -> u64 {
         self.size
+    }
+
+    pub fn get_bundle_payload_size(&self) -> u64 {
+        self.payload_size
     }
 
     pub fn get_bundle_min_size(&self) -> Option<u64> {

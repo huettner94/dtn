@@ -21,6 +21,7 @@ use std::{process::Stdio, time::Duration};
 
 use bp7::administrative_record::AdministrativeRecord;
 use bp7::administrative_record::bundle_status_report::BundleStatusReason;
+use futures_util::StreamExt;
 use tokio::fs;
 use tokio::{
     process::{Child, Command},
@@ -410,13 +411,38 @@ async fn delivers_bundles_fragmented() -> Result<(), Box<dyn std::error::Error>>
 
         dtrd1
             .client
-            .submit_bundle(&dtrd2.with_node_id("testendpoint"), 60, &data, false)
+            .submit_bundle(&dtrd2.with_node_id("testendpoint"), 60, &data, true)
             .await?;
         let received_data = dtrd2
             .client
             .receive_bundle(&dtrd2.with_node_id("testendpoint"))
             .await?;
         assert_eq!(data, received_data);
+
+        // Ensure that we actually got more than one status report about a bundle being received
+        // from the remote side. That way we can be sure that fragmentation happened.
+        let mut receive_count = 0;
+        let mut total_len = 0_u64;
+        let mut recvstream = dtrd1.client.listen_bundles(&dtrd1.node_id).await?;
+        while let Some(data) = recvstream.next().await {
+            if let Ok(AdministrativeRecord::BundleStatusReport(bsr)) =
+                AdministrativeRecord::try_from(data.unwrap())
+            {
+                if bsr.status_information.received_bundle.is_asserted {
+                    assert!(bsr.fragment_offset.is_some());
+                    total_len += bsr.fragment_length.unwrap();
+                    receive_count += 1;
+                    if receive_count > 1 {
+                        break;
+                    }
+                }
+            } else {
+                unreachable!();
+            }
+        }
+
+        assert_eq!(total_len, data.len() as u64);
+        assert!(receive_count > 1);
         Ok(())
     })
     .await
