@@ -443,6 +443,11 @@ async fn delivers_bundles_fragmented() -> Result<(), Box<dyn std::error::Error>>
 
         assert_eq!(total_len, data.len() as u64);
         assert!(receive_count > 1);
+
+        // When we exit from this function there might still be Administrative Records that are
+        // being delivered to the recvstream above (which we do not care about). So we just ignore
+        // messages about that.
+        dtrd1.allow_message("disconnected while sending bundles");
         Ok(())
     })
     .await
