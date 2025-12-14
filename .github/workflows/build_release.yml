@@ -98,7 +98,7 @@ jobs:
         uses: shrink/actions-docker-extract@v3
         id: extract
         with:
-          image: ${{ env.REGISTRY_NAME }}:${{ steps.build.outputs.digest }}"
+          image: ${{ steps.build.outputs.digest }}"
           path: /dtrd/.
           destination: dist
 
